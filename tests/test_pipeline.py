@@ -194,6 +194,25 @@ def test_static_export_excludes_private(settings, db, fake_env, tmp_path):
     assert "Premium explainer" not in briefs
 
 
+def test_export_labels_match_briefs_and_cli_checkpoints(settings, db, fake_env, tmp_path, monkeypatch):
+    """A day backfilled on a first run has no brief yet: the export builds it before labelling the
+    cards, and the CLI closes the database so CI's cached upsc.db holds everything (no WAL left)."""
+    run_mod.run_fetch(settings, db, force=True)
+    db.x("DELETE FROM brief_picks")
+    db.commit()
+    db.close()
+    import upsc_intel.__main__ as cli
+    monkeypatch.setattr(cli, "get_settings", lambda: settings)
+    assert cli.main(["export-static", "--out", str(tmp_path / "site"), "--days", "5"]) == 0
+    wal = settings.db_path.with_name(settings.db_path.name + "-wal")
+    assert not wal.exists() or wal.stat().st_size == 0
+    data = tmp_path / "site" / "data"
+    stories = [s for f in data.glob("stories-*.json") for s in json.loads(f.read_text())["stories"]]
+    picked = {i for f in data.glob("brief-*.json") for day in json.loads(f.read_text())["days"].values()
+              for ids in day.values() for i in ids}
+    assert picked and {s["id"] for s in stories if s.get("in_brief")} == picked & {s["id"] for s in stories}
+
+
 def test_old_items_are_dropped(settings, db, fake_env, monkeypatch):
     old = NOW - timedelta(days=settings.max_item_age_days + 5)
     monkeypatch.setitem(fetchers.FETCHERS, "fake_ok",

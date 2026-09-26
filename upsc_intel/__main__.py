@@ -10,9 +10,16 @@ from .config import get_settings, load_sources
 from .db import DB
 
 
+_OPEN: list[DB] = []
+
+
 def _db(settings) -> DB:
+    """Opened databases are closed when the command ends, which checkpoints SQLite's write-ahead
+    log into upsc.db: CI caches that one file between runs."""
     settings.ensure_dirs()
-    return DB(settings.db_path)
+    db = DB(settings.db_path)
+    _OPEN.append(db)
+    return db
 
 
 def cmd_fetch(args) -> int:
@@ -129,7 +136,11 @@ def main(argv: list[str] | None = None) -> int:
     ex.set_defaults(fn=cmd_export)
 
     args = p.parse_args(argv)
-    return args.fn(args)
+    try:
+        return args.fn(args)
+    finally:
+        while _OPEN:
+            _OPEN.pop().close()
 
 
 if __name__ == "__main__":
