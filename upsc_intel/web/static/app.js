@@ -3,6 +3,7 @@
   "use strict";
 
   const STATIC = !!window.UPSC_STATIC;
+  const SNAPSHOT = !!window.UPSC_SNAPSHOT; // frozen export: no polling, no downloads
   const POLL_MS = STATIC ? 300000 : 60000;
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -207,7 +208,10 @@
     const m = S.meta; const el = $("#live"); if (!m) return;
     const dot = el.querySelector(".live-dot"); const txt = el.querySelector(".txt");
     const last = m.last_run && m.last_run.finished_at;
-    if (STATIC) {
+    if (SNAPSHOT) {
+      dot.className = "live-dot idle";
+      txt.textContent = `Snapshot · data from ${shortTime(m.built_at)} IST`;
+    } else if (STATIC) {
       dot.className = "live-dot";
       txt.textContent = `Auto-updates hourly · built ${ago(m.built_at)}`;
     } else if (m.running) {
@@ -521,7 +525,7 @@
   // ─────────────────────────── loading & live updates ───────────────────────────
   function syncHash() {
     const h = `#${S.view}/${S.anchor}${S.tab !== "briefing" ? "/" + S.tab : ""}`;
-    if (location.hash !== h) history.replaceState(null, "", h);
+    try { if (location.hash !== h) history.replaceState(null, "", h); } catch (e) { /* sandboxed frame */ }
   }
   function readHash() {
     const m = location.hash.match(/^#(day|week|month)\/(\d{4}-\d{2}-\d{2})(?:\/(\w+))?/);
@@ -713,6 +717,7 @@
   async function boot() {
     readHash();
     if (STATIC) { $("#refreshBtn").title = "Reload the latest hourly build"; }
+    if (SNAPSHOT) { $("#refreshBtn").hidden = true; $("#exportBtn").hidden = true; }
     try {
       [S.meta, S.marks] = await Promise.all([api.meta(), api.marks()]);
     } catch (e) {
@@ -722,7 +727,7 @@
     S.lastRunSeen = STATIC ? S.meta.built_at : S.meta.last_run && S.meta.last_run.finished_at;
     if (!S.meta.last_run && !STATIC) S.lastRunSeen = "none";
     await go();
-    setInterval(poll, POLL_MS);
+    if (!SNAPSHOT) setInterval(poll, POLL_MS);
     setInterval(renderLive, 30000);
   }
   boot();

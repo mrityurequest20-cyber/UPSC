@@ -83,7 +83,8 @@ def cmd_export(args) -> int:
     from .static_export import export_static
 
     s = get_settings()
-    out = export_static(s, _db(s), args.out, days=args.days, include_private=args.include_private)
+    out = export_static(s, _db(s), args.out, days=args.days, include_private=args.include_private,
+                        snapshot=args.snapshot)
     print(f"static site written to {out}")
     return 0
 
@@ -123,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("--days", type=int, default=62)
     ex.add_argument("--include-private", action="store_true",
                     help="also export email/library/private items (never do this for a public site)")
+    ex.add_argument("--snapshot", action="store_true",
+                    help="frozen copy: no auto-refresh, no export button (for sharing a point-in-time view)")
     ex.set_defaults(fn=cmd_export)
 
     args = p.parse_args(argv)

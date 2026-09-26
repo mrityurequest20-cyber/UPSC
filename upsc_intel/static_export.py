@@ -36,14 +36,15 @@ def _write_json(path: Path, obj) -> None:
 
 
 def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
-                  include_private: bool = False) -> Path:
+                  include_private: bool = False, snapshot: bool = False) -> Path:
     out = Path(out)
     (out / "static").mkdir(parents=True, exist_ok=True)
     (out / "data").mkdir(parents=True, exist_ok=True)
     for name in ("app.js", "styles.css"):
         shutil.copyfile(STATIC_DIR / name, out / "static" / name)
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("<!--STATIC_FLAG-->", "<script>window.UPSC_STATIC = true;</script>")
+    flags = "window.UPSC_STATIC = true;" + (" window.UPSC_SNAPSHOT = true;" if snapshot else "")
+    html = html.replace("<!--STATIC_FLAG-->", f"<script>{flags}</script>")
     (out / "index.html").write_text(html, encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
