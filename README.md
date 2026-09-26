@@ -200,10 +200,31 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
   - how many outlets carried it
 
   The score is then pushed down by:
-  - noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies, results notices, quizzes, SEBI case orders, tenders)
-  - content farms (AI-rewritten legal blogs, stock-filing bots, listicle sites) and notice-only portals: −2 on their own items, so they never lead alone. Listed in `config/topics.yaml` → `low_value_publishers`.
-  - foreign news with no India link. Global institutions, the neighbourhood, editorials and explainers are exempt.
-  - another country's internal affairs, i.e. a headline naming a foreign country with nothing linking it to India. Its polity, governance and security score counts as International Relations, and it is marked down: 2.5 for the neighbourhood, 3 elsewhere. Set in `config/topics.yaml` → `foreign_affairs`.
+  - noise words (crime, celebrity, market ticks, party spats, ceremonies, results notices, quizzes, SEBI case orders, tenders)
+  - content farms and notice-only portals (`low_value_publishers`): −3 on their own items, so they never lead alone
+  - foreign news with no India link: −1.5, or −1 for the neighbourhood. Editorials, explainers, official and exam-prep sources are exempt.
+  - another country's internal affairs: its polity, governance and security score counts as International Relations
+
+- **Auto-reject:** some things are not UPSC material in any subject, so they are forced to LOW. LOW never reaches the site, however many outlets carry the story. The rules live in `config/topics.yaml`:
+  - `noise_patterns`: about 60 headline patterns covering
+    - sports results and congratulations
+    - party politics
+    - weather alerts and school closures
+    - jobs, admit cards and results
+    - market and stock chatter
+    - corporate PR
+    - local civic works
+    - train services, crime and accidents
+    - coaching digests, PDFs and quizzes
+    - live-blog furniture
+  - `blocked_publishers`: stock-filing bots, press-release wires, foreign local TV, video links
+  - a foreign country's local news: one country named, no India link and no world-affairs angle. A Sri Lankan constitutional amendment, a Nepali citizenship bill, a US governor's race, a Tanzanian court case.
+  - no syllabus subject at all
+  - headlines in scripts other than English or Hindi
+  - old material republished (a date in the headline over 20 days old)
+  - if most copies of a story are rejected, the whole story is: one copy that slips past the rules can't bring it back. A single rejected copy next to a good one (a wire reprint on a blocked site) doesn't sink the story.
+
+  Measured against 1,519 hand-labelled live stories: 95% of the irrelevant ones are rejected, and 0.7% of the relevant ones are lost. Those are borderline cases, like a UN News item on a foreign conflict.
 
   NOTE ≥ 5.5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
 - **Tuning:** edit `config/topics.yaml` (keywords, weights, noise, watchlist queries), then run `python -m upsc_intel reclassify`.
@@ -217,7 +238,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 106 tests
+python -m pytest                        # 145 tests
 ```
 
 ## AI explainers (recommended)

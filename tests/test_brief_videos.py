@@ -316,7 +316,7 @@ def test_low_value_publishers_and_bare_site_names(clf):
     title = "Supreme Court Refers Question of Law to Constitution Bench in Civil Procedure"
     good = clf.score(clf.analyze(title, publisher="Live Law"), "watch")
     farm = clf.score(clf.analyze(title, publisher="Lawtext"), "watch")
-    assert good - farm == pytest.approx(2.0)
+    assert good - farm == pytest.approx(clf.low_value_penalty)
     tender = clf.analyze("Tender for RF connector Space qualified SMA RF Connectors", publisher="ISRO e-Procurement Portal")
     assert clf.grade(clf.score(tender, "official")) in ("READ", "LOW")
     assert clf.grade(clf.score(clf.analyze("NITI Aayog", publisher="NITI Aayog"), "official")) == "LOW"
@@ -352,3 +352,80 @@ def test_five_w_ignores_page_furniture(clf):
                          "Introduction The seizure of counterfeit medicines in Bengaluru shows weak regulation by 2027."},
                         clf.labels(), clf=clf)
     assert "UPSC" not in prep["who"] and "by 2027" in prep["when"]
+
+
+# ── UPSC relevance: what is rejected outright (real headlines from the dashboard audit) ──
+@pytest.mark.parametrize("title,publisher,tier,kind", [
+    ("President congratulates Suchika Tariyal on creating history by winning Bronze Medal in Mixed Martial Arts at Asian Games", "PIB", "official", "news"),
+    ("India beat Iran again in kabaddi final that felt like a rematch", "Indian Express", "quality", "news"),
+    ("'File Defamation Case If Report Untrue': Kapil Sibal On Election Commission Dissent Row", "NDTV", "general", "news"),
+    ("Uttarakhand BJP core committee discusses names of candidates for Rajya Sabha elections", "The Hindu", "quality", "news"),
+    ("IMD issues red alert for heavy to very heavy rainfall in six states tomorrow", "News On AIR", "official", "news"),
+    ("School holiday tomorrow, September 26: All CBSE, ICSE, private, govt schools to remain closed in Odisha", "News24Online", "general", "news"),
+    ("Railway Recruitment Boards NTPC Graduate Notification 2026: 3,477 Posts, Apply From October 8", "NDTV", "general", "news"),
+    ("NBEMS declares NEET PG 2026 results on official website", "News On AIR", "official", "news"),
+    ("Rupee gains 15 paise to 95.81 against dollar, likely helped by RBI intervention", "Economic Times", "quality", "news"),
+    ("Conagra Brands: The Next Earnings Report Could Change Everything (NYSE:CAG)", "Seeking Alpha", "watch", "news"),
+    ("Foundation Stone Laid for 4-Lane Road Over Bridge Between Guntur and Nambur Costing ₹108 Crore", "PIB", "official", "news"),
+    ("Tourism department organises nature walk in Kurnool", "The Hindu", "quality", "news"),
+    ("Bengaluru man kills wife, dumps body in vacant plot; civic workers find it days later", "Hindustan Times", "general", "news"),
+    ("9 PM UPSC Current Affairs Articles 26 September 2026", "Insights on India", "examprep", "news"),
+    ("Auction of 91-Day, 182-Day and 364-Day Treasury Bills", "RBI", "official", "news"),
+    ("Rajeesh Kumar Quoted in The Economic Times Article on UN Security Council Reforms", "MP-IDSA", "quality", "news"),
+    ("Michigan Blue Economy Summit brings the community together to speak on the Blue Economy", "WSMH", "watch", "news"),
+    ("Sri Lanka's Parliament approves 22nd Amendment to Constitution", "Ada Derana", "watch", "news"),
+    ("Cabinet Approves Transfer of 10 Hectares of Coastal Land for Development of Sajafi Port in Hendijan", "تین نیوز", "watch", "news"),
+    ("Why an 87-year-old woman's eviction has become a flashpoint in Spain's housing crisis", "ThePrint", "quality", "explained"),
+    ("Why was Israel player Abu Farchi given a red card vs Austria in UEFA Nations League?", "The Hindu", "quality", "explained"),
+    ("1790311788.pdf - Drishti IAS", "Drishti IAS", "examprep", "news"),
+    ("Indian Railways approves new tri-weekly Amrit Bharat Express between Bhuj in Gujarat & Barauni in Bihar", "DD News", "official", "news"),
+])
+def test_not_upsc_material_is_rejected(clf, title, publisher, tier, kind):
+    a = clf.analyze(title, publisher=publisher, day="2026-09-26")
+    assert clf.grade(clf.score(a, tier, kind)) == "LOW", (a.noise, a.rejected, a.foreign, a.foreign_local, a.subjects)
+
+
+def test_republished_old_video_is_rejected(clf):
+    a = clf.analyze("Watch: Telegram under fire: NTA's crackdown explained | Above the Fold | 17.06.2026",
+                    publisher="The Hindu", day="2026-09-25")
+    assert a.rejected == "old material republished" and clf.grade(clf.score(a, "quality", "explained")) == "LOW"
+
+
+# ── …and what must stay: the near misses these rules were tuned against ──
+@pytest.mark.parametrize("title,summary,publisher,tier,kind", [
+    ("Supreme Court Reserves Judgment On Sambhal Mosque Committee's Plea Against Survey Order", "", "Live Law", "quality", "news"),
+    ("Centre extends AFSPA in parts of Manipur, Nagaland and Arunachal Pradesh for six months", "", "Economic Times", "quality", "news"),
+    ("Arguments by serial practitioner of terrorism will not stand: EAM Jaishankar slams Pakistan at UNGA", "", "Hindustan Times", "quality", "news"),
+    ("Expert Explains | Why the Trump-Xi bonhomie doesn't mean an end to US and China's rivalry", "", "Indian Express", "quality", "explained"),
+    ("Statement on the attack on a commercial vessel off the coast of Oman", "", "Ministry of External Affairs", "official", "news"),
+    ("Merchant Discount Rate on UPI not a tax, cess or surcharge; will not burden consumers: FM",
+     "The Finance Minister assured that the MDR will not be passed on to consumers.", "BusinessLine", "quality", "news"),
+    ("Infra projects see cost overrun of Rs 2.88 lakh crore in August: MoSPI", "", "Economic Times", "quality", "news"),
+    ("S.413 BNSS | Victim's Appeal Against Acquittal By Magistrate Lies Before Sessions Court : Supreme Court", "", "Live Law", "quality", "news"),
+    ("Deendayal Port Authority, Assam Petro-Chemicals lay foundation stone for ₹2,300-crore e-methanol plant in Gujarat",
+     "India's first port-based green methanol plant will supply green fuel to ships.", "BusinessLine", "quality", "news"),
+    ("Three rescued bear cubs begin journey back to wild in Arunachal's Pakke Tiger Reserve", "", "India Today NE", "general", "news"),
+    ("Bengaluru's missing corporators: A six-year democratic vacuum",
+     "Bengaluru has had no elected council for six years, weakening local self-government under the 74th Amendment.",
+     "Deccan Herald", "quality", "editorial"),
+    ("Bangladesh, US sign MoU on strategic civil nuclear cooperation", "", "Economic Times", "quality", "news"),
+])
+def test_upsc_material_is_kept(clf, title, summary, publisher, tier, kind):
+    a = clf.analyze(title, summary, publisher=publisher, day="2026-09-26")
+    assert clf.grade(clf.score(a, tier, kind)) != "LOW", (clf.score(a, tier, kind), a.noise, a.rejected, a.foreign_local)
+
+
+def test_rejected_story_stays_rejected_however_widely_carried(clf):
+    rejected = clf.score(clf.analyze("Auction of 91-Day, 182-Day and 364-Day Treasury Bills", publisher="RBI"), "official")
+    assert clf.grade(clf.story_score(rejected, 12)) == "LOW"
+    assert clf.story_score(1.0, 4) > 1.0  # a merely weak story still gets its coverage bonus
+
+
+def test_watch_areas_need_india_and_subject_gate(clf):
+    maine = clf.analyze("Maine Blue Economy Week to spotlight ocean innovation", publisher="Mainebiz")
+    assert "marine" not in maine.watch
+    upi = clf.analyze("How MDR on UPI works for small merchants", "The charge applies to high-value UPI payments.")
+    assert "dpi" in upi.watch and upi.india
+    blank = clf.analyze("Some headline with nothing in it")
+    assert not blank.subjects and clf.grade(clf.score(blank, "official")) == "LOW"
+    assert clf.score(blank, "library") > clf.reject_score  # library pages are not gated

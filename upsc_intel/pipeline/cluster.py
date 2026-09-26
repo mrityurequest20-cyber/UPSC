@@ -112,7 +112,12 @@ def aggregate_story(db: DB, clf: Classifier, story_id: str) -> dict | None:
     subjects = [s for s, _ in subj_count.most_common(3)]
     tags = [t for t, _ in tag_count.most_common(6)]
     base = max(float(it.get("score") or 0) for it in items)
-    score = round(base + clf.coverage_bonus(len(publishers)), 2)
+    # a story most of whose copies are rejected (not UPSC material) stays rejected: one copy that slipped
+    # past the rules ("Weather tomorrow: …" beside three rejected weather alerts) doesn't bring it back
+    rejected = sum(1 for it in items if float(it.get("score") or 0) <= clf.reject_score)
+    if rejected * 2 > len(items):
+        base = min(base, clf.reject_score)
+    score = clf.story_score(base, len(publishers))
     summary = rep.get("summary") or max((it.get("summary") or "" for it in items), key=len)
     dates = sorted({it["date_ist"] for it in items if it.get("date_ist")})
     fetched = sorted(it["fetched_at"] for it in items if it.get("fetched_at"))
