@@ -31,7 +31,10 @@
         </div>
         <div class="datenav">
           <button class="iconbtn" id="prev" aria-label="Previous period">‹</button>
-          <div class="period-label" id="periodLabel">…</div>
+          <div class="datepick">
+            <button class="period-label" id="periodLabel" aria-haspopup="dialog" aria-expanded="false" aria-controls="calendar" title="Pick a date">…</button>
+            <div class="calendar" id="calendar" role="dialog" aria-label="Pick a date" hidden></div>
+          </div>
           <button class="iconbtn" id="next" aria-label="Next period">›</button>
           <button class="iconbtn" id="todayBtn">Today</button>
         </div>

@@ -40,7 +40,8 @@ Week and Month views recap everything the daily briefs covered.
     - results notices, quizzes, routine Treasury-bill auctions and coaching "daily current affairs" roundups
     - regulators' case-by-case paperwork (SEBI settlement orders, recovery certificates), tenders, and department housekeeping (memento e-auctions, cleanliness drives)
   - **Each piece appears once:** exam-prep sites often repost an op-ed or explainer under its original headline. Such a copy joins the original, so the brief doesn't carry the same article twice.
-  - **Days follow IST (India time).** Just after midnight the new day is nearly empty, so until it has 60 graded stories the site opens on yesterday's full brief, with a note and an "Open today" button. The header shows the last update's time in IST.
+  - **Days follow IST (India time).** The site always opens on today. Just after midnight the new day is nearly empty and says so, with a link to yesterday's brief. The header shows the last update's time in IST.
+  - **Calendar:** tap the date in the header to pick any day. Days with news have a dot. Month and year menus jump anywhere at once, and the keyboard works too (arrows, Enter, Esc).
   - **Everything tab:** a story appears on every day it's in the news, but joins the brief once, on the day it was first reported. Every card says **"✓ In 26 Sep brief"** or why it isn't in the brief.
 - **A write-up on every brief story,** in the format coaching notes use:
   - **Why in news** · **What happened** · **When** · **Where** · **Who** · **Background** · **Why it matters** · **Prelims facts** · **Mains question** · **Keywords**
