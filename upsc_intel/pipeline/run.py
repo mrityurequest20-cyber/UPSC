@@ -13,9 +13,11 @@ from ..db import DB, iso, utcnow
 from ..fetchers import FetchContext, SourceResult, is_due, run_source
 from ..fetchers.http import Http
 from ..models import RawItem
+from .brief import build_day, update_recent
 from .classify import Classifier
 from .cluster import Clusterer, aggregate_story
 from .normalize import IST, canonical_url, clean_title, ist_date, make_id, title_tokens
+from .videos import link_brief_videos, video_row
 
 log = logging.getLogger("upsc_intel")
 RUN_LOCK = threading.Lock()
@@ -110,8 +112,20 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     touched: set[str] = set(ctx.stale_story_ids)
     new_stories: set[str] = set()
     n_items = n_new = 0
+    n_videos = 0
     for res, st in results:
         src = dict(res.source)
+        if src.get("role") == "video":  # video library, not news cards
+            for raw in res.items:
+                row = video_row(raw, src)
+                if row and db.upsert_video(row):
+                    n_videos += 1
+            st["total_items"] = int(st.get("total_items") or 0) + len(res.items)
+            db.save_source_state(st)
+            for a in res.attempts:
+                db.log_fetch(run_id=run_id, source_id=src["id"], step=a.step, step_kind=a.kind, ok=int(a.ok),
+                             n_items=a.n, n_new=0, error=a.error, started_at=iso(now), duration_ms=a.ms)
+            continue
         if res.step is not None:
             src["_step_kind"] = src["chain"][res.step].get("kind")
         built = [b for b in (build_item(r, src, clf, now, cutoff) for r in res.items) if b]
@@ -151,6 +165,14 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     db.x("DELETE FROM fetch_log WHERE id < (SELECT MAX(id) - 50000 FROM fetch_log)")
     db.commit()
 
+    brief_days = update_recent(settings, db, clf)
+    video_stats = {}
+    if not only:
+        try:
+            video_stats = link_brief_videos(settings, db, brief_days)
+        except Exception:  # videos are a bonus; never fail the run over them
+            log.exception("video linking failed")
+
     failed = [r.source["id"] for r, _ in results if not r.ok]
     summary = {
         "id": run_id,
@@ -164,8 +186,8 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
         "note": f"failed: {', '.join(sorted(failed))}"[:1000] if failed else "",
     }
     db.save_run(summary)
-    summary.update({"failed": failed, "pruned": pruned, "warnings": ctx.warnings,
-                    "duration_s": round(time.monotonic() - t0, 1)})
+    summary.update({"failed": failed, "pruned": pruned, "warnings": ctx.warnings, "new_videos": n_videos,
+                    "videos": video_stats, "duration_s": round(time.monotonic() - t0, 1)})
     return summary
 
 
@@ -189,5 +211,8 @@ def reclassify(settings: Settings, db: DB) -> int:
     sids = [r["story_id"] for r in db.q("SELECT DISTINCT story_id FROM items WHERE story_id IS NOT NULL")]
     for sid in sids:
         aggregate_story(db, clf, sid)
+    db.commit()
+    for (d,) in db.conn.execute("SELECT DISTINCT date_ist FROM brief_picks").fetchall():
+        build_day(settings, db, clf, d)
     db.commit()
     return len(rows)

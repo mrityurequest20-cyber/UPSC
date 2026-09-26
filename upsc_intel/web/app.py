@@ -15,16 +15,20 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..config import Settings, get_settings, load_sources, load_topics
 from ..db import DB, iso
+from ..pipeline.brief import ensure_range
 from ..pipeline.classify import Classifier
+from ..pipeline.enrich import auto_explain, has_ai_explainer
 from ..pipeline.normalize import publisher_key, today_ist
+from ..pipeline.videos import daily_videos
 
 log = logging.getLogger("upsc_intel.web")
 STATIC_DIR = Path(__file__).parent / "static"
 MAX_SOURCES_PER_STORY = 12
 
 
-def story_out(s: dict) -> dict:
-    """Compact story shape shared by the API and the static export."""
+def story_out(s: dict, labels: dict | None = None, explain: bool = False) -> dict:
+    """Compact story shape shared by the API and the static export.
+    explain=True adds the explainer (AI if available, otherwise the auto version)."""
     srcs = []
     seen = set()
     ordered = sorted(s.get("sources") or [], key=lambda x: x.get("kind") == "gnews")  # direct links first
@@ -35,7 +39,7 @@ def story_out(s: dict) -> dict:
         seen.add(key)
         srcs.append({"p": x.get("publisher"), "s": x.get("section") or "", "u": x.get("url"),
                      "t": x.get("title"), "k": x.get("kind"), "at": x.get("published")})
-    return {
+    out = {
         "id": s["id"],
         "title": s.get("title"),
         "url": s.get("url"),
@@ -59,7 +63,13 @@ def story_out(s: dict) -> dict:
         "sources": srcs[:MAX_SOURCES_PER_STORY],
         "n_src": len(srcs),
         "ai": s.get("ai") or None,
+        "video": s.get("video") or None,
     }
+    if explain:
+        ai = s.get("ai")
+        out["explain"] = ai if has_ai_explainer(ai) else auto_explain(
+            {**s, "sources": srcs, "date_ist": s.get("date_ist")}, labels or {})
+    return out
 
 
 def sources_out(settings: Settings, db: DB, public_only: bool = False) -> list[dict]:
@@ -102,7 +112,31 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
         "labels": clf.labels(),
         "gs_papers": topics.get("gs_papers") or {},
         "ai_enabled": settings.ai_enabled,
+        "brief_size": settings.brief_size,
         "imap_enabled": settings.imap_enabled,
+    }
+
+
+def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, date_to: str,
+                  include_private: bool = True) -> dict:
+    ensure_range(settings, db, clf, date_from, date_to)
+    picks = db.brief_between(date_from, date_to)
+    ids = list(dict.fromkeys(p["story_id"] for p in picks))
+    stories = {s["id"]: s for s in db.stories_by_ids(ids)}
+    if not include_private:
+        stories = {k: v for k, v in stories.items() if not v.get("is_private")}
+    labels = clf.labels()
+    days: dict[str, dict[str, list[str]]] = {}
+    for p in picks:
+        if p["story_id"] not in stories:
+            continue
+        day = days.setdefault(p["date_ist"], {"news": [], "editorials": []})
+        day["news" if p["kind"] == "news" else "editorials"].append(p["story_id"])
+    return {
+        "from": date_from, "to": date_to, "generated_at": iso(datetime.now(timezone.utc)),
+        "days": days,
+        "stories": [story_out(stories[i], labels, explain=True) for i in ids if i in stories],
+        "videos": daily_videos(db, date_from, date_to),
     }
 
 
@@ -205,6 +239,14 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
                                   include_private=not public_only)
         return {"from": a, "to": b, "generated_at": iso(datetime.now(timezone.utc)),
                 "stories": [story_out(s) for s in rows]}
+
+    @app.get("/api/brief")
+    def brief(date_from: str = Query(..., alias="from"), date_to: str = Query(..., alias="to")):
+        a, b = _valid_date(date_from, "from"), _valid_date(date_to, "to")
+        if (date.fromisoformat(b) - date.fromisoformat(a)).days > 93:
+            raise HTTPException(400, "range too large (max ~3 months)")
+        clf, _ = classifier()
+        return brief_payload(settings, db, clf, a, b, include_private=not public_only)
 
     @app.post("/api/stories/by_ids")
     def stories_by_ids(payload: dict = Body(...)):

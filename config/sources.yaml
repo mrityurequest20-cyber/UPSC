@@ -258,7 +258,17 @@ sources:
   - {id: bbc-asia, name: BBC News, section: Asia, kind: rss, url: "https://feeds.bbci.co.uk/news/world/asia/rss.xml", tier: intl}
   - {id: aljazeera, name: Al Jazeera, kind: rss, url: "https://www.aljazeera.com/xml/rss/all.xml", tier: intl}
 
-  # ─────────────── Video explainers (YouTube channel RSS) ───────────────
-  - {id: yt-sansadtv, name: Sansad TV, section: YouTube, kind: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCISgnSNwqQ2i8lhCun3KtQg", tier: official, interval: 60}
-  - {id: yt-pib, name: PIB India, section: YouTube, kind: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCGn6a5SI8SNlj7WylmPD6GQ", tier: official, interval: 60}
-  - {id: yt-drishti, name: Drishti IAS, section: YouTube, kind: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCkrtAaoos4rxt2cw2CIBjuA", tier: examprep, interval: 60}
+  # ─────────────── Video library (YouTube channel RSS) ───────────────
+  # role: video → these don't become news cards; they feed the video matcher that attaches
+  # the most relevant explainer video to each brief story, plus the "Today's analysis videos" strip.
+  - {id: yt-sansadtv, name: Sansad TV, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCISgnSNwqQ2i8lhCun3KtQg", tier: official, interval: 60}
+  - {id: yt-pib, name: PIB India, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCGn6a5SI8SNlj7WylmPD6GQ", tier: official, interval: 60}
+  - {id: yt-ddnews, name: DD News, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCGDQNvybfDDeGTf4GtigXaw", tier: official, interval: 60}
+  - {id: yt-hindu, name: The Hindu, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC3njZ48-FDxLleBYaP0SZIg", tier: quality, interval: 60}
+  - {id: yt-ie, name: The Indian Express, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCJEDFSxHHOW1PpBccdSxOTA", tier: quality, interval: 60}
+  - {id: yt-drishti-en, name: Drishti IAS English, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCafpueX9hFLls24ed6UddEQ", tier: examprep, interval: 60}
+  - {id: yt-drishti, name: Drishti IAS, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCkrtAaoos4rxt2cw2CIBjuA", tier: examprep, interval: 60}
+  - {id: yt-studyiq, name: StudyIQ IAS, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCrC8mOqJQpoB7NuIMKIS6rQ", tier: examprep, interval: 60}
+  - {id: yt-studyiq-en, name: StudyIQ IAS English, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCxev0_drz4JHYYPJb6qCkfw", tier: examprep, interval: 60}
+  - {id: yt-clearias, name: ClearIAS, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCNyWoX6zYjFw593Zt8-5i2A", tier: examprep, interval: 120}
+  - {id: yt-preptogether, name: Prep together, kind: youtube, role: video, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCg0CwlPtLqAAPweo74SchoQ", tier: examprep, interval: 60}

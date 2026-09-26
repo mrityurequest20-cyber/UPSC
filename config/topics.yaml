@@ -1023,6 +1023,21 @@ subjects:
       empathy: 1.5
       emotional intelligence: 3
 
+# India angle: international/general stories that never touch India are pushed down
+# (unless they involve a global institution or a watch area such as the neighbourhood).
+india_angle:
+  penalty: 1.5
+  applies_to: [intl, general, watch, quality]
+  terms: [India, Indian, Indians, New Delhi, Delhi, Centre, Union government, Modi, Parliament, Lok Sabha, Rajya Sabha,
+          Supreme Court, RBI, SEBI, ISRO, DRDO, NITI Aayog, CAG, Election Commission, PIB, ministry, MEA, Jaishankar,
+          rupee, crore, lakh, Andhra Pradesh, Arunachal, Assam, Bihar, Chhattisgarh, Goa, Gujarat, Haryana, Himachal,
+          Jharkhand, Karnataka, Kerala, Keralam, Madhya Pradesh, Maharashtra, Manipur, Meghalaya, Mizoram, Nagaland,
+          Odisha, Punjab, Rajasthan, Sikkim, Tamil Nadu, Telangana, Tripura, Uttar Pradesh, Uttarakhand, West Bengal,
+          Jammu, Kashmir, Ladakh, Puducherry, Chandigarh, Lakshadweep, Andaman, Mumbai, Kolkata, Chennai, Bengaluru,
+          Hyderabad, Himalaya, Ganga, Indian Ocean, Bay of Bengal, Arabian Sea]
+  exempt: [United Nations, UN, UNGA, UNSC, WTO, IMF, World Bank, WHO, BRICS, SCO, G20, G7, QUAD, Quad, ASEAN, BIMSTEC,
+           SAARC, IORA, COP30, COP31, UNFCCC, IPCC, IUCN, UNESCO, NATO, OPEC, IAEA, ICJ, Nobel]
+
 # High-yield words: an item is more examinable when it carries a structure,
 # not just an event.
 signals:
@@ -1147,7 +1162,26 @@ noise:
   swachhata: 1
   live updates: 1.5
   "LIVE": 1.5
-  quiz: 1
+  quiz: 3
+  static quiz: 3
+  "MCQ": 2
+  "MCQs": 2
+  mock test: 3
+  accuses: 1.5
+  hits back: 2
+  payoff: 2
+  bribery: 1.5
+  scam: 1.5
+  admit card: 3
+  answer key: 3
+  how to check: 3
+  official website: 2
+  results declared: 2
+  declares results: 2
+  result out: 2
+  special campaign: 2
+  cut-off: 2
+  counselling: 2
   "VRRR": 2.5
   "VRR": 2
   variable rate repo: 2.5

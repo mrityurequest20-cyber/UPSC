@@ -62,10 +62,16 @@ class Settings:
         default_factory=lambda: [s.strip() for s in str(_env("IMAP_SENDERS", "")).split(",") if s.strip()]
     )
     imap_since_days: int = field(default_factory=lambda: _env_int("IMAP_SINCE_DAYS", 3))
+    # daily brief & videos
+    brief_size: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_SIZE", 25))
+    brief_editorials: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EDITORIALS", 8))
+    youtube_api_key: str | None = field(default_factory=lambda: _env("YOUTUBE_API_KEY"))
+    video_search: bool = field(default_factory=lambda: _env_bool("UPSC_VIDEO_SEARCH", True))
+    video_lang: str = field(default_factory=lambda: _env("UPSC_VIDEO_LANG", "en"))
     # optional AI
     anthropic_api_key: str | None = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     ai_model: str = field(default_factory=lambda: _env("UPSC_AI_MODEL", "claude-opus-5"))
-    ai_max_per_run: int = field(default_factory=lambda: _env_int("UPSC_AI_MAX_PER_RUN", 30))
+    ai_max_per_run: int = field(default_factory=lambda: _env_int("UPSC_AI_MAX_PER_RUN", 40))
 
     @property
     def db_path(self) -> Path:

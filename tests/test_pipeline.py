@@ -21,6 +21,7 @@ def fake_sources(settings, public_only=False):
          "fallbacks": [{"kind": "fake_backup"}]},
         {"id": "ed", "name": "The Hindu", "section": "Editorial", "kind": "fake_ed", "tier": "quality", "editorial": True},
     ]
+    srcs.append({"id": "yt-dd", "name": "DD News", "kind": "fake_video", "role": "video", "tier": "official"})
     if not public_only:
         srcs.append({"id": "secret", "name": "Paid Newsletter", "kind": "fake_private", "tier": "premium", "private": True})
     for s in srcs:
@@ -69,6 +70,9 @@ def fake_env(monkeypatch):
     monkeypatch.setitem(fetchers.FETCHERS, "fake_backup", backup)
     monkeypatch.setitem(fetchers.FETCHERS, "fake_ed", ed)
     monkeypatch.setitem(fetchers.FETCHERS, "fake_private", private)
+    monkeypatch.setitem(fetchers.FETCHERS, "fake_video", lambda ctx, step, src: [
+        RawItem("Two new Ramsar sites designated in Bihar | Wetlands explained", "https://www.youtube.com/watch?v=abcDEF12345",
+                published=NOW)])
     monkeypatch.setattr(run_mod, "load_sources", fake_sources)
     import upsc_intel.web.app as web_app
     monkeypatch.setattr(web_app, "load_sources", fake_sources)
@@ -76,7 +80,10 @@ def fake_env(monkeypatch):
 
 def test_run_merges_grades_and_falls_back(settings, db, fake_env):
     res = run_mod.run_fetch(settings, db, force=True)
-    assert res["n_ok"] == 5 and not res["failed"]
+    assert res["n_ok"] == 6 and not res["failed"]
+    # video sources feed the video library, never the news feed
+    assert db.q("SELECT COUNT(*) AS n FROM videos")[0]["n"] == 1
+    assert not db.q("SELECT 1 FROM items WHERE source_id='yt-dd'")
     stories = db.stories_between("2000-01-01", "2100-01-01", include_low=True, library=None)
     sc = [s for s in stories if "sub-classification" in s["title"] and not s["is_editorial"]]
     assert len(sc) == 1, [s["title"] for s in stories]
@@ -128,6 +135,15 @@ def test_api_and_marks(settings, db, fake_env):
         assert hits and "Ramsar" in hits[0]["title"]
         assert c.get("/api/stories", params={"from": "bad", "to": today}).status_code == 400
         assert c.get("/files/../../etc/passwd").status_code == 404
+        brief = c.get("/api/brief", params={"from": today, "to": today}).json()
+        picks = brief["days"][today]["news"]
+        assert picks and set(picks) <= {s["id"] for s in brief["stories"]}
+        by_id = {s["id"]: s for s in brief["stories"]}
+        assert all(by_id[i]["grade"] in ("NOTE", "SKIM") for i in picks)
+        assert all("explain" in s and s["explain"]["why_in_news"] for s in brief["stories"])
+        assert brief["days"][today]["editorials"]
+        ramsar = next(s for s in brief["stories"] if "Ramsar" in s["title"])
+        assert ramsar["video"] and ramsar["video"]["id"] == "abcDEF12345"  # matched from the library
         srcs = c.get("/api/sources").json()["sources"]
         assert {s["id"] for s in srcs} >= {"hindu", "flaky"}
         assert c.get("/").status_code == 200
@@ -146,6 +162,9 @@ def test_static_export_excludes_private(settings, db, fake_env, tmp_path):
     assert "Ramsar" in blob
     assert "Premium explainer" not in blob and "paid.example.com" not in blob
     assert "box office" not in blob  # LOW is not exported
+    briefs = "".join((out / "data" / f"brief-{m}.json").read_text() for m in meta["months"])
+    assert "Ramsar" in briefs and "explain" in briefs
+    assert "Premium explainer" not in briefs
 
 
 def test_old_items_are_dropped(settings, db, fake_env, monkeypatch):

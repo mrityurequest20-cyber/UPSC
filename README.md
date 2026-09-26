@@ -1,57 +1,63 @@
 # UPSC Intel: live current-affairs dashboard
 
-A self-updating website that pulls **every UPSC-relevant news item** from ~110 sources, including:
+A self-updating website that reads **~110 sources** every 15 minutes and turns hundreds of
+stories a day into a short **Daily Brief** you can actually finish. The sources include:
 - PIB, RBI, SEBI, PRS and NITI
 - The Hindu, Indian Express, Mint, BS, ET, HT and more
 - coaching desks (IE UPSC, Insights, ForumIAS, Drishti…)
-- international wires
-- Sansad TV and PIB on YouTube
 - a 42-query Google News watchlist
 
-Every item gets tagged by **GS paper, syllabus subject and Prelims type**. It is graded **NOTE / SKIM / READ**, and the same story from different outlets is merged into one card. You browse it all by **Day, Week or Month**.
+For each day it picks about 25 must-know stories and 8 editorials, balanced across the syllabus. Each one comes with:
+- a UPSC-style explainer
+- the closest-matching YouTube video
 
-Your **premium subscriptions** plug in too: newsletter/e-paper emails, PDFs you download, private feeds and Telegram/YouTube channels.
+Week and Month views recap everything the daily briefs covered.
 
-![Day view](docs/dashboard-day.png)
+![Daily Brief](docs/dashboard-day.png)
 
-| Week view | Phone |
+| Week in review | Phone |
 |---|---|
 | ![Week](docs/dashboard-week.png) | ![Mobile](docs/dashboard-mobile.png) |
 
-## What it does
+## What you get
 
-- **Live.** The server fetches every source every 15 minutes. When new stories land, the open dashboard shows a "🔴 N new stories" button.
-- **Day / Week / Month.** Step back through the archive with ‹ ›. In Week and Month view, a stories-per-day chart opens any day in one click.
-- **Nothing missed.**
-  - **Syllabus coverage** shows story counts per subject for the period, and flags any subject with **0** stories as a blind spot.
-  - **Easy-miss watch** tracks five areas that are usually missed:
-    - marine/EEZ/Blue Economy
-    - Digital Public Infrastructure and data governance
-    - neighbourhood political change
-    - constitutional and statutory appointments
-    - defence-tech agreements
-  - LOW-grade items are **hidden, never deleted**. Tick "Show LOW too" to see everything.
-- **Self-healing sources.** Each source has a fallback chain:
-  1. direct feed
-  2. alternate URL
-  3. Google News `site:` query
-  4. headless browser
-
-  If a step breaks, the next one takes over within the same fetch, and after 2 bad runs it becomes the default. The original is re-tried every ~3 hours. The **Sources** tab shows what each source is using right now and why.
-- **Revision tools.** You can:
-  - star a story (Starred tab, across all dates)
-  - mark it read
-  - add notes
-  - search the whole archive (Enter in the search box)
-  - export any view to Markdown notes
-
-  Keyboard: `/` search · `t` today · `d w m` views · `← →` step.
-- **Optional AI notes.** Add an Anthropic API key and the top NOTE stories get:
-  - a 2-line summary
-  - Prelims facts
-  - a Mains angle
-
-  The notes are written only from the fetched text; if that text is too thin, the notes say so instead of guessing.
+- **Daily Brief (the default view).**
+  - About 25 must-know stories, picked from the 400–600 reported each day.
+  - **A coverage pass first:** the best story from every syllabus subject, so no area is skipped.
+  - **Then the rest by importance,** with max 4 per subject. Importance combines grade, source weight and how many outlets covered it.
+  - **What's left out:**
+    - foreign news with no India link
+    - crime and celebrity stories
+    - political spats
+    - results notices and quizzes
+- **An explainer on every brief story,** in the format coaching notes use:
+  - **Why in news** · **What happened** · **Background** · **Why it matters** · **Prelims facts** · **Mains question** · **Keywords**
+  - With an Anthropic API key, Claude writes these from the fetched text, and never invents news facts.
+  - Without a key you get a shorter auto-summary built from the feed text.
+- **The most relevant YouTube video per story:**
+  1. It first matches against a library of trusted channels (Sansad TV, PIB, DD News, The Hindu, Indian Express, Drishti, StudyIQ, ClearIAS, Prep together).
+  2. Then it searches YouTube.
+  3. **What counts as a match:** words are weighted by rarity, so "AFSPA" or "Cybercrime" count far more than "minister" or "art". The video also has to be from the story's week. Travel vlogs, quiz videos and other-language uploads are rejected.
+  4. **When nothing is confident enough,** the card shows a **Find video** search button instead of a wrong link.
+- **Editorials of the day:** The Hindu (Editorial, Lead, Op-Ed), Indian Express (Editorials, Columns) and Mint Opinion. Each has its core argument, GS paper and a Mains question.
+- **Videos tab:**
+  - matched explainers for the brief stories
+  - the day's analysis videos: news analysis, PIB summaries, Sansad TV programmes
+- **Week in review / Month in review:**
+  - "N stories covered"
+  - a *What we covered* strip by subject, with gaps flagged
+  - the brief-per-day chart
+  - Top 10 / Top 15
+  - everything the daily briefs covered, grouped by subject and dated
+- **Progress tracking:** tick **Mark done** on each card, and the bar at the top shows how much of the day's brief you've finished. Stars and notes build your revision list.
+- **Everything tab:** the full graded firehose, with:
+  - filters (paper, subject, grade, source type)
+  - the syllabus-coverage radar
+  - the easy-miss watch (marine/EEZ, DPI, neighbourhood politics, appointments, defence-tech deals)
+  - LOW-grade items, hidden but never deleted
+- **Live updates:** a "🔴 N new stories" button appears when a fetch lands.
+- **Self-healing sources:** every source has a fallback chain (direct feed → alternate URL → Google News `site:` → headless browser). The **Sources** tab shows what each source is using right now.
+- **Keyboard:** `/` search · `t` today · `d w m` views · `← →` step · Export any view to Markdown notes.
 
 ## Quick start (full version, on your laptop)
 
@@ -114,9 +120,15 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
                           ▼
                        normalise  (canonical URL, IST date, clean title)
                           ▼
-                       classify   (config/topics.yaml: 18 subjects → GS1–4, Prelims tags, watch areas, grade)
-                          ▼
+                       classify   (config/topics.yaml: 18 subjects → GS1–4, Prelims tags, watch areas,
+                          ▼         India angle, grade)
                        cluster    (same story across outlets → one card; "N outlets" = importance)
+                          ▼
+                       brief      (per day: coverage pass + importance fill, editorials)
+                          ▼
+                       videos     (trusted-channel library → YouTube search, IDF-weighted matching)
+                          ▼
+                       explain    (Claude explainer, or the auto-summary without a key)
                           ▼
                        SQLite + full-text search ─► FastAPI JSON API ─► dashboard (plain HTML/JS, no build)
                                                  └► static export (JSON per month) ─► GitHub Pages
@@ -130,7 +142,11 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
   - Prelims tags
   - how many outlets carried it
 
-  The score is then pushed down by noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies). NOTE ≥ 5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
+  The score is then pushed down by:
+  - noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies, results notices, quizzes)
+  - foreign stories with no India link (global institutions and the neighbourhood are exempt)
+
+  NOTE ≥ 5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
 - **Tuning:** edit `config/topics.yaml` (keywords, weights, noise, watchlist queries), then run `python -m upsc_intel reclassify`.
 
 ## Command line
@@ -140,19 +156,34 @@ python -m upsc_intel serve [--port 8000] [--no-scheduler] [--public-only]
 python -m upsc_intel fetch [--only pib hindu-] [--force] [--public-only] [--enrich]
 python -m upsc_intel sources            # health table: which step each source is using, counts, errors
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml
-python -m upsc_intel enrich [--limit N] # AI notes (needs ANTHROPIC_API_KEY)
+python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 37 tests
+python -m pytest                        # 56 tests
 ```
 
-## AI notes (optional)
+## AI explainers (recommended)
 
 Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instead.
 
-- **What runs:** each fetch cycle enriches up to `UPSC_AI_MAX_PER_RUN` (default 30) of the highest-scoring NOTE stories. Each story is done once and cached.
-- **Model:** `claude-opus-5` by default (`UPSC_AI_MODEL`), at low effort.
-- **Declines:** server-side refusal fallback is enabled, so if the model declines a story, another model answers instead of the story being dropped.
-- **Output:** a JSON schema forces the structure: summary, Prelims facts, Mains angle, GS paper.
+- **What runs:** after each fetch, every brief story and editorial of the last two days gets a full explainer, up to `UPSC_AI_MAX_PER_RUN` (default 40). Each story is written once and cached.
+- **Contents:** headline, why in news, what happened, background, why it matters, Prelims facts, a Mains question, keywords, and a tailored YouTube search query. The query is used to find a better video on the next run.
+- **Model:** `claude-opus-5` at low effort by default; `UPSC_AI_MODEL` switches it. Server-side refusal fallback is enabled, so a declined story is answered by another model instead of being dropped.
+- **Cost:** roughly 30–35 stories a day with a few thousand tokens each. That's around a dollar a day on the default model; a smaller model costs less.
+- **Accuracy rules:**
+  - News facts come only from the fetched text.
+  - The Background line may use well-established static knowledge (what an institution or Article is), and is left empty when unsure.
+  - Thin text is flagged as insufficient instead of guessed.
+
+## Tuning
+
+| Setting | Default | What it does |
+|---|---|---|
+| `UPSC_BRIEF_SIZE` | 25 | must-know stories per day |
+| `UPSC_BRIEF_EDITORIALS` | 8 | editorials per day |
+| `UPSC_VIDEO_LANG` | `en` | `hi` or `any` to allow Hindi / other-language explainer videos |
+| `UPSC_VIDEO_SEARCH` | on | `0` = only the trusted-channel library, no YouTube search |
+| `YOUTUBE_API_KEY` | — | use the official YouTube Data API for searches |
+| `config/topics.yaml` | — | keywords, noise list, India-angle terms, watchlist queries (then `python -m upsc_intel reclassify`) |
 
 ## Project layout
 
@@ -160,10 +191,10 @@ Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instea
 config/            sources.yaml · topics.yaml · sources.local.example.yaml
 upsc_intel/
   fetchers/        rss, gnews, pib, telegram, html_links (html + browser), email_imap, documents, http, fallback chain
-  pipeline/        normalize, classify, cluster, run, enrich
+  pipeline/        normalize, classify, cluster, brief (daily picks), enrich (explainers), videos (matching), run
   web/             app.py (API + scheduler) · static/ (index.html, app.js, styles.css)
   static_export.py
-tests/             parsers, classifier, clustering, fallback chain, API, static export
+tests/             parsers, classifier, clustering, brief selection, explainers, video matching, fallback chain, API, export
 inbox/             your PDFs (gitignored)
 data/              SQLite database (gitignored)
 ```

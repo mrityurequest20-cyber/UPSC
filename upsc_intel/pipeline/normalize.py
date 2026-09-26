@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -33,6 +34,18 @@ def html_to_text(value: str | None, limit: int | None = None) -> str:
         cut = text[:limit].rsplit(" ", 1)[0]
         text = cut + "…"
     return text
+
+
+_FEED_JUNK = re.compile(
+    r"(\s*(Continue reading|Read more|Read the full|Click here)\b.*$|\s*The post .{0,300}? appeared first on .*$|"
+    r"\s*\[(…|\.\.\.|&hellip;)\]\s*)",
+    re.I | re.S,
+)
+
+
+def clean_summary(text: str | None) -> str:
+    """Drop WordPress/feed boilerplate ('Continue reading…', 'The post … appeared first on …')."""
+    return _FEED_JUNK.sub("", text or "").strip()
 
 
 def clean_title(title: str | None) -> str:
@@ -106,9 +119,14 @@ def _stem(tok: str) -> str:
     return tok
 
 
+def fold(text: str) -> str:
+    """Strip accents: Niño → Nino, Pégase → Pegase."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(c))
+
+
 def title_tokens(title: str) -> list[str]:
     seen: dict[str, None] = {}
-    for tok in _TOKEN.findall((title or "").lower().replace("’", "'")):
+    for tok in _TOKEN.findall(fold(title).lower().replace("’", "'")):
         if tok in STOPWORDS or (len(tok) < 2 and not tok.isdigit()):
             continue
         seen.setdefault(_stem(tok), None)
@@ -118,7 +136,7 @@ def title_tokens(title: str) -> list[str]:
 def key_tokens(title: str) -> set[str]:
     """Distinctive tokens: acronyms, numbers and capitalised words after the first."""
     out: set[str] = set()
-    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9.\-']*", title or "")
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9.\-']*", fold(title))
     for i, w in enumerate(words):
         w2 = w.strip(".-'")
         if not w2:

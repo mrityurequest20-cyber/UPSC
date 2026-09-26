@@ -22,6 +22,7 @@ def settings(tmp_path, monkeypatch):
     s.inbox_dir = tmp_path / "inbox"
     s.config_dir = ROOT / "config"
     s.browser_fallback = False
+    s.video_search = False  # never hit YouTube from tests
     s.anthropic_api_key = None
     s.imap_host = None
     s.ensure_dirs()

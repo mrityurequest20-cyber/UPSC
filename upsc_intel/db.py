@@ -137,13 +137,42 @@ CREATE TABLE IF NOT EXISTS seen_keys (
     seen_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS videos (
+    id TEXT PRIMARY KEY,
+    channel TEXT,
+    channel_id TEXT,
+    title TEXT,
+    url TEXT,
+    published_at TEXT,
+    date_ist TEXT,
+    tokens TEXT,
+    trusted INTEGER DEFAULT 1,
+    source TEXT,
+    seen_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_videos_date ON videos(date_ist);
+
+CREATE TABLE IF NOT EXISTS brief_picks (
+    date_ist TEXT NOT NULL,
+    story_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    rank INTEGER,
+    picked_at TEXT,
+    PRIMARY KEY (date_ist, story_id)
+);
+CREATE INDEX IF NOT EXISTS idx_brief_story ON brief_picks(story_id);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );
 """
 
 JSON_COLS_ITEMS = {"tokens", "subjects", "tags", "watch", "extra"}
-JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai"}
+JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video"}
+MIGRATIONS = [  # (table, column, type): added when missing, so old databases keep working
+    ("stories", "video", "TEXT"),
+    ("stories", "video_checked_at", "TEXT"),
+]
 
 
 def utcnow() -> datetime:
@@ -177,6 +206,11 @@ class DB:
         self.lock = threading.RLock()
         with self.lock:
             self.conn.executescript(SCHEMA)
+            for table, col, typ in MIGRATIONS:
+                cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if col not in cols:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+            self.conn.commit()
 
     # ── low level ──
     def q(self, sql: str, params: Iterable = ()) -> list[sqlite3.Row]:
@@ -258,7 +292,7 @@ class DB:
     def upsert_story(self, story: dict) -> None:
         cols = list(story.keys())
         vals = [_dump(story[c]) if c in JSON_COLS_STORIES else story[c] for c in cols]
-        updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in {"id", "ai"})
+        updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in {"id", "ai", "video", "video_checked_at"})
         with self.lock:
             self.conn.execute(
                 f"INSERT INTO stories ({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
@@ -278,6 +312,46 @@ class DB:
 
     def set_story_ai(self, story_id: str, ai: dict) -> None:
         self.x("UPDATE stories SET ai=?, updated_at=? WHERE id=?", (_dump(ai), iso(utcnow()), story_id))
+
+    def set_story_video(self, story_id: str, video: dict | None, checked_at: str) -> None:
+        self.x("UPDATE stories SET video=?, video_checked_at=? WHERE id=?", (_dump(video), checked_at, story_id))
+
+    # ── brief picks ──
+    def save_brief(self, date_ist: str, picks: list[tuple[str, str, int]]) -> None:
+        """picks: [(story_id, kind, rank)] for one day; replaces that day's picks."""
+        now = iso(utcnow())
+        with self.lock:
+            self.conn.execute("DELETE FROM brief_picks WHERE date_ist=?", (date_ist,))
+            self.conn.executemany(
+                "INSERT OR REPLACE INTO brief_picks (date_ist, story_id, kind, rank, picked_at) VALUES (?,?,?,?,?)",
+                [(date_ist, sid, kind, rank, now) for sid, kind, rank in picks],
+            )
+
+    def brief_between(self, date_from: str, date_to: str) -> list[dict]:
+        return [dict(r) for r in self.q(
+            "SELECT date_ist, story_id, kind, rank FROM brief_picks WHERE date_ist BETWEEN ? AND ? "
+            "ORDER BY date_ist, kind, rank", (date_from, date_to))]
+
+    def brief_dates(self, date_from: str, date_to: str) -> set[str]:
+        return {r["date_ist"] for r in self.q(
+            "SELECT DISTINCT date_ist FROM brief_picks WHERE date_ist BETWEEN ? AND ?", (date_from, date_to))}
+
+    # ── videos ──
+    def upsert_video(self, v: dict) -> bool:
+        cols = list(v.keys())
+        vals = [_dump(v[c]) if c == "tokens" else v[c] for c in cols]
+        cur = self.x(f"INSERT OR IGNORE INTO videos ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", vals)
+        return cur.rowcount > 0
+
+    def videos_between(self, date_from: str, date_to: str) -> list[dict]:
+        rows = self.q("SELECT * FROM videos WHERE date_ist BETWEEN ? AND ? ORDER BY published_at DESC",
+                      (date_from, date_to))
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["tokens"] = _load(d.get("tokens")) or []
+            out.append(d)
+        return out
 
     def get_story(self, story_id: str) -> dict | None:
         rows = self.q("SELECT * FROM stories WHERE id=?", (story_id,))

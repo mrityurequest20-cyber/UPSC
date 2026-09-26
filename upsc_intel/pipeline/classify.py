@@ -85,6 +85,7 @@ class Analysis:
     noise: float = 0.0
     tags: list[str] = field(default_factory=list)
     watch: list[str] = field(default_factory=list)
+    india: bool = True
 
 
 class Classifier:
@@ -109,6 +110,12 @@ class Classifier:
         self.signals = TermMatcher({str(t): [("s", float(w))] for t, w in (topics.get("signals") or {}).items()})
         self.noise = TermMatcher({str(t): [("n", float(w))] for t, w in (topics.get("noise") or {}).items()})
         self.tag_rx = {name: re.compile(p, re.I) for name, p in (topics.get("tags") or {}).items()}
+
+        ia = topics.get("india_angle") or {}
+        self.india_penalty = float(ia.get("penalty", 0))
+        self.india_tiers = set(ia.get("applies_to") or [])
+        self.india_terms = TermMatcher({str(t): [("i", 1.0)] for t in ia.get("terms") or []})
+        self.india_exempt = TermMatcher({str(t): [("x", 1.0)] for t in ia.get("exempt") or []})
 
         self.watch_meta: dict[str, str] = {}
         self.watch_rules: dict[str, list[TermMatcher]] = {}
@@ -139,6 +146,8 @@ class Classifier:
         a.tags = [name for name, rx in self.tag_rx.items() if rx.search(head)]
         full = f"{title} {summary}"
         a.watch = [wid for wid, groups in self.watch_rules.items() if all(g.find(full) for g in groups)]
+        if self.india_penalty:
+            a.india = bool(a.watch or self.india_terms.find(full) or self.india_exempt.find(full))
         return a
 
     def score(self, a: Analysis, tier: str) -> float:
@@ -148,6 +157,8 @@ class Classifier:
         s += min(best / 4.0, 2.0) if a.subjects else -self.no_subject_penalty
         s += min(0.5 * len(a.tags), 1.5)
         s -= a.noise
+        if not a.india and tier in self.india_tiers:
+            s -= self.india_penalty
         return round(s, 2)
 
     def grade(self, score: float) -> str:

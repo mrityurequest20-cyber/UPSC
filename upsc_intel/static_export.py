@@ -19,7 +19,7 @@ from .config import Settings, load_topics
 from .db import DB, iso
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
-from .web.app import STATIC_DIR, build_meta, sources_out, story_out
+from .web.app import STATIC_DIR, brief_payload, build_meta, sources_out, story_out
 
 SUMMARY_CHARS = 420
 
@@ -58,6 +58,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
 
     written: list[str] = []
     total = 0
+    clf = Classifier(load_topics(settings))
     for m in months:
         lo, hi = _month_bounds(m)
         lo, hi = max(lo, start.isoformat()), min(hi, today.isoformat())
@@ -74,6 +75,8 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         _write_json(out / "data" / f"stories-{m}.json", {"month": m, "stories": stories})
         written.append(m)
         total += len(stories)
+        brief = brief_payload(settings, db, clf, lo, hi, include_private=include_private)
+        _write_json(out / "data" / f"brief-{m}.json", {"month": m, **brief})
 
     topics = load_topics(settings)
     meta = build_meta(settings, db, Classifier(topics), topics, mode="static")

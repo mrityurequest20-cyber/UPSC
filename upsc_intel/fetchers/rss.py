@@ -8,7 +8,7 @@ import feedparser
 from dateutil import parser as dateparser
 
 from ..models import FetchError, RawItem
-from ..pipeline.normalize import clean_title, html_to_text
+from ..pipeline.normalize import clean_summary, clean_title, html_to_text
 
 
 def entry_datetime(entry) -> datetime | None:
@@ -50,7 +50,7 @@ def parse_feed(content: bytes, limit: int = 100) -> list[RawItem]:
         items.append(RawItem(
             title=title,
             url=link,
-            summary=html_to_text(summary, limit=700),
+            summary=html_to_text(clean_summary(html_to_text(summary)), limit=700),
             published=entry_datetime(entry),
             guid=entry.get("id"),
         ))
