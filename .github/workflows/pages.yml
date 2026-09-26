@@ -17,7 +17,7 @@ on:
     paths: ["upsc_intel/**", "config/**", ".github/workflows/*.yml", "requirements.txt"]
 
 permissions:
-  contents: read
+  contents: write  # to save finished months to the `archive` branch
   pages: write
   id-token: write
   actions: write  # to delete old database caches
@@ -33,6 +33,7 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       UPSC_SITE_REFRESH_MIN: "20"  # keep in step with the cron above (shown on the page)
+      UPSC_KEEP_DAYS: "45"         # the working database; finished months live on in the archive branch
     steps:
       # First, so a repo without Pages enabled fails in seconds instead of after a full fetch.
       - uses: actions/configure-pages@v5
@@ -65,9 +66,32 @@ jobs:
         if: env.ANTHROPIC_API_KEY != ''
         run: python -m upsc_intel enrich
 
+      # Finished months, frozen as the site showed them: kept forever on the `archive` branch.
+      - name: Get the archive of past months
+        run: |
+          auth="$(git config --get http.https://github.com/.extraheader || true)"  # the checkout's token, for a private repo too
+          if git ls-remote --exit-code --heads origin archive > /dev/null; then
+            git -c http.https://github.com/.extraheader="$auth" clone --quiet --depth 1 --branch archive "$(git remote get-url origin)" archive
+          else
+            git init --quiet -b archive archive
+            git -C archive remote add origin "$(git remote get-url origin)"
+          fi
+          git -C archive config http.https://github.com/.extraheader "$auth"
+
       # before saving: the export builds briefs for days that don't have one yet, and they must persist
       - name: Build static site
-        run: python -m upsc_intel export-static --out site --days 62
+        run: python -m upsc_intel export-static --out site --days 62 --archive archive/data
+
+      - name: Save newly finished months to the archive
+        run: |
+          cd archive
+          if [ ! -d data ] || [ -z "$(ls -A data)" ]; then echo "no finished month yet"; exit 0; fi
+          git add -A data
+          if git diff --cached --quiet; then echo "archive unchanged"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit --quiet -m "Archive: $(git diff --cached --name-only | sed 's|data/||' | tr '\n' ' ')"
+          git push --quiet origin archive
+          git log --oneline -1
 
       - name: Save database
         if: always()
