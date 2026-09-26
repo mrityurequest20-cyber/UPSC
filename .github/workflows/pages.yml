@@ -65,6 +65,10 @@ jobs:
         if: env.ANTHROPIC_API_KEY != ''
         run: python -m upsc_intel enrich
 
+      # before saving: the export builds briefs for days that don't have one yet, and they must persist
+      - name: Build static site
+        run: python -m upsc_intel export-static --out site --days 62
+
       - name: Save database
         if: always()
         uses: actions/cache/save@v4
@@ -79,9 +83,6 @@ jobs:
         run: |
           gh cache list --repo "$GITHUB_REPOSITORY" --key upsc-db- --sort created_at --order desc --limit 100 --json id --jq '.[2:][].id' \
             | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY" || true
-
-      - name: Build static site
-        run: python -m upsc_intel export-static --out site --days 62
 
       - uses: actions/upload-pages-artifact@v3
         with:

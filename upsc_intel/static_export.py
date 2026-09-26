@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .config import Settings, load_topics
 from .db import DB, iso
+from .pipeline.brief import ensure_range
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
 from .web.app import STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
@@ -62,6 +63,9 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
     written: list[str] = []
     total = 0
     clf = Classifier(load_topics(settings))
+    # briefs first: a day backfilled on a first run has no brief yet, and the story cards' "in brief"
+    # labels below must match the briefs written after them
+    ensure_range(settings, db, clf, start.isoformat(), today.isoformat())
     for m in months:
         lo, hi = _month_bounds(m)
         lo, hi = max(lo, start.isoformat()), min(hi, today.isoformat())
