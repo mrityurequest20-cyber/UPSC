@@ -3,6 +3,7 @@
 # One-time setup (repo Settings):
 #   1. Merge this to the default branch (scheduled workflows only run there).
 #   2. Settings → Pages → Build and deployment → Source: "GitHub Actions".
+#      (Pages on a PRIVATE repo needs a paid GitHub plan; on a free plan make the repo public first.)
 #   3. (Optional) Settings → Secrets → Actions → ANTHROPIC_API_KEY to add AI notes.
 # The site is PUBLIC: only public sources are exported. Email / PDFs / private feeds stay local.
 name: Live dashboard (GitHub Pages)
@@ -31,6 +32,9 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
+      # First, so a repo without Pages enabled fails in seconds instead of after a full fetch.
+      - uses: actions/configure-pages@v5
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -67,7 +71,6 @@ jobs:
       - name: Build static site
         run: python -m upsc_intel export-static --out site --days 62
 
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
