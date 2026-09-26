@@ -586,7 +586,7 @@
       <section class="panel"><h3>Easy-miss watch</h3>${watch}</section>`;
   }
   // Why a story is (or isn't) in the Daily Brief: one rule set, stated on every card.
-  const BRIEF_RULE = "Daily Brief = every NOTE story first reported that day (up to 35), the best story of each syllabus area, then SKIM stories up to 25 (max 4 per subject). Another country's internal affairs only make it as NOTE.";
+  const BRIEF_RULE = "Daily Brief = every NOTE story first reported that day, the best story of each syllabus area, then SKIM stories up to 25 (max 4 per subject). Another country's internal affairs only make it as NOTE.";
   function briefChip(s) {
     const b = s.in_brief;
     if (b) {

@@ -56,11 +56,11 @@ def test_select_day_covers_syllabus_and_caps_subjects(db, clf):
     for i in range(4):
         _story(db, f"ed{i}", day, 2.0, "READ", ["polity"], editorial=True)
     db.commit()
-    picks = select_day(db, clf, day, size=15, ed_size=3)
+    picks = select_day(db, clf, day, size=20, ed_size=3)
     news = [p[0] for p in picks if p[1] == "news"]
     eds = [p[0] for p in picks if p[1] == "editorial"]
     assert "env" in news                                        # coverage pass
-    assert sum(1 for n in news if n.startswith("pol")) == 8     # every NOTE story, max 8 per subject
+    assert sum(1 for n in news if n.startswith("pol")) == 10    # every NOTE story, whatever its subject
     assert sum(1 for n in news if n.startswith("eco")) == 4     # SKIM filler: max 4 per subject
     assert "lanka" not in news and "lanka-big" in news          # foreign affairs: only as NOTE
     assert not {"low", "read", "nosubj"} & set(news)

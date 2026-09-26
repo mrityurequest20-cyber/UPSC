@@ -6,8 +6,8 @@ candidate should actually read. Weekly and monthly views are built from the dail
 
 Selection for one day (stories first reported that day):
 1. Coverage pass: the best NOTE/SKIM story of each syllabus subject, so no area is skipped.
-2. NOTE pass: every NOTE story gets in (max NOTE_MAX a day, NOTE_PER_SUBJECT per subject), so a
-   story graded NOTE is never missing from its day's brief.
+2. NOTE pass: every NOTE story gets in (a safety cap of NOTE_MAX a day), so a story graded NOTE
+   is never missing from its day's brief.
 3. SKIM fill: up to `size` stories in all, max PER_SUBJECT per subject.
    Other countries' internal affairs (no India link) only get in as NOTE, never as filler.
 4. Editorials and explainers: their own quotas, best syllabus match first. A first pass caps
@@ -26,8 +26,7 @@ from .classify import Classifier
 from .normalize import today_ist
 
 PER_SUBJECT = 4
-NOTE_MAX = 35
-NOTE_PER_SUBJECT = 8
+NOTE_MAX = 40
 TEXT_BONUS = 0.8
 OPINION_MIN_SCORE = 0.5
 
@@ -99,8 +98,7 @@ def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
         if it and len(picked) < size:
             take(it)
     for it in news:  # 2. every NOTE story
-        if (it["note"] and it["id"] not in taken and sum(p["note"] for p in picked) < NOTE_MAX
-                and per_subject.get(it["subject"], 0) < NOTE_PER_SUBJECT):
+        if it["note"] and it["id"] not in taken and sum(p["note"] for p in picked) < NOTE_MAX:
             take(it)
     for it in news:  # 3. SKIM fill
         if len(picked) >= size:

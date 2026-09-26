@@ -13,7 +13,7 @@ scoring:
   subject_threshold: 2        # min keyword score for a subject to stick
   max_subjects: 3
   no_subject_penalty: 1.5     # item matched no syllabus subject at all
-  grades: {NOTE: 5.0, SKIM: 3.2, READ: 1.6}   # below READ → LOW (hidden by default, never deleted)
+  grades: {NOTE: 5.5, SKIM: 3.2, READ: 1.6}   # below READ → LOW (hidden by default, never deleted); ~25-30 NOTE a day, all of them in the brief
 
 gs_papers:
   GS1: "History, Culture, Geography, Society"
@@ -1333,7 +1333,7 @@ noise:
   money market operations: 3
   auction result: 2
   result of: 1
-  treasury bills: 1.5
+  treasury bills: 3.5
   state government securities: 1.5
   auction of: 1
 

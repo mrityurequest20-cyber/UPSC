@@ -75,6 +75,8 @@ upsc cse ias ips pcs exam exams prelim prelims main mains gs paper current affai
 news analysis hindu pib express indian india explained explainer key big latest class lecture part episode ep
 video full detail details simple important question questions answer answers mcq mcqs quiz topic topics
 january february march april may june july august september october november december sept
+one two three four five six seven eight nine ten first second third extend extends extended working allows
+allowed seeks says said amid over after new take takes looks set sets hold holds held
 """.split())
 SHORTS = re.compile(r"(#shorts|\bshorts?\b|in \d+ (sec|seconds)\b|\d+ ?sec(ond)? (explainer|video))", re.I)  # not explainers
 ACCEPT = 0.75
@@ -125,14 +127,23 @@ def _clean_title(title: str) -> str:
     return re.sub(r"\s*[|:–-]\s*(explained|upsc|live|watch).*$", "", fold(title or ""), flags=re.I).strip()
 
 
-def queries(story: dict) -> list[str]:
-    """Search queries, most specific first: AI's query, the distinctive terms, then the plain headline."""
+def queries(story: dict, idf: dict[str, float] | None = None) -> list[str]:
+    """Search queries, most specific first: AI's query, the story's rarest words (by the same IDF
+    weighting the matcher scores with), the distinctive terms, then the plain headline."""
     out: list[str] = []
     ai = story.get("ai") or {}
     if ai.get("video_query"):
         out.append(ai["video_query"])
     title = _clean_title(story["title"])
     words = re.findall(r"[A-Za-z][A-Za-z0-9\-']*", title)
+    if idf:
+        top = set(sorted(_topic_tokens(title), key=lambda t: -idf.get(t, max(idf.values())))[:5])
+        rare: list[str] = []
+        for w in words:
+            if set(title_tokens(w)) & top and w.lower() not in (x.lower() for x in rare):
+                rare.append(w)
+        if len(rare) >= 2:
+            out.append(" ".join(rare[:6]))
     keys = key_tokens(title)
     distinct = [w for w in words if w.lower().strip("'") in keys or (w.isupper() and len(w) >= 3)]
     if len(distinct) >= 2:
@@ -140,7 +151,7 @@ def queries(story: dict) -> list[str]:
     plain = " ".join(w for w in words if w.lower() not in GENERIC)[:90]
     if plain and plain not in out:
         out.append(plain)
-    return out[:2] or [title]
+    return list(dict.fromkeys(out))[:2] or [title]
 
 
 def _query(story: dict) -> str:
@@ -357,7 +368,7 @@ def link_brief_videos(settings: Settings, db: DB, days: list[str]) -> dict:
             recently = r["video_checked_at"] and now - datetime.fromisoformat(r["video_checked_at"]) < RETRY_AFTER
             if len(have) == len(wanted) or (recently and all(stored[k] == have.get(k) for k in wanted if stored[k] and stored[k].get("id"))):
                 continue
-            qs = queries(story)
+            qs = queries(story, idf)
             found = {k: (v.get("score", ACCEPT), v, v.get("match", "stored")) for k, v in have.items()}
             for k, (sc, c) in _best_by_lang(story, library, settings.video_lang, idf).items():
                 if k in wanted and sc > found.get(k, (0.0,))[0]:

@@ -27,10 +27,10 @@ Week and Month views recap everything the daily briefs covered.
 ## What you get
 
 - **Daily Brief (the default view).**
-  - 25–35 must-know stories, picked from the 400–600 reported each day.
+  - About 25–35 must-know stories, picked from the 400–600 reported each day.
   - **The rule, in order:**
     1. **Coverage:** the best story from every syllabus subject, so no area is skipped.
-    2. **Every NOTE story** first reported that day (up to 35, max 8 per subject), so a story graded NOTE is never missing from its day's brief.
+    2. **Every NOTE story** first reported that day, so a story graded NOTE is never missing from its day's brief. NOTE is kept strict (score ≥ 5.5, about 25–30 a day).
     3. **SKIM stories** fill up to 25, with max 4 per subject.
   - **Importance** combines the grade, the source weight and how many outlets covered it.
   - **What's left out:**
@@ -194,7 +194,7 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
   - foreign news with no India link. Global institutions, the neighbourhood, editorials and explainers are exempt.
   - another country's internal affairs, i.e. a headline naming a foreign country with nothing linking it to India. Its polity, governance and security score counts as International Relations, and it is marked down: 2.5 for the neighbourhood, 3 elsewhere. Set in `config/topics.yaml` → `foreign_affairs`.
 
-  NOTE ≥ 5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
+  NOTE ≥ 5.5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
 - **Tuning:** edit `config/topics.yaml` (keywords, weights, noise, watchlist queries), then run `python -m upsc_intel reclassify`.
 
 ## Command line
