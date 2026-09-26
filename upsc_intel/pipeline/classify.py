@@ -130,6 +130,9 @@ class Classifier:
         self.foreign_terms = TermMatcher({str(t): [("f", 1.0)] for t in fa.get("countries") or []})
         self.neighbour_terms = TermMatcher({str(t): [("n", 1.0)] for t in fa.get("neighbourhood") or []})
         self.india_link = TermMatcher({str(t): [("i", 1.0)] for t in fa.get("india_link") or []})
+        pubs = fa.get("publishers") or {}
+        self.foreign_pubs = {str(p).lower(): "neighbourhood" for p in pubs.get("neighbourhood") or []}
+        self.foreign_pubs.update({str(p).lower(): "world" for p in pubs.get("world") or []})
 
         gz = topics.get("gazetteer") or {}
         self.place_names = {str(t): str(t) for t in (gz.get("india") or []) + (gz.get("world") or [])}
@@ -145,7 +148,7 @@ class Classifier:
             self.watch_rules[wid] = [TermMatcher({str(t): [("w", 1.0)] for t in g}) for g in groups]
 
     # ── per item ──
-    def analyze(self, title: str, summary: str = "", hint: str = "") -> Analysis:
+    def analyze(self, title: str, summary: str = "", hint: str = "", publisher: str = "") -> Analysis:
         a = Analysis()
         scores: dict[str, float] = defaultdict(float)
         body = f"{summary} {hint}".strip()
@@ -154,9 +157,12 @@ class Classifier:
                 for sid, w in entries:
                     scores[sid] += w * mult
         # another country's parliament / constitution / courts is world affairs, not Indian polity
-        if (self.foreign_terms.find(title) and not self.india_link.find(f"{title} {summary}")
-                and not self.india_exempt.find(title)):
+        linked = self.india_link.find(f"{title} {summary}") or self.india_exempt.find(title)
+        if self.foreign_terms.find(title) and not linked:
             a.foreign = "neighbourhood" if self.neighbour_terms.find(title) else "world"
+        elif publisher and not linked:  # only a foreign outlet carried it
+            a.foreign = self.foreign_pubs.get(publisher.strip().lower(), "")
+        if a.foreign:
             moved = sum(scores.pop(s) for s in list(scores) if s in self.foreign_move)
             if moved and "ir" in self.subject_meta:
                 scores["ir"] += moved
@@ -176,6 +182,16 @@ class Classifier:
         if self.india_penalty:
             a.india = bool(a.watch or self.india_terms.find(full) or self.india_exempt.find(full))
         return a
+
+    def story_foreign(self, title: str, summary: str = "", publishers: list[str] | None = None) -> str:
+        """Another country's affairs: named in the headline, or carried only by foreign outlets; no India link."""
+        a = self.analyze(title, summary)
+        if a.foreign:
+            return a.foreign
+        kinds = [self.foreign_pubs.get(str(p).strip().lower()) for p in publishers or []]
+        if kinds and all(kinds) and not self.india_link.find(f"{title} {summary}"):
+            return "neighbourhood" if "neighbourhood" in kinds else "world"
+        return ""
 
     # ── the Where / Who lines of the write-ups: only names that occur in the text ──
     @staticmethod

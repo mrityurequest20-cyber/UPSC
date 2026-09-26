@@ -8,7 +8,7 @@ from upsc_intel.pipeline.cluster import split_mixed_stories
 from upsc_intel.pipeline.enrich import _sentences, auto_explain, has_ai_explainer
 from upsc_intel.pipeline.kinds import content_kind
 from upsc_intel.pipeline.normalize import title_tokens
-from upsc_intel.pipeline.videos import ACCEPT, _relative_time, queries, score_video, video_language
+from upsc_intel.pipeline.videos import ACCEPT, _relative_time, _still_good, queries, score_video, video_language
 
 NOW = datetime.now(timezone.utc)
 
@@ -277,3 +277,23 @@ def test_auto_explain_five_w_from_several_outlets(clf):
     assert e["what"].count("eight districts") + e["what"].count("eight Manipur") <= 1  # repeated lead dropped
     bare = auto_explain({**story, "title": "Some headline"}, clf.labels(), text="", clf=clf)
     assert bare["when"] == "Reported 26 Sep" and bare["where"] == "" and bare["who"] == ""
+
+
+def test_stored_matches_are_rechecked_under_current_rules():
+    """A stored match's detected language must not count as 'one of our channels' (regression)."""
+    story = {"title": "World Tourism Day 2026 celebrated across India", "date_ist": NOW.date().isoformat()}
+    junk = {"id": "x1", "title": "World Tourism Day 2026 celebrated | Bahria Town", "channel": "Bahria Town",
+            "published": NOW.isoformat(), "lang": "en", "known": False}
+    assert not _still_good(story, junk, "en", "en,hi", IDF)
+    lib = {**junk, "channel": "Vajiram and Ravi", "known": True, "title": "World Tourism Day 2026 celebrated India"}
+    assert _still_good(story, lib, "en", "en,hi", IDF)
+    assert not _still_good(story, lib, "hi", "en,hi", IDF)  # right video, wrong language slot
+
+
+def test_story_carried_only_by_foreign_outlets_is_foreign(clf):
+    t = "22nd Amendment to the Constitution passed in Parliament"
+    assert clf.story_foreign(t, "", ["Newswire", "Hiru News", "Ada Derana"]) == "neighbourhood"
+    assert clf.story_foreign(t, "", ["Ada Derana", "The Hindu"]) == ""          # an Indian outlet carried it too
+    assert clf.story_foreign("India, Sri Lanka sign MoU on energy", "", ["Ada Derana"]) == ""  # India link
+    a = clf.analyze(t, "", publisher="Ada Derana")
+    assert a.foreign == "neighbourhood" and "polity" not in a.subjects and clf.grade(clf.score(a, "watch")) != "NOTE"

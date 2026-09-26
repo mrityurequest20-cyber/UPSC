@@ -102,7 +102,8 @@ def annotate(outs: list[dict], db: DB, clf: Classifier) -> list[dict]:
     picks = db.brief_for_stories([o["id"] for o in outs])
     for o in outs:
         o["in_brief"] = picks.get(o["id"])
-        o["foreign"] = bool(clf.analyze(o.get("title") or "", o.get("summary") or "").foreign)
+        o["foreign"] = bool(clf.story_foreign(o.get("title") or "", o.get("summary") or "",
+                                              [x.get("p") for x in o.get("sources") or [] if x.get("p")]))
     return outs
 
 

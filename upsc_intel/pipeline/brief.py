@@ -77,7 +77,7 @@ def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
                 exps.append(item)
         elif r["grade"] in ("NOTE", "SKIM"):
             item["note"] = r["grade"] == "NOTE"
-            item["foreign"] = bool(clf.analyze(r["title"] or "", r["summary"]).foreign)
+            item["foreign"] = bool(clf.story_foreign(r["title"] or "", r["summary"], json.loads(r["publishers"] or "[]")))
             news.append(item)
 
     picked: list[dict] = []

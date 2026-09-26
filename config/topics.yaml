@@ -1132,6 +1132,18 @@ foreign_affairs:
               Brazil, Brazilian, Mexico, Argentina, Venezuela, South Africa, Nigeria, Kenya, Indonesia, Indonesian,
               Thailand, Thai, Bangkok, Vietnam, Philippines, Malaysia, Singapore, Greenland, Denmark, Norway, Sweden,
               Poland, Hungary, Syria, Iraq, Yemen, Houthi, Trinidad]
+  # outlets from other countries: a story that ONLY they carry, with no India link, is foreign affairs too
+  # (Google News watchlist queries like "bill passed parliament India" also return Sri Lankan papers)
+  publishers:
+    neighbourhood: [Ada Derana, Hiru News, Newswire, Daily Mirror, Daily FT, EconomyNext, NewsFirst, News First,
+                    The Island, Ceylon Today, Colombo Gazette, The Sunday Times Sri Lanka, Lanka News Web,
+                    The Kathmandu Post, The Himalayan Times, myRepublica, Republica, Onlinekhabar English, Khabarhub,
+                    The Daily Star, Dhaka Tribune, Prothom Alo, bdnews24.com, The Business Standard, New Age, Daily Sun,
+                    Dawn, The Express Tribune, Geo News, The News International, ARY News, Business Recorder,
+                    Pakistan Today, Samaa TV, Sun Online, The Edition, Maldives Independent, PSM News, Kuensel,
+                    Kuensel Online, The Bhutanese, The Irrawaddy, Myanmar Now, TOLOnews, Ariana News, Amu TV]
+    world: [CNN, Fox News, NBC News, CBS News, ABC News, The New York Times, The Washington Post, The Guardian,
+            BBC, Sky News, The Independent, Politico, Axios, NPR, Los Angeles Times, The Telegraph UK]
   # a story is India-linked only by these (not by generic words like "Parliament" or "Supreme Court")
   india_link: [India, Indian, Indians, New Delhi, Delhi, Modi, Jaishankar, MEA, Lok Sabha, Rajya Sabha, Indo, rupee,
                crore, lakh, Tamil, Tamils, Andhra Pradesh, Arunachal, Assam, Bihar, Chhattisgarh, Goa, Gujarat,

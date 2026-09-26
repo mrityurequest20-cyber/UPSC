@@ -206,7 +206,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 92 tests
+python -m pytest                        # 94 tests
 ```
 
 ## AI explainers (recommended)

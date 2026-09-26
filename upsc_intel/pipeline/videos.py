@@ -169,7 +169,8 @@ def _topic_tokens(text: str) -> set[str]:
 
 
 def score_video(story: dict, title: str, channel: str, published: datetime | None, lang: str = "en,hi",
-                idf: dict[str, float] | None = None, hint: str | None = None) -> float:
+                idf: dict[str, float] | None = None, hint: str | None = None, known: bool = False) -> float:
+    """hint: the video's language when already known; known: the channel is one of our library channels."""
     """0 = unrelated. Words are weighted by rarity (IDF over recent headlines), so 'AFSPA' or
     'Cybercrime' count far more than 'minister' or 'art'. A match must cover at least half of the
     story's weight and include one of its three most distinctive words."""
@@ -196,7 +197,7 @@ def score_video(story: dict, title: str, channel: str, published: datetime | Non
         return 0.0  # Hindi or English only by default (UPSC_VIDEO_LANG)
     if SHORTS.search(title):
         return 0.0
-    if TRUSTED.search(channel or "") or hint:  # hint = one of our library channels
+    if TRUSTED.search(channel or "") or known:
         score += 0.25
     elif not NATIONAL_NEWS.search(channel or ""):
         return 0.0  # unknown channel
@@ -294,7 +295,7 @@ def search_api(http: Http, key: str, query: str, since: datetime) -> list[dict]:
 def _best(story: dict, cands: list[dict], lang: str, idf: dict | None = None) -> tuple[float, dict | None]:
     best, best_score = None, 0.0
     for c in cands:
-        sc = score_video(story, c["title"], c["channel"], c.get("published"), lang, idf, c.get("lang"))
+        sc = score_video(story, c["title"], c["channel"], c.get("published"), lang, idf, c.get("lang"), c.get("known", False))
         if sc > best_score:
             best, best_score = c, sc
     return best_score, best
@@ -304,7 +305,7 @@ def _best_by_lang(story: dict, cands: list[dict], lang: str, idf: dict | None) -
     """Best candidate per language (en / hi) at or above the acceptance score."""
     out: dict[str, tuple[float, dict]] = {}
     for c in cands:
-        sc = score_video(story, c["title"], c["channel"], c.get("published"), lang, idf, c.get("lang"))
+        sc = score_video(story, c["title"], c["channel"], c.get("published"), lang, idf, c.get("lang"), c.get("known", False))
         if sc < ACCEPT:
             continue
         vl = video_language(c["title"], c["channel"], c.get("lang"))
@@ -316,7 +317,8 @@ def _best_by_lang(story: dict, cands: list[dict], lang: str, idf: dict | None) -
 def _as_video(c: dict, how: str, score: float) -> dict:
     return {"id": c["id"], "url": f"https://www.youtube.com/watch?v={c['id']}", "title": c["title"],
             "channel": c["channel"], "published": iso(c["published"]) if c.get("published") else None,
-            "match": how, "score": score, "lang": video_language(c["title"], c["channel"], c.get("lang"))}
+            "match": how, "score": score, "lang": video_language(c["title"], c["channel"], c.get("lang")),
+            "known": bool(c.get("known"))}
 
 
 def _still_good(story: dict, v: dict | None, want: str, lang: str, idf: dict) -> bool:
@@ -324,7 +326,8 @@ def _still_good(story: dict, v: dict | None, want: str, lang: str, idf: dict) ->
     if not v or not v.get("id"):
         return False
     pub = datetime.fromisoformat(v["published"]) if v.get("published") else None
-    return (score_video(story, v.get("title", ""), v.get("channel", ""), pub, lang, idf, v.get("lang")) >= ACCEPT
+    return (score_video(story, v.get("title", ""), v.get("channel", ""), pub, lang, idf, v.get("lang"),
+                        bool(v.get("known"))) >= ACCEPT
             and video_language(v.get("title", ""), v.get("channel", ""), v.get("lang")) == want)
 
 
@@ -340,13 +343,14 @@ def link_brief_videos(settings: Settings, db: DB, days: list[str]) -> dict:
     )
     lo = (date.fromisoformat(min(days)) - timedelta(days=2)).isoformat()
     hi = (date.fromisoformat(max(days)) + timedelta(days=4)).isoformat()
-    library = [{"id": v["id"], "title": v["title"], "channel": v["channel"], "lang": v.get("lang"),
+    library = [{"id": v["id"], "title": v["title"], "channel": v["channel"], "lang": v.get("lang"), "known": True,
                 "published": datetime.fromisoformat(v["published_at"]) if v.get("published_at") else None}
                for v in db.videos_between(lo, hi)]
     langs = allowed_langs(settings.video_lang)
     wanted = [x for x in ("en", "hi") if x in langs]
     # a library channel's language tag also applies when that channel turns up in a search
     hints = {(v["channel"] or "").lower(): v["lang"] for v in library if v.get("lang")}
+    library_channels = {(v["channel"] or "").lower() for v in library}
     http = Http(timeout=settings.http_timeout, retries=1)
     idf = build_idf(db)
     now = utcnow()
@@ -369,6 +373,8 @@ def link_brief_videos(settings: Settings, db: DB, days: list[str]) -> dict:
             stored = {"en": json.loads(r["video"]) if r["video"] else None,
                       "hi": json.loads(r["video_hi"]) if r["video_hi"] else None}
             have = {k: stored[k] for k in wanted if _still_good(story, stored[k], k, settings.video_lang, idf)}
+            if have.get("en") and have.get("hi") and have["en"]["id"] == have["hi"]["id"]:
+                have.pop("en")  # one video, one language (the stored Hindi pick came from the channel's tag)
             recently = r["video_checked_at"] and now - datetime.fromisoformat(r["video_checked_at"]) < RETRY_AFTER
             if len(have) == len(wanted) or (recently and all(stored[k] == have.get(k) for k in wanted if stored[k] and stored[k].get("id"))):
                 continue
@@ -392,6 +398,7 @@ def link_brief_videos(settings: Settings, db: DB, days: list[str]) -> dict:
                     break
                 for c in cands:
                     c["lang"] = hints.get((c.get("channel") or "").lower())
+                    c["known"] = (c.get("channel") or "").lower() in library_channels
                 if only == "trusted":
                     cands = [c for c in cands if TRUSTED.search(c.get("channel") or "") or c["lang"]]
                 for k, (sc, c) in _best_by_lang(story, cands, settings.video_lang, idf).items():
