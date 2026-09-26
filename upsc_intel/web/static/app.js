@@ -247,7 +247,10 @@
     const dot = el.querySelector(".live-dot"); const txt = el.querySelector(".txt");
     const last = m.last_run && m.last_run.finished_at;
     if (SNAPSHOT) { dot.className = "live-dot idle"; txt.textContent = `Snapshot · data from ${shortTime(m.built_at)} IST`; }
-    else if (STATIC) { dot.className = "live-dot"; txt.textContent = `Updates every ${m.refresh_min || 60} min · last ${ago(m.built_at)}`; }
+    else if (STATIC) {
+      dot.className = "live-dot" + (buildLate() ? " stale" : "");
+      txt.textContent = `Updates every ${m.refresh_min || 60} min · last ${ago(m.built_at)}${buildLate() ? " (running late)" : ""}`;
+    }
     else if (m.running) { dot.className = "live-dot busy"; txt.textContent = "Fetching all sources…"; }
     else {
       dot.className = last ? "live-dot" : "live-dot idle";
@@ -814,6 +817,14 @@
     btn.disabled = busy; btn.classList.toggle("busy", busy);
     btn.querySelector(".txt").textContent = busy ? label : "Refresh";
   }
+  // GitHub runs scheduled workflows on a best-effort basis: they can start late or be skipped.
+  // Past the interval plus a grace period, say so instead of promising the next build.
+  const LATE_GRACE_MIN = 15;
+  function buildLate() {
+    const every = S.meta.refresh_min || 60;
+    const built = new Date(S.meta.built_at).getTime();
+    return !!built && Date.now() - built > (every + LATE_GRACE_MIN) * 60000;
+  }
   function nextBuild() {
     const every = S.meta.refresh_min || 60;
     const next = new Date(new Date(S.meta.built_at).getTime() + every * 60000).toISOString();
@@ -829,6 +840,7 @@
       setBusy(btn, false);
       if (n === null) return toast("<b>Couldn't reach the site.</b> Check your connection and try again.", "warn");
       if (S.lastRunSeen !== before) return toast(`<b>Updated.</b> ${n ? plural(n, "new story", "new stories") + " added to this view" : "Latest data loaded"} · built ${ago(S.meta.built_at)}.`, "ok");
+      if (buildLate()) return toast(`<b>No newer data yet.</b> Last update ${ago(S.meta.built_at)}. The rebuild due every ${S.meta.refresh_min || 60} min is running late (GitHub starts scheduled runs on a best-effort basis); try again in a few minutes.`, "warn");
       return toast(`<b>You're up to date.</b> Last update ${ago(S.meta.built_at)}; the site rebuilds about every ${S.meta.refresh_min || 60} min (${nextBuild()}).`);
     }
     setBusy(btn, true, "Fetching…");

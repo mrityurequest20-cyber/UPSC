@@ -16,7 +16,7 @@ from ..fetchers.http import Http
 from ..models import RawItem
 from .brief import build_day, update_recent
 from .classify import Classifier
-from .cluster import Clusterer, aggregate_story, split_mixed_stories
+from .cluster import Clusterer, aggregate_story, merge_republished, split_mixed_stories
 from .kinds import EDITORIAL, EXPLAINED, NEWS, content_kind, item_kind
 from .normalize import IST, canonical_url, clean_title, ist_date, make_id, title_tokens
 from .videos import link_brief_videos, video_row
@@ -24,7 +24,7 @@ from .videos import link_brief_videos, video_row
 log = logging.getLogger("upsc_intel")
 RUN_LOCK = threading.Lock()
 MIGRATION_KINDS = "migration:kinds-v1"  # re-label stored items as news / editorial / explained once
-MIGRATION_CLASSIFY = "migration:classify-v3"  # foreign affairs → IR, routine-notice noise: re-grade once
+MIGRATION_CLASSIFY = "migration:classify-v4"  # re-grade once: foreign affairs, notice noise, reposted op-eds
 
 
 def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: str) -> dict | None:
@@ -41,7 +41,7 @@ def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: 
     url = raw.url
     canon = canonical_url(url)
     hint = raw.extra.get("ministry", "") if raw.extra else ""
-    a = clf.analyze(title, raw.summary or "", hint, publisher=raw.publisher or "")
+    a = clf.analyze(title, raw.summary or "", hint, publisher=raw.publisher or src.get("name") or "")
     tier = src.get("tier", "general")
     step_kind = src.get("_step_kind") or src.get("kind")
     kind = NEWS if is_library else content_kind(src, title, url, step_kind)
@@ -179,6 +179,7 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
                          started_at=iso(now), duration_ms=a.ms)
     db.commit()
 
+    touched |= merge_republished(db)
     for sid in touched:
         aggregate_story(db, clf, sid)
     pruned = prune(settings, db, clf)
@@ -264,7 +265,9 @@ def reclassify(settings: Settings, db: DB) -> int:
                        is_editorial=int(kind == EDITORIAL), is_explained=int(kind == EXPLAINED))
     db.commit()
     split_mixed_stories(db)
-    sids = [r["story_id"] for r in db.q("SELECT DISTINCT story_id FROM items WHERE story_id IS NOT NULL")]
+    merge_republished(db, window_days=settings.max_item_age_days + 1)
+    sids = {r["story_id"] for r in db.q("SELECT DISTINCT story_id FROM items WHERE story_id IS NOT NULL")}
+    sids |= {r["id"] for r in db.q("SELECT id FROM stories")}  # stories left empty are deleted
     for sid in sids:
         aggregate_story(db, clf, sid)
     db.commit()

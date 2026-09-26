@@ -118,6 +118,16 @@ def test_run_merges_grades_and_falls_back(settings, db, fake_env):
     assert db.counts()["items"] == 7
 
 
+def test_reclassify_is_stable_and_drops_empty_stories(settings, db, fake_env):
+    run_mod.run_fetch(settings, db, force=True)
+    before = {r["id"]: r["story_id"] for r in db.q("SELECT id, story_id FROM items")}
+    db.x("INSERT INTO stories (id, title, date_ist, score, grade, is_library) VALUES ('sorphan', 'x', '2026-09-26', 9, 'NOTE', 0)")
+    db.commit()
+    assert run_mod.reclassify(settings, db) == len(before)
+    assert {r["id"]: r["story_id"] for r in db.q("SELECT id, story_id FROM items")} == before
+    assert not db.q("SELECT 1 FROM stories WHERE id='sorphan'")
+
+
 def test_primary_is_reprobed_and_recovers(settings, db, fake_env, monkeypatch):
     st = {**db.get_source_state("flaky"), "active_step": 1, "runs_since_probe": fetchers.PROBE_EVERY}
     db.save_source_state(st)

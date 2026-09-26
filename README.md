@@ -38,6 +38,8 @@ Week and Month views recap everything the daily briefs covered.
     - crime and celebrity stories
     - political spats
     - results notices, quizzes, routine Treasury-bill auctions and coaching "daily current affairs" roundups
+    - regulators' case-by-case paperwork (SEBI settlement orders, recovery certificates), tenders, and department housekeeping (memento e-auctions, cleanliness drives)
+  - **Each piece appears once:** exam-prep sites often repost an op-ed or explainer under its original headline. Such a copy joins the original, so the brief doesn't carry the same article twice.
   - **Everything tab:** a story appears on every day it's in the news, but joins the brief once, on the day it was first reported. Every card says **"✓ In 26 Sep brief"** or why it isn't in the brief.
 - **A write-up on every brief story,** in the format coaching notes use:
   - **Why in news** · **What happened** · **When** · **Where** · **Who** · **Background** · **Why it matters** · **Prelims facts** · **Mains question** · **Keywords**
@@ -97,7 +99,7 @@ Week and Month views recap everything the daily briefs covered.
 - **Live updates:** a "🔴 N new stories" button appears when a fetch lands.
 - **Refresh button:**
   - **Local / Docker:** fetches *every* source right now (1–3 min) and reports "Done · N new stories".
-  - **Pages site:** checks for a newer build and loads it, or tells you when the last update ran and when the next one is due.
+  - **Pages site:** checks for a newer build and loads it, or tells you when the last update ran and when the next one is due. GitHub starts scheduled runs on a best-effort basis; if a build is more than 15 min overdue, the header says "running late" and Refresh says so instead of promising a time.
 - **Self-healing sources:** every source has a fallback chain (direct feed → alternate URL → Google News `site:` → headless browser). The **Sources** tab shows what each source is using right now.
 - **Keyboard:** `/` search · `t` today · `d w m` views · `← →` step · Export any view to Markdown notes.
 
@@ -190,7 +192,8 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
   - how many outlets carried it
 
   The score is then pushed down by:
-  - noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies, results notices, quizzes)
+  - noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies, results notices, quizzes, SEBI case orders, tenders)
+  - content farms (AI-rewritten legal blogs, stock-filing bots, listicle sites) and notice-only portals: −2 on their own items, so they never lead alone. Listed in `config/topics.yaml` → `low_value_publishers`.
   - foreign news with no India link. Global institutions, the neighbourhood, editorials and explainers are exempt.
   - another country's internal affairs, i.e. a headline naming a foreign country with nothing linking it to India. Its polity, governance and security score counts as International Relations, and it is marked down: 2.5 for the neighbourhood, 3 elsewhere. Set in `config/topics.yaml` → `foreign_affairs`.
 
@@ -206,7 +209,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 94 tests
+python -m pytest                        # 104 tests
 ```
 
 ## AI explainers (recommended)
