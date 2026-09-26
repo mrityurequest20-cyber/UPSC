@@ -167,6 +167,16 @@ class Classifier:
         self.low_value = {str(p).strip().lower() for p in lv.get("names") or []}
         self.blocked = {str(p).strip().lower() for p in topics.get("blocked_publishers") or []}
 
+        br = topics.get("brief") or {}
+        self.brief = {k: float(br.get(k, d)) for k, d in (
+            ("event_weight", 0.75), ("hard_news", 1.0), ("talk_weight", 1.0), ("must_know", 6.25), ("also", 4.75),
+            ("floor_cards", 20), ("floor_total", 40), ("floor_min", 3.0), ("editorials_floor", 15),
+            ("explained_floor", 12), ("fold_similarity", 0.25))}
+        self.brief_events = [(float(w), re.compile(rx, re.I)) for w, rx in br.get("events") or []]
+        self.brief_talk = [(float(w), re.compile(rx, re.I)) for w, rx in br.get("talk") or []]
+        self.brief_hard = re.compile(br["hard_verbs"], re.I) if br.get("hard_verbs") else None
+        self.brief_curators = {re.sub(r"\s+", "", str(p).lower()) for p in br.get("curators") or []}
+
         gz = topics.get("gazetteer") or {}
         self.place_names = {str(t): str(t) for t in (gz.get("india") or []) + (gz.get("world") or [])}
         self.body_names = {str(t): str(t) for t in gz.get("bodies") or []}
@@ -349,6 +359,25 @@ class Classifier:
         if best_item_score <= self.reject_score:
             return round(best_item_score, 2)
         return round(best_item_score + self.coverage_bonus(n_publishers), 2)
+
+    # ── Daily Brief ──
+    def brief_signals(self, title: str, publisher: str = "") -> tuple[float, float, float]:
+        """(event, hard_news, talk) for a headline: what kind of development it reports, whether it is
+        an action (approves, signs, notifies…), and how much of it is reaction or commentary."""
+        event = sum(w for w, rx in self.brief_events if rx.search(title))
+        if re.sub(r"\s+", "", publisher.lower()) in self.brief_curators:
+            event += 1.5
+        hard = 1.0 if self.brief_hard and self.brief_hard.search(title) else 0.0
+        talk = sum(w for w, rx in self.brief_talk if rx.search(title))
+        return event, hard, talk
+
+    def brief_score(self, score: float, title: str, publisher: str = "") -> float:
+        """How must-know a story is for the Daily Brief: its grade score, lifted by an examinable
+        development (a law passed, a Cabinet decision, a pact, an exercise, a species…) and pulled
+        down by reaction and commentary. See config/topics.yaml → brief."""
+        event, hard, talk = self.brief_signals(title, publisher)
+        b = self.brief
+        return round(score + b["event_weight"] * min(event, 4.0) + b["hard_news"] * hard - b["talk_weight"] * talk, 2)
 
     def gs_for(self, subjects: list[str], tags: list[str]) -> list[str]:
         papers = {self.subject_meta.get(s, {}).get("gs") for s in subjects} - {None}

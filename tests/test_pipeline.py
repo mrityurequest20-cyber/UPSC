@@ -167,7 +167,7 @@ def test_api_and_marks(settings, db, fake_env):
         assert brief["days"][today]["editorials"]
         exp = [by_id[i] for i in brief["days"][today]["explained"]]
         assert len(exp) == 1 and exp[0]["explained"] and "sub-classify" in exp[0]["explain"]["why_in_news"]
-        assert meta["brief_explained"] == settings.brief_explained and "Indian Express" in meta["explained_sources"]
+        assert "Indian Express" in meta["explained_sources"]
         ramsar = next(s for s in brief["stories"] if "Ramsar" in s["title"])
         assert ramsar["video"] and ramsar["video"]["id"] == "abcDEF12345"  # matched from the library
         srcs = c.get("/api/sources").json()["sources"]
@@ -212,6 +212,7 @@ def test_archive_keeps_finished_months_forever(settings, db, fake_env, tmp_path)
     assert not (arch / f"brief-{this_month}.json").exists()  # the current month is still live
     frozen = (arch / f"stories-{old_month}.json").read_text()
     assert "sub-classification" in frozen
+    frozen_day = (arch / "day" / f"{old_day}.json").read_text()  # the day's whole brief is frozen with its month
 
     # the database forgets the old month; the site still has it, exactly as frozen
     db.x("DELETE FROM items WHERE date_ist=?", (old_day,))
@@ -221,6 +222,7 @@ def test_archive_keeps_finished_months_forever(settings, db, fake_env, tmp_path)
     meta = json.loads((out / "data" / "meta.json").read_text())
     assert old_month in meta["months"] and this_month in meta["months"]
     assert (out / "data" / f"stories-{old_month}.json").read_text() == frozen
+    assert (out / "data" / "day" / f"{old_day}.json").read_text() == frozen_day and old_day in meta["day_files"]
     assert old_day in meta["date_counts"]  # the calendar still marks the day
     # private exports never write to the (public) archive
     export_static(settings, db, tmp_path / "site3", days=90, archive=tmp_path / "arch2", include_private=True)
@@ -241,9 +243,17 @@ def test_export_labels_match_briefs_and_cli_checkpoints(settings, db, fake_env, 
     assert not wal.exists() or wal.stat().st_size == 0
     data = tmp_path / "site" / "data"
     stories = [s for f in data.glob("stories-*.json") for s in json.loads(f.read_text())["stories"]]
-    picked = {i for f in data.glob("brief-*.json") for day in json.loads(f.read_text())["days"].values()
-              for ids in day.values() for i in ids}
+    picked = set()  # a day file holds every pick: cards, the "Also in the news" list and folded reports
+    for f in data.glob("day/*.json"):
+        for day in json.loads(f.read_text())["days"].values():
+            picked |= {i for k in ("news", "more", "editorials", "explained") for i in day[k]}
+            picked |= {i for ids in day["folded"].values() for i in ids}
     assert picked and {s["id"] for s in stories if s.get("in_brief")} == picked & {s["id"] for s in stories}
+    months = [json.loads(f.read_text()) for f in data.glob("brief-*.json")]  # the reviews: full cards only
+    cards = {i for m in months for day in m["days"].values() for k in ("news", "editorials", "explained") for i in day[k]}
+    assert cards <= picked and all("more" not in day for m in months for day in m["days"].values())
+    meta = json.loads((data / "meta.json").read_text())
+    assert meta["day_files"] and all((data / "day" / f"{d}.json").is_file() for d in meta["day_files"])
 
 
 def test_old_items_are_dropped(settings, db, fake_env, monkeypatch):

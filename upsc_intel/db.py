@@ -176,6 +176,8 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("stories", "is_explained", "INTEGER DEFAULT 0"),
     ("stories", "video_hi", "TEXT"),
     ("videos", "lang", "TEXT"),
+    ("brief_picks", "tier", "TEXT"),  # "top" (a full card) / "more" (the list under the cards)
+    ("brief_picks", "lead", "TEXT"),  # folded into this story's card (same event, another outlet)
 ]
 
 
@@ -324,28 +326,31 @@ class DB:
                (_dump(video), _dump(video_hi), checked_at, story_id))
 
     # ── brief picks ──
-    def save_brief(self, date_ist: str, picks: list[tuple[str, str, int]]) -> None:
-        """picks: [(story_id, kind, rank)] for one day; replaces that day's picks."""
+    def save_brief(self, date_ist: str, picks: list[tuple]) -> None:
+        """picks: [(story_id, kind, rank[, tier, lead])] for one day; replaces that day's picks."""
         now = iso(utcnow())
+        rows = [(date_ist, p[0], p[1], p[2], p[3] if len(p) > 3 else "top", p[4] if len(p) > 4 else None, now)
+                for p in picks]
         with self.lock:
             self.conn.execute("DELETE FROM brief_picks WHERE date_ist=?", (date_ist,))
             self.conn.executemany(
-                "INSERT OR REPLACE INTO brief_picks (date_ist, story_id, kind, rank, picked_at) VALUES (?,?,?,?,?)",
-                [(date_ist, sid, kind, rank, now) for sid, kind, rank in picks],
-            )
+                "INSERT OR REPLACE INTO brief_picks (date_ist, story_id, kind, rank, tier, lead, picked_at) "
+                "VALUES (?,?,?,?,?,?,?)", rows)
 
     def brief_between(self, date_from: str, date_to: str) -> list[dict]:
         return [dict(r) for r in self.q(
-            "SELECT date_ist, story_id, kind, rank FROM brief_picks WHERE date_ist BETWEEN ? AND ? "
-            "ORDER BY date_ist, kind, rank", (date_from, date_to))]
+            "SELECT date_ist, story_id, kind, rank, COALESCE(tier, 'top') AS tier, lead FROM brief_picks "
+            "WHERE date_ist BETWEEN ? AND ? ORDER BY date_ist, kind, rank", (date_from, date_to))]
 
     def brief_for_stories(self, ids: list[str]) -> dict[str, dict]:
-        """{story_id: {"d": day, "k": kind}}: the brief each story was picked for (a story is picked on one day)."""
+        """{story_id: {"d": day, "k": kind, "t": tier, "l": lead}}: the brief each story was picked for
+        (a story is picked on one day)."""
         out: dict[str, dict] = {}
         for i in range(0, len(ids), 500):
             chunk = ids[i:i + 500]
-            for r in self.q(f"SELECT story_id, date_ist, kind FROM brief_picks WHERE story_id IN ({','.join('?' * len(chunk))})", chunk):
-                out[r["story_id"]] = {"d": r["date_ist"], "k": r["kind"]}
+            for r in self.q(f"SELECT story_id, date_ist, kind, COALESCE(tier, 'top') AS tier, lead FROM brief_picks "
+                            f"WHERE story_id IN ({','.join('?' * len(chunk))})", chunk):
+                out[r["story_id"]] = {"d": r["date_ist"], "k": r["kind"], "t": r["tier"], "l": r["lead"]}
         return out
 
     def brief_dates(self, date_from: str, date_to: str) -> set[str]:

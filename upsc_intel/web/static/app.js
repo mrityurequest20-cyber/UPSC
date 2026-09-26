@@ -163,6 +163,12 @@
     },
     async brief(from, to, fresh) {
       if (!STATIC) return this.json(`api/brief?${new URLSearchParams({ from, to })}`);
+      if (from === to && (S.meta.day_files || []).includes(from)) {  // one day: its whole brief
+        const key = `day-${from}`;
+        if (!monthCache.has(key) || fresh) monthCache.set(key, await this.json(`data/day/${from}.json?v=${encodeURIComponent(S.meta.built_at || "")}`));
+        const d = monthCache.get(key);
+        return { from, to, days: d.days || {}, stories: d.stories || [], videos: d.videos || {} };
+      }
       const out = { from, to, days: {}, stories: [], videos: {} };
       const seen = new Set();
       for (const m of monthsIn(from, to)) {
@@ -238,6 +244,16 @@
     if (S.view !== "day") out.sort((a, b) => (b.score + 0.4 * b.n_pub) - (a.score + 0.4 * a.n_pub));
     return out;
   }
+  // other outlets' reports of the same event, listed on the lead story's card
+  function foldedOf(id) {
+    if (!S.brief) return [];
+    for (const d of briefDays()) {
+      const ids = ((S.brief.days[d] || {}).folded || {})[id];
+      if (ids) return ids.map((x) => S.briefById.get(x)).filter(Boolean);
+    }
+    return [];
+  }
+  const nMore = () => briefDays().reduce((n, d) => n + ((S.brief.days[d].more || []).length || S.brief.days[d].n_more || 0), 0);
   function briefVideos() {
     if (!S.brief) return [];
     return Object.keys(S.brief.videos || {}).sort().reverse().flatMap((d) => (S.brief.videos[d] || []).map((v) => ({ ...v, _day: d })));
@@ -268,7 +284,7 @@
   }
   function renderTabs() {
     const has = !!S.brief;
-    const nNews = has ? briefList("news").length : "";
+    const nNews = has ? briefList("news").length + (S.view === "day" ? briefList("more").length : 0) : "";
     const nEd = has ? briefList("editorials").length : "";
     const nEx = has ? briefList("explained").length : "";
     const nVid = has ? briefVideos().length + briefList("news").concat(briefList("explained"), briefList("editorials")).filter((s) => storyVideos(s).length).length : "";
@@ -377,8 +393,25 @@
         <button class="icon" data-act="note" aria-pressed="${!!mk.note}" title="Add a note" aria-label="Note">${ICON.note}</button>
         <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button>
       </div>
+      ${alsoReported(s)}
       ${open ? explainBody(s) : ""}
     </article>`;
+  }
+  function mrow(s) {
+    const mk = mark(s); const open = S.openCards.has(s.id);
+    const pub = (s.sources[0] && s.sources[0].p) || "";
+    return `<li class="mrow ${open ? "open" : ""} ${mk.read ? "read" : ""}" data-id="${s.id}">
+      <button class="mhead" data-act="toggle" aria-expanded="${open}"><span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span><span class="mtitle">${esc(s.title)}</span><span class="msrc">${esc(pub)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></button>
+      ${open ? `<div class="mbody">${s.summary ? `<p>${esc(s.summary)}</p>` : ""}
+        <p class="srcs">${(s.sources || []).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}</a>`).join("")}</p>
+        <div class="bactions">${videoChip(s)}<span class="spacer"></span>
+          <button class="icon" data-act="star" aria-pressed="${mk.starred}" title="Star for revision" aria-label="Star">${mk.starred ? ICON.starOn : ICON.star}</button>
+          <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button></div></div>` : ""}
+    </li>`;
+  }
+  function alsoReported(s) {
+    const f = foldedOf(s.id); if (!f.length) return "";
+    return `<p class="alsorep"><b>Also reported:</b> ${f.slice(0, 4).map((x) => `<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener" data-open="${x.id}" title="${esc(x.title)}">${esc((x.sources[0] && x.sources[0].p) || "another outlet")}</a>`).join(" · ")}${f.length > 4 ? ` · +${f.length - 4} more` : ""}</p>`;
   }
   function contentsNav(sections, title) {
     return `<nav class="contents" aria-label="Contents"><h3>${esc(title)}</h3><ol>${sections.map((x) => `<li><button data-jump="${x.id}"><span>${esc(x.label)}</span><span class="n">${x.n}</span></button></li>`).join("")}</ol></nav>`;
@@ -393,7 +426,7 @@
     return `<div class="covchips"><span class="covlabel">What we covered</span>${all.filter((k) => counts[k]).map((k) => `<button class="cchip" data-jump="sec-${k}">${esc(labels[k])} <b>${counts[k]}</b></button>`).join("")}
       ${missing.length ? `<span class="cmiss" title="No brief story in these areas for this period">⚠ Nothing in: ${esc(missing.map((k) => labels[k]).join(", "))}</span>` : ""}</div>`;
   }
-  function briefHero(news, eds, exps, totalReported) {
+  function briefHero(news, eds, exps, totalReported, more = []) {
     const all = news.concat(eds, exps);
     const areas = new Set(news.map((s) => s.subjects[0])).size;
     const minutes = Math.max(5, Math.round(news.length * 1.5 + (eds.length + exps.length) * 2));
@@ -401,11 +434,11 @@
     const d = D(from);
     const eyebrow = S.view === "day" ? `Daily Brief · ${WD_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`
       : S.view === "week" ? `Week ${isoWeek(from)} in review · ${periodLabel("week", S.anchor).split(" · ")[0]}` : `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()} in review`;
-    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
+    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")}${more.length ? ` + ${more.length} more` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
       : `${plural(news.length, "story", "stories")} covered · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`;
     const sub = S.view === "day"
-      ? `Covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min · picked from ${plural(totalReported, "story", "stories")} reported`
-      : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported`;
+      ? `Covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
+      : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported${nMore() ? ` · ${nMore()} more are listed in the daily briefs` : ""}`;
     return `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
       <div class="bhero-side">${progress(all)}${gsChips()}</div></header>`;
   }
@@ -440,10 +473,11 @@
     if (!S.brief) { el.innerHTML = '<div class="loading">Loading the brief…</div>'; return; }
     const labels = S.meta.labels.subjects;
     const news = briefList("news").filter(briefPasses);
+    const more = S.view === "day" ? briefList("more").filter(briefPasses) : [];
     const eds = briefList("editorials").filter(briefPasses);
     const exps = briefList("explained").filter(briefPasses);
     const vids = briefVideos();
-    if (!news.length && !eds.length && !exps.length) {
+    if (!news.length && !more.length && !eds.length && !exps.length) {
       const fresh = S.view === "day" && S.anchor === todayIST();
       el.innerHTML = briefHero(news, eds, exps, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter."
         : fresh ? `The day has just started (IST): this brief fills up as the news comes in. <br><button class="linkbtn" data-yesterday>Read yesterday's brief →</button>`
@@ -459,7 +493,7 @@
     for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
     const compact = S.view !== "day";
     const sections = [];
-    let html = briefHero(news, eds, exps, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
+    let html = briefHero(news, eds, exps, reportedTotal(), more) + (compact ? coverageChips(news) + briefVolume() : "");
     html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Top stories today" : `Top stories of ${dayShort(S.anchor)}`) : S.view === "week" ? "Top 10 of the week" : "Top 15 of the month",
       "tap any card for the full explainer", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
     sections.push({ id: "sec-top", label: S.view === "day" ? "Top stories" : "Top " + topN, n: top.length });
@@ -469,6 +503,14 @@
       html += section(`sec-${k}`, labels[k], `${S.meta.labels.subject_gs[k] || ""} · ${plural(arr.length, "story", "stories")}`,
         `<div class="bcards">${arr.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null })).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${arr.length}</button>` : ""}`);
       sections.push({ id: `sec-${k}`, label: labels[k], n: arr.length });
+    }
+    if (more.length) {
+      const bySubj = new Map(Object.keys(labels).map((k) => [k, []]));
+      for (const s of more) { const k = s.subjects[0]; if (bySubj.has(k)) bySubj.get(k).push(s); }
+      html += section("sec-more", "Also in the news", "just below the must-know bar · tap a line for its summary",
+        `<div class="mlist">${[...bySubj].filter(([, arr]) => arr.length).map(([k, arr]) =>
+          `<div class="mgroup"><h4>${esc(labels[k])}</h4><ul>${arr.map(mrow).join("")}</ul></div>`).join("")}</div>`);
+      sections.push({ id: "sec-more", label: "Also in the news", n: more.length });
     }
     if (eds.length) {
       const key = "b:eds"; const lim = S.expanded.has(key) || S.view === "day" ? eds.length : 10;
@@ -597,20 +639,16 @@
       <section class="panel"><h3>Easy-miss watch</h3>${watch}</section>`;
   }
   // Why a story is (or isn't) in the Daily Brief: one rule set, stated on every card.
-  const BRIEF_RULE = "Daily Brief = every NOTE story first reported that day, the best story of each syllabus area, then SKIM stories up to 25 (max 4 per subject). Another country's internal affairs only make it as NOTE.";
+  const BRIEF_RULE = "Daily Brief = every story that clears the must-know bar, however many: its grade, lifted when the headline reports an examinable development (a law passed, a Cabinet decision, a pact signed, an exercise, a species found…) and lowered for reactions and commentary. Stories just below the bar are listed under “Also in the news”, reports of the same event share one card, every syllabus area gets its best story, and a quiet day is topped up.";
   function briefChip(s) {
     const b = s.in_brief;
     if (b) {
-      const where = b.k === "editorial" ? "Editorials" : b.k === "explained" ? "Explained" : "brief";
+      const where = b.k === "editorial" ? "Editorials" : b.k === "explained" ? "Explained"
+        : b.l ? "brief, on the same event's card" : b.t === "more" ? "brief · Also in the news" : "brief";
       return `<span class="bchip in" title="${esc(BRIEF_RULE)}">✓ In ${esc(dayShort(b.d))} ${where}</span>`;
     }
     if (s.grade === "LOW") return "";
-    let why;
-    if (!s.subjects.length) why = "no syllabus match";
-    else if (s.grade === "READ") why = "READ: background only";
-    else if (s.foreign) why = "another country's affairs: only NOTE ones get in";
-    else if (s.grade === "SKIM") why = `SKIM: below ${esc(dayShort(s.date))}'s cut`;
-    else why = `${esc(dayShort(s.date))}'s brief hit the NOTE limit`;
+    const why = !s.subjects.length ? "no syllabus match" : `below ${esc(dayShort(s.date))}'s must-know bar`;
     return `<span class="bchip out" title="${esc(BRIEF_RULE)}">Not in brief · ${why}</span>`;
   }
   function card(s) {
@@ -927,7 +965,8 @@
     if (el.classList.contains("bcard")) {
       el.outerHTML = bcard(s, { compact: el.classList.contains("compact"), rank: el.dataset.rank ? Number(el.dataset.rank) : null, day: el.dataset.day || null, showSubject: !!el.dataset.subj });
       refreshProgress();
-    } else el.outerHTML = card(s);
+    } else if (el.classList.contains("mrow")) el.outerHTML = mrow(s);
+    else el.outerHTML = card(s);
   }
   function onFilterClick(t) {
     const f = t.dataset.f; const v = t.dataset.v;
@@ -1067,7 +1106,7 @@
       if (!mark({ id }).read && !t.closest(".bcard")) { api.setMark(id, { read: true }); const c = t.closest(".card"); if (c) c.classList.add("read"); }
       return; // let the link open
     }
-    const cardEl = t.closest(".card, .bcard"); if (!cardEl) return;
+    const cardEl = t.closest(".card, .bcard, .mrow"); if (!cardEl) return;
     const id = cardEl.dataset.id;
     if (t.dataset.act === "toggle" || t.dataset.act === "expand") { toggleSet(S.openCards, id); rerenderCard(cardEl); }
     else if (t.dataset.act === "star") { await api.setMark(id, { starred: !mark({ id }).starred }); renderTabs(); rerenderCard(cardEl); }

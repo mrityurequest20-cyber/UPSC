@@ -296,7 +296,8 @@ def enrich_story(client, settings: Settings, db: DB, story: dict, kind: str = "n
 
 
 def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int = 2) -> dict:
-    """Explain the brief stories (news, then explainers, then editorials) of the last `days` days."""
+    """Explain the brief's full cards (news, then explainers, then editorials) of the last `days` days; the
+    "Also in the news" list and folded reports don't carry a write-up."""
     if not settings.ai_enabled:
         return {"enabled": False}
     import anthropic
@@ -305,7 +306,8 @@ def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int =
     since = (date.fromisoformat(today_ist()) - timedelta(days=days - 1)).isoformat()
     rows = db.q(
         "SELECT s.id, s.title, s.dates, s.ai, b.kind FROM brief_picks b JOIN stories s ON s.id=b.story_id "
-        "WHERE b.date_ist >= ? ORDER BY b.date_ist DESC, b.kind DESC, b.rank",
+        "WHERE b.date_ist >= ? AND COALESCE(b.tier, 'top') = 'top' AND b.lead IS NULL "
+        "ORDER BY b.date_ist DESC, b.kind DESC, b.rank",
         (since,),
     )
     todo = []
