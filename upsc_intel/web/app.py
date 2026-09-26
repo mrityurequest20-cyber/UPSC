@@ -96,14 +96,11 @@ def cluster_texts(db: DB, story_ids: list[str], include_private: bool, per_story
 
 
 def annotate(outs: list[dict], db: DB, clf: Classifier) -> list[dict]:
-    """Adds in_brief (the day and section a story was picked for, if any) and foreign (another
-    country's internal affairs, which only make the brief as NOTE), so every card can say why it
-    is or isn't in the Daily Brief."""
+    """Adds in_brief (the day, section and tier a story was picked for, if any), so every card can say
+    whether it is in the Daily Brief."""
     picks = db.brief_for_stories([o["id"] for o in outs])
     for o in outs:
         o["in_brief"] = picks.get(o["id"])
-        o["foreign"] = bool(clf.story_foreign(o.get("title") or "", o.get("summary") or "",
-                                              [x.get("p") for x in o.get("sources") or [] if x.get("p")]))
     return outs
 
 
@@ -154,9 +151,6 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
         "labels": clf.labels(),
         "gs_papers": topics.get("gs_papers") or {},
         "ai_enabled": settings.ai_enabled,
-        "brief_size": settings.brief_size,
-        "brief_editorials": settings.brief_editorials,
-        "brief_explained": settings.brief_explained,
         "editorial_sources": _names(srcs, "editorial"),
         # The Hindu, Mint and Deccan Herald explainers are recognised by their headlines
         "explained_sources": list(dict.fromkeys(_names(srcs, "explained") + ["The Hindu", "Mint", "Deccan Herald"])),
@@ -164,26 +158,53 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
     }
 
 
+LIGHT_SUMMARY = 320  # the "Also in the news" list and folded reports carry a short summary, no write-up
+
+
 def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, date_to: str,
-                  include_private: bool = True) -> dict:
+                  include_private: bool = True, full: bool | None = None) -> dict:
+    """The brief for a range. days[d]: news (full cards, best first), more (the "Also in the news" list),
+    folded ({lead id: [same-event reports]}), editorials, explained. full (default: a single day) includes
+    more and folded; a week or month review carries only the full cards."""
     ensure_range(settings, db, clf, date_from, date_to)
-    picks = db.brief_between(date_from, date_to)
+    full = (date_from == date_to) if full is None else full
+    picks = [p for p in db.brief_between(date_from, date_to) if full or (p["tier"] == "top" and not p["lead"])]
     ids = list(dict.fromkeys(p["story_id"] for p in picks))
     stories = {s["id"]: s for s in db.stories_by_ids(ids)}
     if not include_private:
         stories = {k: v for k, v in stories.items() if not v.get("is_private")}
     labels = clf.labels()
-    texts = cluster_texts(db, [i for i in ids if i in stories], include_private)
-    days: dict[str, dict[str, list[str]]] = {}
+    days: dict[str, dict] = {}
+    heavy: set[str] = set()  # full cards get the write-up; list entries and folded reports stay light
     for p in picks:
-        if p["story_id"] not in stories:
+        sid = p["story_id"]
+        if sid not in stories:
             continue
-        day = days.setdefault(p["date_ist"], {"news": [], "editorials": [], "explained": []})
-        day[BRIEF_KEYS.get(p["kind"], "news")].append(p["story_id"])
+        day = days.setdefault(p["date_ist"], {"news": [], "more": [], "folded": {}, "editorials": [], "explained": []})
+        if p["lead"]:
+            day["folded"].setdefault(p["lead"], []).append(sid)
+        elif p["kind"] == "news" and p["tier"] == "more":
+            day["more"].append(sid)
+        else:
+            day[BRIEF_KEYS.get(p["kind"], "news")].append(sid)
+            heavy.add(sid)
+    texts = cluster_texts(db, [i for i in ids if i in heavy], include_private)
+    out_stories = []
+    for i in ids:
+        if i not in stories:
+            continue
+        if i in heavy:
+            out_stories.append(story_out(stories[i], labels, explain=True, text=texts.get(i), clf=clf))
+        else:
+            o = story_out(stories[i], labels)
+            if len(o["summary"]) > LIGHT_SUMMARY:
+                o["summary"] = o["summary"][:LIGHT_SUMMARY].rsplit(" ", 1)[0] + "…"
+            o["sources"] = o["sources"][:4]
+            out_stories.append(o)
     return {
-        "from": date_from, "to": date_to, "generated_at": iso(datetime.now(timezone.utc)),
+        "from": date_from, "to": date_to, "generated_at": iso(datetime.now(timezone.utc)), "full": full,
         "days": days,
-        "stories": [story_out(stories[i], labels, explain=True, text=texts.get(i), clf=clf) for i in ids if i in stories],
+        "stories": out_stories,
         "videos": daily_videos(db, date_from, date_to, lang=settings.video_lang),
     }
 

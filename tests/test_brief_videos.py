@@ -30,63 +30,85 @@ def test_india_angle(clf, title, tier, india):
 
 # ── brief selection ──
 def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The Hindu", summary="", explained=False,
-           title=None):
+           title=None, tokens=None):
     db.upsert_story({
         "id": sid, "title": title or sid, "url": "https://x/" + sid, "date_ist": day, "dates": [day],
         "first_seen": NOW.isoformat(), "last_seen": NOW.isoformat(), "updated_at": NOW.isoformat(),
         "n_items": 1, "n_publishers": 1, "publishers": [publisher], "subjects": subjects, "gs": [],
         "tags": [], "watch": [], "score": score, "grade": grade, "is_editorial": int(editorial),
         "is_explained": int(explained),
-        "is_library": 0, "is_private": 0, "tier": "quality", "summary": summary, "tokens": [],
+        "is_library": 0, "is_private": 0, "tier": "quality", "summary": summary, "tokens": tokens or [],
     })
 
 
-def test_select_day_covers_syllabus_and_caps_subjects(db, clf):
+def _news(picks, tier=None):
+    return [p[0] for p in picks if p[1] == "news" and not p[4] and (tier is None or p[3] == tier)]
+
+
+def test_brief_has_no_count_cap_on_a_busy_day(db, clf):
     day = "2026-09-26"
-    for i in range(10):  # ten strong polity stories
-        _story(db, f"pol{i}", day, 9 - i * 0.1, "NOTE", ["polity"])
-    for i in range(6):  # six middling economy stories
-        _story(db, f"eco{i}", day, 4.5 - i * 0.1, "SKIM", ["economy"])
-    _story(db, "env", day, 3.5, "SKIM", ["environment"])       # weaker, but the only environment story
-    _story(db, "low", day, 1.0, "LOW", ["economy"])            # never in the brief
-    _story(db, "read", day, 2.0, "READ", ["economy"])          # READ news is not brief material
-    _story(db, "nosubj", day, 8.0, "NOTE", [])                 # unclassified never makes the brief
-    _story(db, "lanka", day, 4.9, "SKIM", ["ir"], title="Sri Lanka's Parliament approves 22nd Amendment")
-    _story(db, "lanka-big", day, 5.2, "NOTE", ["ir"], title="Nepal Prime Minister resigns as protests spread")
-    for i in range(4):
-        _story(db, f"ed{i}", day, 2.0, "READ", ["polity"], editorial=True)
+    for i in range(60):  # a Parliament session: sixty real developments, all of them must-know
+        _story(db, f"bill{i}", day, 6.0, "NOTE", ["polity"], title=f"Parliament passes Bill number {i}")
+    _story(db, "talk", day, 4.0, "SKIM", ["polity"], title="Minister slams Opposition, says protest is a drama")
+    _story(db, "ports", day, 2.55, "READ", ["infrastructure"],
+           title="Centre notifies Kandla, JNPA, Paradip and Mundra as mega ports")  # low grade, strong event
+    _story(db, "env", day, 3.4, "SKIM", ["environment"])  # the only environment story
+    _story(db, "low", day, 1.0, "LOW", ["economy"], title="Cabinet approves new scheme")  # LOW never makes it
+    _story(db, "nosubj", day, 8.0, "NOTE", [])             # unclassified never makes it
     db.commit()
-    picks = select_day(db, clf, day, size=20, ed_size=3)
-    news = [p[0] for p in picks if p[1] == "news"]
-    eds = [p[0] for p in picks if p[1] == "editorial"]
-    assert "env" in news                                        # coverage pass
-    assert sum(1 for n in news if n.startswith("pol")) == 10    # every NOTE story, whatever its subject
-    assert sum(1 for n in news if n.startswith("eco")) == 4     # SKIM filler: max 4 per subject
-    assert "lanka" not in news and "lanka-big" in news          # foreign affairs: only as NOTE
-    assert not {"low", "read", "nosubj"} & set(news)
-    assert eds == ["ed0", "ed1", "ed2"]                         # max 3 per publisher, ed_size respected
-    assert [p[2] for p in picks if p[1] == "news"] == list(range(1, len(news) + 1))
+    picks = select_day(db, clf, day)
+    top, more = _news(picks, "top"), _news(picks, "more")
+    assert sum(1 for n in top if n.startswith("bill")) == 60   # every must-know story, however many
+    assert "ports" in more                                     # a strong development lifts a READ story in
+    assert "talk" not in top + more                            # reaction and commentary stay in Everything
+    assert "env" in more                                       # coverage: every syllabus area is represented
+    assert not {"low", "nosubj"} & set(top + more)
+    assert [p[2] for p in picks if p[1] == "news"] == list(range(1, len(top) + len(more) + 1))
 
 
-def test_editorials_and_explainers_get_their_own_quota(db, clf):
+def test_brief_floor_fills_a_quiet_day(db, clf):
     day = "2026-09-26"
-    for i in range(6):  # one paper publishes a lot of opinion
-        _story(db, f"hin{i}", day, 4 - i * 0.1, "SKIM", ["polity"], editorial=True)
-    _story(db, "trib", day, 2.0, "READ", ["economy"], editorial=True, publisher="The Tribune")
-    _story(db, "opaque", day, 1.0, "LOW", ["society"], editorial=True, publisher="Mint")  # LOW but on-syllabus
+    for i in range(25):  # a quiet day: nothing clears the bar on its own
+        _story(db, f"s{i}", day, 3.6 - i * 0.01, "SKIM", ["economy"])
+    _story(db, "weak", day, 1.7, "READ", ["economy"], title="Experts say growth may slow, warns report")
+    db.commit()
+    picks = select_day(db, clf, day)
+    top, more = _news(picks, "top"), _news(picks, "more")
+    assert len(top) == clf.brief["floor_cards"] and len(top) + len(more) == 25  # topped up with the best of the day
+    assert "weak" not in top + more                                             # but never below the floor score
+
+
+def test_same_event_reports_fold_into_one_card(db, clf):
+    day = "2026-09-26"
+    _story(db, "a", day, 7.5, "NOTE", ["internal_security"], title="Centre extends AFSPA in Manipur, Nagaland for six months",
+           tokens=["centre", "extend", "afspa", "manipur", "nagaland", "six", "month"], summary="x" * 100)
+    _story(db, "b", day, 3.0, "READ", ["internal_security"], title="Govt extends AFSPA in Manipur for six months",
+           tokens=["govt", "extend", "afspa", "manipur", "six", "month"])
+    _story(db, "c", day, 7.0, "NOTE", ["defence"], title="Exercise VARUNA 2026 begins",
+           tokens=["exercise", "varuna", "2026", "begin"])
+    db.commit()
+    picks = select_day(db, clf, day)
+    assert _news(picks) == ["a", "c"]
+    assert [(p[0], p[4]) for p in picks if p[4]] == [("b", "a")]  # listed on the AFSPA card, not a card of its own
+
+
+def test_editorials_and_explainers_have_a_floor_not_a_cap(db, clf):
+    day = "2026-09-26"
+    for i in range(20):  # a big opinion day: twenty strong editorials, all of them in
+        _story(db, f"hin{i}", day, 4 - i * 0.01, "SKIM", ["polity"], editorial=True, publisher=f"Paper {i % 4}")
     _story(db, "essay", day, 1.0, "LOW", [], editorial=True, publisher="Mint")  # personal essay: no subject
-    for i in range(3):
-        _story(db, f"ie{i}", day, 5 - i * 0.1, "NOTE", ["ir"], explained=True, publisher="Indian Express")
-    _story(db, "hexp", day, 3.0, "SKIM", ["environment"], explained=True)
+    _story(db, "ie0", day, 5.0, "NOTE", ["ir"], explained=True, publisher="Indian Express")
+    for i in range(6):  # weaker explainers top the section up to its floor, one paper capped first
+        _story(db, f"weak{i}", day, 2.0, "READ", ["economy"], explained=True, publisher="Mint")
+    _story(db, "hexp", day, 1.9, "READ", ["environment"], explained=True, publisher="The Hindu")
     _story(db, "news", day, 6.0, "NOTE", ["ir"])
     db.commit()
-    picks = select_day(db, clf, day, size=5, ed_size=6, ex_size=3)
+    picks = select_day(db, clf, day, ed_size=15, ex_size=6)
     kinds = {k: [p[0] for p in picks if p[1] == k] for k in ("news", "editorial", "explained")}
     assert kinds["news"] == ["news"]  # explainers never take news slots
-    eds = kinds["editorial"]
-    assert len(eds) == 6 and {"trib", "opaque"} <= set(eds) and "essay" not in eds
-    assert sum(1 for e in eds if e.startswith("hin")) == 4  # capped first, then the leftover slot is filled
-    assert kinds["explained"] == ["ie0", "ie1", "ie2"]  # best first; the quota is respected
+    assert len(kinds["editorial"]) == 20 and "essay" not in kinds["editorial"]
+    # topped up to 6: Mint is capped at 3 in the first pass, so The Hindu's piece gets in before Mint's rest
+    assert kinds["explained"] == ["ie0", "weak0", "weak1", "weak2", "weak3", "hexp"]
 
 
 @pytest.mark.parametrize("src,title,url,kind", [
@@ -122,7 +144,7 @@ def test_brief_prefers_stories_with_text(db, clf):
     _story(db, "bare", day, 6.0, "NOTE", ["polity"])
     _story(db, "texty", day, 5.5, "NOTE", ["polity"], summary="The Supreme Court ruled on Thursday that the " * 3)
     db.commit()
-    news = [p[0] for p in select_day(db, clf, day, size=5, ed_size=0) if p[1] == "news"]
+    news = _news(select_day(db, clf, day))
     assert news[0] == "texty"
 
 

@@ -63,9 +63,6 @@ class Settings:
     )
     imap_since_days: int = field(default_factory=lambda: _env_int("IMAP_SINCE_DAYS", 3))
     # daily brief & videos
-    brief_size: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_SIZE", 25))
-    brief_editorials: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EDITORIALS", 15))
-    brief_explained: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EXPLAINED", 12))
     youtube_api_key: str | None = field(default_factory=lambda: _env("YOUTUBE_API_KEY"))
     video_search: bool = field(default_factory=lambda: _env_bool("UPSC_VIDEO_SEARCH", True))
     video_lang: str = field(default_factory=lambda: _env("UPSC_VIDEO_LANG", "en,hi"))

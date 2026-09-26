@@ -5,12 +5,13 @@ site/
   static/app.js, styles.css
   data/meta.json        meta + source health + list of months
   data/stories-YYYY-MM.json
-  data/brief-YYYY-MM.json
+  data/brief-YYYY-MM.json   the week and month reviews: each day's full brief cards
+  data/day/YYYY-MM-DD.json  one day's whole brief (cards, the "Also in the news" list, folded reports)
 Only public sources are exported unless include_private=True. A Pages site is public, so
 never export email/library/private-feed content there.
 
 Archive (archive=DIR): a month is frozen FREEZE_AFTER_DAYS after it ends (its last brief is
-final by then) and its brief/stories files are copied into DIR. From then on the month is
+final by then) and its brief/stories/day files are copied into DIR. From then on the month is
 served from DIR, never regenerated, so it stays on the site after the database has pruned it.
 CI keeps DIR on the repository's `archive` branch. Private exports never write to it.
 """
@@ -50,12 +51,38 @@ def _archived_months(archive: Path | None) -> set[str]:
     return {m for m in months if (archive / f"stories-{m}.json").is_file()}
 
 
+def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: str, hi: str,
+                  include_private: bool) -> dict:
+    """Writes each day's whole brief to data/day/<day>.json and returns the month's review: every day's
+    full cards (not the "Also in the news" list or folded reports), with n_more saying how long that list is."""
+    ensure_range(settings, db, clf, lo, hi)
+    month: dict = {"from": lo, "to": hi, "days": {}, "stories": [], "videos": {}}
+    seen: set[str] = set()
+    for d in sorted(db.brief_dates(lo, hi)):
+        day = brief_payload(settings, db, clf, d, d, include_private=include_private, full=True)
+        _write_json(out / "data" / "day" / f"{d}.json", {"day": d, **day})
+        month["generated_at"] = day["generated_at"]
+        v = day["days"].get(d)
+        if not v:
+            continue
+        keep = set(v["news"]) | set(v["editorials"]) | set(v["explained"])
+        month["days"][d] = {"news": v["news"], "editorials": v["editorials"], "explained": v["explained"],
+                            "n_more": len(v["more"])}
+        month["videos"].update(day["videos"])
+        for s in day["stories"]:
+            if s["id"] in keep and s["id"] not in seen:
+                seen.add(s["id"])
+                month["stories"].append(s)
+    month.setdefault("generated_at", iso(datetime.now(timezone.utc)))
+    return month
+
+
 def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
                   include_private: bool = False, snapshot: bool = False,
                   archive: str | Path | None = None) -> Path:
     out = Path(out)
     (out / "static").mkdir(parents=True, exist_ok=True)
-    (out / "data").mkdir(parents=True, exist_ok=True)
+    (out / "data" / "day").mkdir(parents=True, exist_ok=True)
     for name in ("app.js", "styles.css"):
         shutil.copyfile(STATIC_DIR / name, out / "static" / name)
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -107,25 +134,31 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         _write_json(out / "data" / f"stories-{m}.json", {"month": m, "stories": stories})
         written.append(m)
         total += len(stories)
-        brief = brief_payload(settings, db, clf, lo, hi, include_private=include_private)
+        brief = _write_briefs(settings, db, clf, out, lo, hi, include_private)
         brief["reported"] = {d: n for d, n in reported.items() if lo <= d <= hi}
         _write_json(out / "data" / f"brief-{m}.json", {"month": m, **brief})
         if archive and _month_bounds(m)[1] < freeze_before:
             for kind in ("brief", "stories"):
                 shutil.copyfile(out / "data" / f"{kind}-{m}.json", archive / f"{kind}-{m}.json")
+            (archive / "day").mkdir(exist_ok=True)
+            for f in (out / "data" / "day").glob(f"{m}-*.json"):
+                shutil.copyfile(f, archive / "day" / f.name)
             archived.add(m)
 
     # every archived month is published as it was frozen
     brief_days: dict[str, int] = {}
     counts = dict(reported)
     for m in sorted(archived):
+        if m in written:
+            continue
         for kind in ("brief", "stories"):
-            if m not in written:
-                shutil.copyfile(archive / f"{kind}-{m}.json", out / "data" / f"{kind}-{m}.json")
+            shutil.copyfile(archive / f"{kind}-{m}.json", out / "data" / f"{kind}-{m}.json")
+        for f in (archive / "day").glob(f"{m}-*.json") if (archive / "day").is_dir() else ():
+            shutil.copyfile(f, out / "data" / "day" / f.name)
     for m in sorted(set(written) | archived):
         b = json.loads((out / "data" / f"brief-{m}.json").read_text(encoding="utf-8"))
         for d, v in (b.get("days") or {}).items():
-            brief_days[d] = len(v.get("news") or [])
+            brief_days[d] = len(v.get("news") or []) + int(v.get("n_more") or 0)
         for d, n in (b.get("reported") or {}).items():
             counts.setdefault(d, n)
 
@@ -135,6 +168,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         "refresh_min": settings.site_refresh_min,
         "months": sorted(set(written) | archived),
         "brief_days": brief_days,
+        "day_files": sorted(f.stem for f in (out / "data" / "day").glob("*.json")),
         "built_at": iso(datetime.now(timezone.utc)),
         "sources": sources_out(settings, db, public_only=not include_private),
         "exported_stories": total,

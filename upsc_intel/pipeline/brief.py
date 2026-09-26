@@ -1,23 +1,28 @@
-"""The Daily Brief: a short, syllabus-balanced list of must-know stories and editorials per day.
+"""The Daily Brief: every must-know story of a day, and nothing that isn't.
 
 The firehose (hundreds of items a day) stays in the "Everything" tab; the brief is what a
 candidate should actually read. Weekly and monthly views are built from the daily briefs, so
 "this week we covered…" means exactly what appeared in that week's briefs.
 
-Selection for one day (stories first reported that day):
-1. Coverage pass: the best NOTE/SKIM story of each syllabus subject, so no area is skipped.
-2. NOTE pass: every NOTE story gets in (a safety cap of NOTE_MAX a day), so a story graded NOTE
-   is never missing from its day's brief.
-3. SKIM fill: up to `size` stories in all, max PER_SUBJECT per subject.
-   Other countries' internal affairs (no India link) only get in as NOTE, never as filler.
-4. Editorials and explainers: their own quotas, best syllabus match first. A first pass caps
-   each publisher so one paper can't fill the section; leftover slots are then filled by score.
-   Their headlines are opaque ("When we become too busy to think"), so any grade qualifies once
-   a syllabus subject matched and the score clears OPINION_MIN_SCORE.
+There is no count cap: a busy day (a summit, a Parliament session) has a long brief, a quiet day a short one.
+News (stories first reported that day):
+1. Every story whose brief score clears `also` (config/topics.yaml → brief). The brief score is the grade
+   score lifted by what kind of development the headline reports (a law passed, a Cabinet decision, a pact,
+   an exercise, a species…) and lowered by reaction and commentary. Those at `must_know` or above are the
+   day's full cards ("top"); the rest are listed under them ("more").
+2. A light day is topped up: at least `floor_cards` full cards and `floor_total` stories in all.
+3. Coverage: a syllabus area with no story yet gets its best SKIM-or-better story (as "more").
+4. Reports of the same event (near-identical headlines from different outlets that clustering kept apart)
+   fold into one card: the best one leads, the others are listed on it.
+Editorials and explainers: every SKIM-or-better piece with a syllabus subject, topped up to their floor. The
+top-up caps each publisher first, so one paper can't fill the section. Their headlines are opaque ("When we
+become too busy to think"), so any grade qualifies for the top-up once a subject matched and the score
+clears OPINION_MIN_SCORE.
 """
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, timedelta
 
 from ..config import Settings
@@ -25,10 +30,11 @@ from ..db import DB
 from .classify import Classifier
 from .normalize import today_ist
 
-PER_SUBJECT = 4
-NOTE_MAX = 40
 TEXT_BONUS = 0.8
 OPINION_MIN_SCORE = 0.5
+FOLD_WINDOW_DAYS = 14   # word rarity for folding is measured over this many days of stories
+ANCHOR_SHARE = 0.025    # a shared word counts as an anchor when at most this share of those stories use it
+FOLD_LINK = 3           # a report joins a card by resembling one of its first few reports (no chaining)
 
 
 def _spread(items: list[dict], size: int) -> list[dict]:
@@ -52,11 +58,57 @@ def _spread(items: list[dict], size: int) -> list[dict]:
     return picked
 
 
-def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
-               ex_size: int = 0) -> list[tuple[str, str, int]]:
+class _Rarity:
+    """Word rarity over the fortnight up to `day`, for telling one event's reports apart from another's."""
+
+    def __init__(self, db: DB, day: str):
+        lo = (date.fromisoformat(day) - timedelta(days=FOLD_WINDOW_DAYS)).isoformat()
+        self.df: dict[str, int] = {}
+        self.n = 0
+        for r in db.q("SELECT tokens FROM stories WHERE is_library=0 AND date_ist BETWEEN ? AND ?", (lo, day)):
+            self.n += 1
+            for t in set(json.loads(r["tokens"] or "[]")):
+                self.df[t] = self.df.get(t, 0) + 1
+        self.anchor_max = max(3.0, ANCHOR_SHARE * self.n)
+
+    def idf(self, t: str) -> float:
+        return math.log((self.n + 1) / (self.df.get(t, 0) + 1))
+
+    def similar(self, a: set[str], b: set[str]) -> float:
+        """Weighted word overlap of two headlines; 0 unless they share at least two words, one of them rare."""
+        shared = a & b
+        if len(shared) < 2 or not any(self.df.get(t, 0) <= self.anchor_max and not t.isdigit() for t in shared):
+            return 0.0
+        return sum(self.idf(t) for t in shared) / (sum(self.idf(t) for t in a | b) or 1.0)
+
+
+def _fold(items: list[dict], rarity: _Rarity, threshold: float) -> list[list[dict]]:
+    """Groups same-event reports; `items` come best first, so each group's first item leads it."""
+    groups: list[list[dict]] = []
+    for it in items:
+        best, best_sim = None, 0.0
+        for g in groups:
+            sim = max(rarity.similar(it["tokens"], m["tokens"]) for m in g[:FOLD_LINK])
+            if sim > best_sim:
+                best, best_sim = g, sim
+        if best is not None and best_sim >= threshold:
+            best.append(it)
+        else:
+            groups.append([it])
+    return groups
+
+
+def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
+               ex_size: int | None = None) -> list[tuple[str, str, int, str, str | None]]:
+    """[(story_id, kind, rank, tier, lead)] for one day. kind: news / editorial / explained; tier: "top"
+    (a full card) or "more" (the list under the cards); lead: the story whose card this one is folded into."""
+    b = clf.brief
+    skim = dict(clf.grade_cut)["SKIM"]
+    ed_size = int(b["editorials_floor"] if ed_size is None else ed_size)
+    ex_size = int(b["explained_floor"] if ex_size is None else ex_size)
     rows = db.q(
         "SELECT id, title, COALESCE(summary,'') AS summary, score, grade, subjects, is_editorial, is_explained, "
-        "publishers, length(COALESCE(summary,'')) AS slen FROM stories WHERE date_ist=? AND is_library=0 "
+        "publishers, tokens, length(COALESCE(summary,'')) AS slen FROM stories WHERE date_ist=? AND is_library=0 "
         "ORDER BY score DESC",
         (day,),
     )
@@ -65,9 +117,9 @@ def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
         subjects = json.loads(r["subjects"] or "[]")
         if not subjects:
             continue
-        # a story that comes with real text makes a better brief card than a bare headline
-        item = {"id": r["id"], "score": r["score"] + (TEXT_BONUS if r["slen"] >= 80 else 0), "subject": subjects[0],
-                "publisher": (json.loads(r["publishers"] or "[]") or [""])[0]}
+        publisher = (json.loads(r["publishers"] or "[]") or [""])[0]
+        item = {"id": r["id"], "score": r["score"], "subject": subjects[0], "publisher": publisher,
+                "tokens": set(json.loads(r["tokens"] or "[]"))}
         opinion_ok = r["grade"] != "LOW" or r["score"] >= OPINION_MIN_SCORE
         if r["is_editorial"]:
             if opinion_ok:
@@ -75,48 +127,54 @@ def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
         elif r["is_explained"]:
             if opinion_ok:
                 exps.append(item)
-        elif r["grade"] in ("NOTE", "SKIM"):
-            item["note"] = r["grade"] == "NOTE"
-            item["foreign"] = bool(clf.story_foreign(r["title"] or "", r["summary"], json.loads(r["publishers"] or "[]")))
+        elif r["grade"] != "LOW":
+            item["bs"] = clf.brief_score(r["score"], r["title"] or "", publisher)
+            # a story that comes with real text makes a better card than a bare headline
+            item["order"] = item["bs"] + (TEXT_BONUS if r["slen"] >= 80 else 0)
             news.append(item)
 
+    news.sort(key=lambda it: -it["bs"])
     picked: list[dict] = []
-    taken: set[str] = set()
-    per_subject: dict[str, int] = {}
+    for i, it in enumerate(news):  # 1. the bar, 2. the floors
+        if it["bs"] >= b["also"] or (i < b["floor_total"] and it["bs"] >= b["floor_min"]):
+            it["tier"] = "top" if it["bs"] >= b["must_know"] or i < b["floor_cards"] else "more"
+            picked.append(it)
+    covered = {p["subject"] for p in picked}
+    taken = {p["id"] for p in picked}
+    for subj in clf.subject_meta:  # 3. coverage
+        if subj in covered:
+            continue
+        best = next((it for it in news if it["subject"] == subj and it["id"] not in taken and it["score"] >= skim), None)
+        if best:
+            best["tier"] = "more"
+            picked.append(best)
+            covered.add(subj)
 
-    def take(it: dict) -> None:
-        picked.append(it)
-        taken.add(it["id"])
-        per_subject[it["subject"]] = per_subject.get(it["subject"], 0) + 1
+    picked.sort(key=lambda it: (it["tier"] != "top", -it["order"]))
+    groups = _fold(picked, _Rarity(db, day), b["fold_similarity"])  # 4. same-event reports
+    out: list[tuple[str, str, int, str, str | None]] = []
+    rank = 0
+    for g in groups:
+        rank += 1
+        out.append((g[0]["id"], "news", rank, g[0]["tier"], None))
+    for g in groups:
+        for m in g[1:]:
+            rank += 1
+            out.append((m["id"], "news", rank, g[0]["tier"], g[0]["id"]))
 
-    best_by_subject: dict[str, dict] = {}
-    for it in news:
-        if not it["foreign"]:
-            best_by_subject.setdefault(it["subject"], it)
-    for subj in clf.subject_meta:  # 1. coverage pass
-        it = best_by_subject.get(subj)
-        if it and len(picked) < size:
-            take(it)
-    for it in news:  # 2. every NOTE story
-        if it["note"] and it["id"] not in taken and sum(p["note"] for p in picked) < NOTE_MAX:
-            take(it)
-    for it in news:  # 3. SKIM fill
-        if len(picked) >= size:
-            break
-        if (it["id"] not in taken and not it["foreign"]
-                and per_subject.get(it["subject"], 0) < PER_SUBJECT):
-            take(it)
-    picked.sort(key=lambda p: -p["score"])
+    def opinion(items: list[dict], floor: int) -> list[dict]:
+        items.sort(key=lambda p: -p["score"])
+        strong = [it for it in items if it["score"] >= skim]
+        rest = [it for it in items if it["score"] < skim]
+        return sorted(strong + _spread(rest, max(0, floor - len(strong))), key=lambda p: -p["score"])
 
-    eds.sort(key=lambda p: -p["score"])
-    exps.sort(key=lambda p: -p["score"])
-    return [(p["id"], "news", i + 1) for i, p in enumerate(picked)] + \
-           [(p["id"], "editorial", i + 1) for i, p in enumerate(_spread(eds, ed_size))] + \
-           [(p["id"], "explained", i + 1) for i, p in enumerate(_spread(exps, ex_size))]
+    out += [(p["id"], "editorial", i + 1, "top", None) for i, p in enumerate(opinion(eds, ed_size))]
+    out += [(p["id"], "explained", i + 1, "top", None) for i, p in enumerate(opinion(exps, ex_size))]
+    return out
 
 
 def build_day(settings: Settings, db: DB, clf: Classifier, day: str) -> int:
-    picks = select_day(db, clf, day, settings.brief_size, settings.brief_editorials, settings.brief_explained)
+    picks = select_day(db, clf, day)
     db.save_brief(day, picks)
     return len(picks)
 

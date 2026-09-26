@@ -1658,3 +1658,88 @@ watchlist:
     - 'tribal affairs ministry scheme when:3d'
     - 'agriculture ministry MSP kharif rabi when:3d'
     - 'Sansad TV OR "PIB explainer" OR "PIB backgrounder" when:3d'
+
+# ── The Daily Brief ──
+# Which of the day's graded news is must-know. There is no count cap: every story that clears the bar is in.
+#   brief score = story score + event_weight × (examinable-development signals below, at most 4)
+#                 + hard_news (an action verb: approves, signs, notifies, cuts…) − talk_weight × (reactions, commentary)
+#   brief score ≥ must_know → a full card;  ≥ also → the "Also in the news" list under the cards.
+#   A light day is topped up to floor_cards full cards and floor_total stories (brief score ≥ floor_min).
+# Measured on four hand-labelled days (23–26 Sep 2026, one labelled blind): 87–95% of must-know events are in
+# the brief, against 35–73% for the old 25-story cap. See README → Daily Brief.
+brief:
+  event_weight: 0.75
+  hard_news: 1.0
+  talk_weight: 1.0
+  must_know: 6.25
+  also: 4.75
+  floor_cards: 20
+  floor_total: 40
+  floor_min: 3.0
+  editorials_floor: 15   # editorials: every SKIM-or-better piece, topped up to this many
+  explained_floor: 12
+  fold_similarity: 0.25  # same-event reports fold into one card (weighted word overlap, sharing a rare word)
+  curators: [ForumIAS]   # exam-prep sites whose topic pages are all news-hooked Prelims items
+  hard_verbs: '\b(approv\w*|launch\w*|sign(s|ed|ing)?|inks?|inked|notif\w*|amend(s|ed)|extend(s|ed)|slash\w*|cuts?|hikes?|rais(es|ed)|bans?|banned|allow(s|ed)|finali[sz]\w*|postpon\w*|discover\w*|describ(es|ed)|declar\w*|designat\w*|reserv(es|ed)|uphold\w*|upheld|releas\w*|adopt\w*|pass(es|ed)|introduc\w*|inaugurat\w*|commission(s|ed)|test-fire\w*|joins?|gets|wins?|ranks?|records?|cross(es|ed)|sets? up|establish\w*|propos\w*|sanction\w*|grants?|award\w*|withdraw\w*|revok\w*|cancel\w*|suspend\w*|mandat\w*|order(s|ed)|direct(s|ed)|appoint\w*|conclud\w*|agree(s|d)?|unveil\w*|rolls? out|operationali[sz]\w*|flag(s|ged)? off|lays? foundation|impos\w*|lifts?|clears?|okays?|nod)\b'
+  events:  # [weight, pattern] a concrete, examinable development (title, case-insensitive)
+    - [2.0, '\b(pass(es|ed)?|clear(s|ed)?|introduc(es|ed)|tabl(es|ed)|passage of)\b.{0,60}\b(bill|act|amendment)\b|\bbill\b.{0,40}\b(passed|cleared|introduced)\b']
+    - [2.0, '\b(comes? into (force|effect)|takes? effect|notif(y|ies|ied|ication)|gazette)\b']
+    - [2.0, '\bAct,? (18|19|20)\d\d\b|\b(Sanhita|Adhiniyam)\b']
+    - [2.0, '\bcabinet( panel| committee)?\b.{0,30}\b(approv(es|ed|al)|clears?|nod|okays?|decides?|to take up)\b|\bCCEA\b|\bACC approves\b']
+    - [1.5, '\b(launch(es|ed)?|unveil(s|ed)?|rolls? out|introduc(es|ed))\b.{0,50}\b(scheme|yojana|mission|policy|portal|programme|initiatives?|framework|guidelines|fund|index|negotiations|commercial use)\b']
+    - [1.5, '\b(yojana|abhiyan|mission)\b|\bPM[- ]\w+\b.{0,20}\bscheme\b']
+    - [1.5, '\b(Make in India|Digital India|Swachh Bharat|Jan Dhan|Ayushman|PM-KISAN|MGNREGA|G RAM G|Startup India|Skill India|Smart Cities|AMRUT|Jal Jeevan|Ujjwala|PMAY|Mudra|Gati Shakti|Bharatmala|Sagarmala|UDAN|PLI|UPI|MDR|digital payments?)\b']
+    - [1.5, '\b(release[sd]?|issue[sd]?|frame[sd]?|draft(s|ed)?)\b.{0,30}\b(guidelines|norms|rules|SOPs?|advisory|framework|policy)\b|\badvis(es|ory)\b']
+    - [1.5, '\b(consult\w*|draft\w*|propos(es|ed|al)|plans?)\b.{0,40}\b(law|bill|rules|code|regulations?)\b']
+    - [2.0, '\b(president|governor)\b.{0,30}\b(returns?|assents?|withholds?)\b']
+    - [1.5, '\b(extends?|extended|revok(es|ed)|impos(es|ed)|lifts?|withdraws?)\b.{0,40}\b(AFSPA|president''?s rule|ban|duty|curbs|restrictions|relaxation)\b|\banti-dumping\b|\bsafeguard duty\b']
+    - [1.5, '\b(declar(es|ed)|notif(ies|ied))\b.{0,40}\b(drought|disaster|protected|reserve|sanctuary|eco-sensitive|heritage|mega ports?)\b']
+    - [1.5, '\b(statehood|delimitation|president''?s rule|Article \d+\w?|Schedule|official language)\b']
+    - [1.0, '\b(judgment|verdict)\b']
+    - [1.0, '\b(hepatitis|tuberculosis|TB|malaria|dengue|polio|measles|leprosy|AMR|antimicrobial|antibiotics?|anaemia|cancer|HIV|pandemic)\b']
+    - [1.5, '\b(target|by 20[3-5]\d|eliminat\w+)\b']
+    - [1.0, '\b(election commission|ECI|CEC|CAG|finance commission|NITI Aayog|SEBI|FSSAI|CDSCO|NGT|NHRC|TRAI|CCI|IRDAI|PFRDA|NMC|UGC)\b']
+    - [2.0, '\b(constitution bench|constitutional (validity|challenge)|larger bench|upholds?|upheld|strikes? down|struck down)\b']
+    - [1.0, '\b(supreme court|high court|SC|HC|CJI)\b.{0,70}\b(quash(es|ed)|refers?|referred|reserves? (judgment|verdict)|verdict|judgment|overturns?|sets? aside|dismiss(es|ed))\b']
+    - [1.5, '\bIndia\b.{0,60}\b(sign(s|ed)?|ink(s|ed)?|seal(s|ed)?|conclud(es|ed|ing)|working on|finali[sz](es|ed))\b.{0,50}\b(MoUs?|pacts?|agreements?|treat(y|ies)|FTA|CECA|CEPA|BITs?|deal|contract)\b']
+    - [0.5, '\b(sign(s|ed)?|ink(s|ed)?)\b.{0,50}\bMoUs?\b']
+    - [1.5, '\b(FTA|free trade agreement|CECA|CEPA|BITs?|bilateral investment treat(y|ies)|trade (deal|pact)|CBAM)\b']
+    - [1.5, '\bIndia\b.{0,4}(,| and| &|-)\s*[A-Z][\w-]+.{0,50}\b(discuss\w*|talks|dialogue|joint statement|cooperation|ties|partnership)\b|\b(hold|holds|held)\b.{0,10}\btalks\b|\bstate visit\b|\bbilateral\b']
+    - [1.0, '\bIndia(''s)?\b.{0,40}\b(bid|seat|membership|joins|chair\w*|hosts?|presidency)\b']
+    - [1.5, '\b(BRICS|SCO|G20|Quad|QUAD|IMEC|BIMSTEC|I2U2|IPEF|IORA)\b']
+    - [1.0, '\b(UNGA|UN General Assembly|UNSC|Security Council|ASEAN|WTO|COP\d+|UNFCCC|IMF|World Bank|WEF|UNCITRAL|UNCTAD|WHO|ILO|FAO|UNEP|UNESCO|IMO|ICAO|ITU|convention|protocol|declaration|resolution|mechanism)\b']
+    - [1.0, '\b(Indus Waters? Treaty|Kashmir|cross-border terror\w*|terrorism|LoC|LAC|Strait of Hormuz|Red Sea|shipping|seafarers)\b']
+    - [1.0, '\b(EAM|Jaishankar|MEA|External Affairs)\b']
+    - [1.0, '\badopt(s|ed|ing)?\b|\b(propos(es|ed)|establish(es|ed|ing)|set(s|ting)? up)\b.{0,40}\b(mechanism|body|authority|council|fund|centre|corridor|zone)\b']
+    - [1.5, '\b(RBI|repo rate|forex reserves|GDP|inflation|fiscal deficit|FDI|borrowing|ways and means|WMA|GST Council|MSP|export earnings|bulletin)\b']
+    - [1.5, '\b(ranks?|ranked)\b.{0,15}\b\d+(st|nd|rd|th)\b|\b\d+(st|nd|rd|th)\b.{0,30}\b(index|ranking)\b']
+    - [2.0, '\bexercise\b']
+    - [1.0, '\b(DRDO|ISRO|HAL|BDL|BEL)\b']
+    - [1.5, '\b(contract|induct(s|ed|ion)|test-fire[sd]?|successfully (tested|test-fired)|commissions?)\b.{0,40}\b(missile|systems?|aircraft|helicopters?|ships?|drones?|bombs?|munitions?)\b']
+    - [1.5, '\b(AFSPA|UAPA|insurgen\w*|peace talks|interlocutor|counter-terror\w*|Maoist|LWE|Naga)\b']
+    - [2.0, '\bnew \w*\s?species\b|\b(species|fossil|fungus|frog|plant|begonia)\b.{0,40}\b(discover|describ)(ed|y)\b|\bdiscover(s|ed)\b.{0,40}\b(species|gas|oil|mineral)\b']
+    - [2.0, '\b(GI tag|GI-tag|geographical indication|Ramsar|IUCN|eco-sensitive|ESA)\b']
+    - [1.5, '\b(tiger reserves?|wildlife sanctuary|national park|rhino\w*|vultures?|World \w+ Day|International \w+ Day)\b']
+    - [1.5, '\b(India''?s first|country''?s first|first[- ]ever|for the first time)\b']
+    - [1.5, '\b(NISAR|Gaganyaan|Chandrayaan|Aditya|PSLV|GSLV|LVM3|SSLV|quantum|semiconductor|green hydrogen|methanol|biodegradable|nuclear (power|reactor|energy)|civil nuclear|EPR|El Ni[nñ]o|La Ni[nñ]a)\b']
+    - [1.0, '\b(satellite|monsoon|drought|flood|cyclone|landslide|earthquake|heatwave)\b']
+    - [1.5, '\b(river|hydroelectric|dam|lake|strait|glacier|island|pass|basin)\b']
+    - [1.5, '\b(appointed|appoints|named|new)\b.{0,40}\b(chair(man|person|woman)|chief (justice|economic adviser|election commissioner|of)|governor|CJI|CEC|CAG|cabinet secretary|foreign secretary|interlocutor)\b|\breshuffle\b']
+    - [2.0, '\bcensus\b']
+    - [1.0, '\b(customs|import|export|excise) dut(y|ies)\b|\bduty\b']
+    - [1.5, '\b(world heritage|heritage status|heritage site)\b']
+    - [1.0, '\b(submarines?|fighter jets?|missiles?|warships?|frigates?|aircraft carriers?|howitzers?|tanks)\b']
+    - [1.0, '\b(cheetahs?|tigers?|elephants?|leopards?|lions?|dolphins?|turtles?|corals?|eels?|snakes?|birds?|orchids?)\b']
+    - [1.5, '\b(UCC|uniform civil code|labour codes?|criminal laws?)\b']
+    - [1.0, '\b(emissions?|carbon|net[- ]zero|climate|renewable|solar|wind energy)\b']
+    - [2.0, '\b(Abhyas|Shakti|Maitr[ie]e?|Varuna|Malabar|Mitra|Garuda|Tarkash|Ekuverin|Harimau|Dharma Guardian|Nomadic Elephant|Cope India|Red Flag|Pitch Black)\b|\bjoint (military|naval|air|firing|drills?|exercises?)\b']
+    - [1.0, '\b(forum|summit|conference|framework|status|partnership)\b']
+    - [1.0, '\b(index|report|survey|data)\b']
+  talk:  # [penalty, pattern] reactions, commentary, question headlines, video/live furniture
+    - [2.0, '^(watch|video)\b|\|\s*(watch|videos?)\b|\bwatch\s*[:|]|\bLIVE\b|live updates|\bin pics\b|\bwho is\b|\bwhat .{0,40} said\b|answer practice|\bdaily\s*\|\s*\w']
+    - [0.5, '\b(says|said)\b']
+    - [1.0, '\b(urges?|slams?|hits? (out|back)|calls? (for|on)|demands?|flags?|warns?|claims?|alleges?|accuses?|jibe|reacts?|lashes|praises?|credits?|narrates|outlines|recalls|interacts)\b']
+    - [1.0, '\b(margins|sidelines)\b|\bmeets?\b.{0,30}\b(ministers?|counterparts?|leaders?)\b']
+    - [1.0, '\?\s*$|^(why|how|what|is|are|can|should|will|when)\b|^[''‘\"“]|\b(op-?ed|opinion|column|what .{0,40} should know|inside .{0,30} crisis|the takeaway)\b']
+    - [1.0, '\bamid\b.{0,25}\b(row|controversy|storm|uproar|dissent)\b|\brow\b']
+    - [1.0, '^(issues|strengthening|bridging|challenges|the (role|need|case)|folk arts|important days)\b|\b(meaning|examples|importance)\b.{0,20}\b(risks|examples|importance)\b']

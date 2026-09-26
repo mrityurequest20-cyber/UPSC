@@ -26,15 +26,21 @@ Week and Month views recap everything the daily briefs covered.
 
 ## What you get
 
-- **Daily Brief (the default view).**
-  - About 25–35 must-know stories, picked from the 400–600 reported each day.
-  - **The rule, in order:**
-    1. **Coverage:** the best story from every syllabus subject, so no area is skipped.
-    2. **Every NOTE story** first reported that day, so a story graded NOTE is never missing from its day's brief. NOTE is kept strict (score ≥ 5.5, about 25–30 a day).
-    3. **SKIM stories** fill up to 25, with max 4 per subject.
-  - **Importance** combines the grade, the source weight and how many outlets covered it.
+- **Daily Brief (the default view).** Every must-know story of the day, with no fixed number, picked from the 400–600 reported. A busy day (a summit, a Parliament session) has a long brief and a quiet day a short one.
+  - **Must-know bar:**
+    - Each story gets a brief score. That's its grade, lifted when the headline reports an examinable development (a Bill passed, an Act in force, a Cabinet approval, a pact signed, a named exercise, a species found, a GI tag, an index rank…) and lowered for reactions and commentary (says, slams, "Who is…", "Watch:", LIVE).
+    - The rules live in `config/topics.yaml` → `brief`, next to the other rules.
+  - **Two tiers:**
+    - Stories clearly above the bar are full cards with the write-up, video and notes.
+    - Those just below it are one-line entries under **Also in the news**. Tap a line for its summary and sources.
+    - Typical day: 20–60 cards plus 15–70 lines.
+  - **Nothing thin on a quiet day:** a light day is topped up to 20 cards and 40 stories in all. Every syllabus area also gets its best story.
+  - **Same event, one card:** reports of the same event from different outlets, which clustering kept apart, fold into one card. They're listed on it as "Also reported".
+  - **Editorials and explainers:** every SKIM-or-better piece, topped up to 15 editorials and 12 explainers.
+  - **Measured, not guessed:** four days were hand-labelled for must-know events, one of them blind. The brief caught 87–95% of them. The old fixed 25-story brief caught 35–73%, and dropped the most on the busiest days.
+  - **The rest:** everything graded NOTE, SKIM or READ stays in **Everything**. Each card there says whether it made the brief and in which tier.
   - **What's left out:**
-    - another country's internal politics with no India link (e.g. Sri Lanka's constitutional amendments): it's filed under International Relations, not Polity, and makes the brief only as NOTE
+    - another country's internal politics with no India link (e.g. Sri Lanka's constitutional amendments): rejected as not UPSC material
     - crime and celebrity stories
     - political spats
     - results notices, quizzes, routine Treasury-bill auctions and coaching "daily current affairs" roundups
@@ -238,17 +244,17 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 145 tests
+python -m pytest                        # 148 tests
 ```
 
 ## AI explainers (recommended)
 
 Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instead.
 
-- **What runs:** after each fetch, every brief story, explainer and editorial of the last two days gets a full explainer, up to `UPSC_AI_MAX_PER_RUN` (default 40). Each story is written once and cached.
+- **What runs:** after each fetch, every full brief card, explainer and editorial of the last two days gets a full explainer, up to `UPSC_AI_MAX_PER_RUN` (default 40). Each story is written once and cached.
 - **Contents:** headline, why in news, what happened, background, why it matters, Prelims facts, a Mains question, keywords, and a tailored YouTube search query. The query is used to find a better video on the next run.
 - **Model:** `claude-opus-5` at low effort by default; `UPSC_AI_MODEL` switches it. Server-side refusal fallback is enabled, so a declined story is answered by another model instead of being dropped.
-- **Cost:** roughly 50 stories a day with a few thousand tokens each. That's around one to two dollars a day on the default model; a smaller model, or lower `UPSC_BRIEF_EDITORIALS` / `UPSC_BRIEF_EXPLAINED`, costs less.
+- **Cost:** the day's full cards plus editorials and explainers, roughly 50–90 stories on a typical day, with a few thousand tokens each. That's around one to three dollars a day on the default model. `UPSC_AI_MAX_PER_RUN` caps each run, and a smaller model costs less.
 - **Accuracy rules:**
   - News facts come only from the fetched text.
   - The Background line may use well-established static knowledge (what an institution or Article is), and is left empty when unsure.
@@ -258,9 +264,6 @@ Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instea
 
 | Setting | Default | What it does |
 |---|---|---|
-| `UPSC_BRIEF_SIZE` | 25 | must-know stories per day |
-| `UPSC_BRIEF_EDITORIALS` | 15 | editorials per day |
-| `UPSC_BRIEF_EXPLAINED` | 12 | explainers per day |
 | `UPSC_SITE_REFRESH_MIN` | 60 (20 in the Pages workflow) | minutes between static-site rebuilds, shown on the page |
 | `UPSC_VIDEO_LANG` | `en,hi` | `en` = English only · `any` = every language |
 | `UPSC_VIDEO_SEARCH` | on | `0` = only the trusted-channel library, no YouTube search |
