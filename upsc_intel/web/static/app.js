@@ -84,6 +84,7 @@
     star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
     starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 5 5 9-10"/></svg>',
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
     note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
     play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
@@ -260,7 +261,7 @@
   }
   function renderPeriod() {
     $$(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === S.view)));
-    $("#periodLabel").textContent = periodLabel(S.view, S.anchor);
+    $("#periodLabel").innerHTML = `${ICON.cal}<span>${esc(periodLabel(S.view, S.anchor))}</span>`;
     const [, to] = periodRange(S.view, S.anchor);
     $("#next").disabled = to >= todayIST();
     $("#todayBtn").disabled = S.anchor === todayIST() && S.view === "day";
@@ -433,15 +434,6 @@
       <span class="vmeta"><b>${esc(v.title)}</b><small>${esc(v.channel || "")}${v._day && S.view !== "day" ? " · " + esc(dayShort(v._day)) : ""}</small></span></a>`;
   }
   const reportedTotal = () => briefDays().reduce((n, d) => n + (S.meta.date_counts[d] || 0), 0);
-  // Days follow IST. Just after midnight the new day has almost nothing in it, so the site opens on
-  // yesterday's full brief until today has EARLY_MIN graded stories (see boot()), and says so.
-  const EARLY_MIN = 60;
-  function earlyNote() {
-    const today = todayIST();
-    if (S.view !== "day" || S.anchor !== addDays(today, -1) || !S.early) return "";
-    const n = S.meta.date_counts[today] || 0;
-    return `<div class="searchnote"><span>It's early in the day (IST): <b>${esc(dayShort(today))}</b>'s brief fills up as the news comes in (${plural(n, "story", "stories")} so far), so this is yesterday's full brief.</span><button class="linkbtn" data-early>Open ${esc(dayShort(today))} →</button></div>`;
-  }
 
   function renderBrief() {
     const el = $("#content");
@@ -453,7 +445,7 @@
     const vids = briefVideos();
     if (!news.length && !eds.length && !exps.length) {
       const fresh = S.view === "day" && S.anchor === todayIST();
-      el.innerHTML = earlyNote() + briefHero(news, eds, exps, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter."
+      el.innerHTML = briefHero(news, eds, exps, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter."
         : fresh ? `The day has just started (IST): this brief fills up as the news comes in. <br><button class="linkbtn" data-yesterday>Read yesterday's brief →</button>`
         : S.meta.last_run || STATIC ? "No brief for this period yet." : "The first fetch is running: the brief appears in a minute or two."}</div>`;
       $("#side").innerHTML = "";
@@ -467,7 +459,7 @@
     for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
     const compact = S.view !== "day";
     const sections = [];
-    let html = earlyNote() + briefHero(news, eds, exps, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
+    let html = briefHero(news, eds, exps, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
     html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Top stories today" : `Top stories of ${dayShort(S.anchor)}`) : S.view === "week" ? "Top 10 of the week" : "Top 15 of the month",
       "tap any card for the full explainer", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
     sections.push({ id: "sec-top", label: S.view === "day" ? "Top stories" : "Top " + topN, n: top.length });
@@ -757,9 +749,8 @@
 
   // ─────────────────────────── loading & live updates ───────────────────────────
   function syncHash() {
-    // the automatic early-morning view of yesterday isn't pinned: a reload re-decides from the clock
-    const h = S.early ? "" : `#${S.view}/${S.anchor}${S.tab !== "brief" ? "/" + S.tab : ""}`;
-    try { if (location.hash !== h) history.replaceState(null, "", h || location.pathname + location.search); } catch (e) { /* sandboxed frame */ }
+    const h = `#${S.view}/${S.anchor}${S.tab !== "brief" ? "/" + S.tab : ""}`;
+    try { if (location.hash !== h) history.replaceState(null, "", h); } catch (e) { /* sandboxed frame */ }
   }
   function readHash() {
     const m = location.hash.match(/^#(day|week|month)\/(\d{4}-\d{2}-\d{2})(?:\/(\w+))?/);
@@ -781,7 +772,6 @@
     S.loadedKey = key; S.loadedAt = S.serverStamp || new Date().toISOString(); S.pending = [];
   }
   async function go(patch = {}) {
-    if ("anchor" in patch || "view" in patch) S.early = false;  // the reader picked a period
     Object.assign(S, patch);
     S.expanded.clear(); S.search = null;
     syncHash(); renderPeriod();
@@ -956,6 +946,87 @@
     renderAll(); window.scrollTo({ top: 0 });
   }
 
+  // ─────────────────────────── calendar (date picker) ───────────────────────────
+  // Days with news get a dot. Month and year menus jump anywhere in the archive at once.
+  const cal = { month: null };
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const hasNews = (d) => (S.meta.date_counts[d] || 0) > 0 || !!(S.meta.brief_days && S.meta.brief_days[d]);
+  function calBounds() {
+    const known = Object.keys(S.meta.date_counts || {}).concat(Object.keys(S.meta.brief_days || {}), (S.meta.months || []).map((m) => m + "-01"));
+    const first = known.length ? known.reduce((a, b) => (a < b ? a : b)) : todayIST();
+    return [first.slice(0, 7), todayIST().slice(0, 7)];
+  }
+  function calShift(ym, n) { const d = D(ym + "-01"); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); }
+  function renderCalendar() {
+    const el = $("#calendar");
+    const [minM, maxM] = calBounds();
+    cal.month = cal.month < minM ? minM : cal.month > maxM ? maxM : cal.month;
+    const [y, m] = cal.month.split("-").map(Number);
+    const first = D(`${cal.month}-01`);
+    const lead = (first.getUTCDay() + 6) % 7;  // weeks start on Monday
+    const nDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const today = todayIST();
+    const [from, to] = periodRange(S.view, S.anchor);
+    const years = [];
+    for (let yy = +minM.slice(0, 4); yy <= +maxM.slice(0, 4); yy++) years.push(yy);
+    let days = "";
+    for (let i = 1; i <= nDays; i++) {
+      const d = `${cal.month}-${pad2(i)}`;
+      const cls = [hasNews(d) ? "has" : "", d === today ? "today" : "", d >= from && d <= to ? (S.view === "day" ? "sel" : "inrange") : ""].join(" ").trim();
+      const dd = D(d);
+      days += `<button type="button" data-day="${d}" class="${cls}" ${d > today ? "disabled" : ""} aria-label="${WD_LONG[dd.getUTCDay()]} ${i} ${MONTHS_LONG[m - 1]} ${y}${hasNews(d) ? ", has news" : ""}"${d >= from && d <= to ? ' aria-current="date"' : ""}>${i}</button>`;
+    }
+    el.innerHTML = `<div class="cal-head">
+        <button type="button" class="iconbtn" data-cal="prev" aria-label="Previous month" ${cal.month <= minM ? "disabled" : ""}>‹</button>
+        <select data-cal="month" aria-label="Month">${MONTHS_LONG.map((n, i) => { const v = `${y}-${pad2(i + 1)}`; return `<option value="${i + 1}" ${i + 1 === m ? "selected" : ""} ${v > maxM || v < minM ? "disabled" : ""}>${n}</option>`; }).join("")}</select>
+        <select data-cal="year" aria-label="Year">${years.map((yy) => `<option value="${yy}" ${yy === y ? "selected" : ""}>${yy}</option>`).join("")}</select>
+        <button type="button" class="iconbtn" data-cal="next" aria-label="Next month" ${cal.month >= maxM ? "disabled" : ""}>›</button>
+      </div>
+      <div class="cal-grid">${["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((w) => `<span class="wd" aria-hidden="true">${w}</span>`).join("")}${"<span></span>".repeat(lead)}${days}</div>
+      <div class="cal-foot"><span><i></i>has news</span><button type="button" class="linkbtn" data-cal="today">Today</button></div>`;
+  }
+  function placeCalendar() {
+    const el = $("#calendar");
+    el.style.transform = "translateX(-50%)";
+    const r = el.getBoundingClientRect(), vw = document.documentElement.clientWidth;
+    const shift = r.left < 16 ? 16 - r.left : r.right > vw - 16 ? vw - 16 - r.right : 0;
+    if (shift) el.style.transform = `translateX(calc(-50% + ${Math.round(shift)}px))`;
+  }
+  function openCalendar() {
+    cal.month = S.anchor.slice(0, 7);
+    renderCalendar();
+    $("#calendar").hidden = false; $("#periodLabel").setAttribute("aria-expanded", "true");
+    placeCalendar();
+    const focus = $("#calendar [aria-current]") || $("#calendar .today") || $("#calendar [data-day]:not([disabled])");
+    if (focus) focus.focus();
+  }
+  function closeCalendar(refocus = false) {
+    if ($("#calendar").hidden) return;
+    $("#calendar").hidden = true; $("#periodLabel").setAttribute("aria-expanded", "false");
+    if (refocus) $("#periodLabel").focus();
+  }
+  function calFocusDay(d) {
+    const today = todayIST();
+    if (d > today) return;
+    if (d.slice(0, 7) !== cal.month) {
+      const [minM] = calBounds();
+      if (d.slice(0, 7) < minM) return;
+      cal.month = d.slice(0, 7); renderCalendar();
+    }
+    const b = $(`#calendar [data-day="${d}"]`);
+    if (b) b.focus();
+  }
+  document.addEventListener("click", (e) => {  // a click anywhere else closes the calendar
+    if (!$("#calendar").hidden && !e.target.closest(".datepick")) closeCalendar();
+  }, true);
+  document.addEventListener("change", (e) => {
+    const sel = e.target.closest && e.target.closest("#calendar select");
+    if (!sel) return;
+    const [y, m] = cal.month.split("-");
+    cal.month = sel.dataset.cal === "year" ? `${sel.value}-${m}` : `${y}-${pad2(+sel.value)}`;
+    renderCalendar();
+  });
+
   document.addEventListener("click", async (e) => {
     const t = e.target.closest("button, a, rect.hit");
     if (!t) return;
@@ -963,7 +1034,10 @@
     if (t.id === "prev") return go({ anchor: stepAnchor(S.view, S.anchor, -1) });
     if (t.id === "next") return go({ anchor: stepAnchor(S.view, S.anchor, 1) });
     if (t.id === "todayBtn") return go({ view: "day", anchor: todayIST() });
-    if (t.matches("[data-early]")) return go({ view: "day", anchor: todayIST() });
+    if (t.id === "periodLabel") return $("#calendar").hidden ? openCalendar() : closeCalendar();
+    if (t.dataset.cal === "prev" || t.dataset.cal === "next") { cal.month = calShift(cal.month, t.dataset.cal === "prev" ? -1 : 1); renderCalendar(); return; }
+    if (t.dataset.cal === "today") { closeCalendar(); return go({ view: "day", anchor: todayIST() }); }
+    if (t.dataset.day) { closeCalendar(); return go({ anchor: t.dataset.day }); }
     if (t.matches("[data-yesterday]")) return go({ view: "day", anchor: addDays(todayIST(), -1) });
     if (t.id === "themeBtn") {
       const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
@@ -1027,6 +1101,13 @@
   });
   $("#scrim").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {
+    if (!$("#calendar").hidden) {
+      if (e.key === "Escape") { e.preventDefault(); closeCalendar(true); return; }
+      const day = e.target.dataset && e.target.dataset.day;
+      const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+      if (day && step) { e.preventDefault(); calFocusDay(addDays(day, step)); }
+      if (e.target.closest && e.target.closest("#calendar")) return;
+    }
     if (e.key === "Escape") closeDrawer();
     if (e.target.matches("input, textarea, select")) return;
     if (e.key === "/") { e.preventDefault(); $("#q").focus(); }
@@ -1047,14 +1128,12 @@
   // ─────────────────────────── boot ───────────────────────────
   async function boot() {
     readHash();
+    S.view = "day"; S.anchor = todayIST();  // opening the site always lands on today (IST); the tab is kept
     if (STATIC) $("#refreshBtn").title = "Check for the latest update";
     if (SNAPSHOT) { $("#refreshBtn").hidden = true; $("#exportBtn").hidden = true; }
     try { [S.meta, S.marks] = await Promise.all([api.meta(), api.marks()]); }
     catch (e) { $("#content").innerHTML = `<div class="empty">Could not reach the data (${esc(e.message)}). Is the server running?</div>`; return; }
     S.lastRunSeen = STATIC ? S.meta.built_at : (S.meta.last_run && S.meta.last_run.finished_at) || "none";
-    if (!location.hash && S.view === "day" && S.anchor === todayIST() && (S.meta.date_counts[todayIST()] || 0) < EARLY_MIN) {
-      S.anchor = addDays(todayIST(), -1); S.early = true;
-    }
     await go();
     if (!SNAPSHOT) setInterval(poll, POLL_MS);
     setInterval(renderLive, 30000);
