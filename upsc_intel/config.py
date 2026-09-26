@@ -68,7 +68,7 @@ class Settings:
     brief_explained: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EXPLAINED", 12))
     youtube_api_key: str | None = field(default_factory=lambda: _env("YOUTUBE_API_KEY"))
     video_search: bool = field(default_factory=lambda: _env_bool("UPSC_VIDEO_SEARCH", True))
-    video_lang: str = field(default_factory=lambda: _env("UPSC_VIDEO_LANG", "en"))
+    video_lang: str = field(default_factory=lambda: _env("UPSC_VIDEO_LANG", "en,hi"))
     # optional AI
     anthropic_api_key: str | None = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     ai_model: str = field(default_factory=lambda: _env("UPSC_AI_MODEL", "claude-opus-5"))

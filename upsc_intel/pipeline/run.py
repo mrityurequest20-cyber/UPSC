@@ -24,6 +24,7 @@ from .videos import link_brief_videos, video_row
 log = logging.getLogger("upsc_intel")
 RUN_LOCK = threading.Lock()
 MIGRATION_KINDS = "migration:kinds-v1"  # re-label stored items as news / editorial / explained once
+MIGRATION_CLASSIFY = "migration:classify-v2"  # foreign affairs → IR, routine-notice noise: re-grade once
 
 
 def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: str) -> dict | None:
@@ -94,6 +95,12 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
         backfill_descriptions(settings, db, sources)
         reclassify(settings, db)
         db.mark_seen(MIGRATION_KINDS)
+        db.mark_seen(MIGRATION_CLASSIFY)
+        db.commit()
+    elif not db.seen(MIGRATION_CLASSIFY):
+        log.info("one-time: re-grading stored items (foreign affairs, routine notices)")
+        reclassify(settings, db)
+        db.mark_seen(MIGRATION_CLASSIFY)
         db.commit()
     clf = Classifier(load_topics(settings))
     states = db.all_source_states()

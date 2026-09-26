@@ -14,6 +14,11 @@ DEFAULT_TIERS = {"official": 3.0, "examprep": 2.5, "premium": 2.5, "quality": 1.
 PRELIMS_TAGS = {"Scheme", "Report/Index", "Species", "Place in news", "Award", "Day/Observance",
                 "Exercise", "Appointment", "Agreement/MoU"}
 GS_ORDER = ["GS1", "GS2", "GS3", "GS4", "Prelims"]
+# "Prime Minister Narendra Modi", "EAM S. Jaishankar", "Chief Justice B.R. Gavai", "President Trump"
+TITLED = re.compile(
+    r"\b(Prime Minister|PM|President|Vice[- ]President|Chief Justice|CJI|Justice|External Affairs Minister|EAM|"
+    r"Finance Minister|Home Minister|Defence Minister|Union Minister|Chief Minister|CM|Governor|Speaker|"
+    r"Secretary[- ]General|Minister)\s+((?:[A-Z]\.\s?)*[A-Z][a-zA-Z'\-]+(?:\s+(?:[A-Z]\.\s?)*[A-Z][a-zA-Z'\-]+){0,2})")
 
 
 def _norm(text: str) -> str:
@@ -86,6 +91,7 @@ class Analysis:
     tags: list[str] = field(default_factory=list)
     watch: list[str] = field(default_factory=list)
     india: bool = True
+    foreign: str = ""  # "neighbourhood" / "world": another country's affairs with no India link
 
 
 class Classifier:
@@ -117,6 +123,20 @@ class Classifier:
         self.india_terms = TermMatcher({str(t): [("i", 1.0)] for t in ia.get("terms") or []})
         self.india_exempt = TermMatcher({str(t): [("x", 1.0)] for t in ia.get("exempt") or []})
 
+        fa = topics.get("foreign_affairs") or {}
+        self.foreign_penalty = float(fa.get("penalty", 0))
+        self.neighbour_penalty = float(fa.get("neighbourhood_penalty", 0))
+        self.foreign_move = set(fa.get("move_subjects") or [])
+        self.foreign_terms = TermMatcher({str(t): [("f", 1.0)] for t in fa.get("countries") or []})
+        self.neighbour_terms = TermMatcher({str(t): [("n", 1.0)] for t in fa.get("neighbourhood") or []})
+        self.india_link = TermMatcher({str(t): [("i", 1.0)] for t in fa.get("india_link") or []})
+
+        gz = topics.get("gazetteer") or {}
+        self.place_names = {str(t): str(t) for t in (gz.get("india") or []) + (gz.get("world") or [])}
+        self.body_names = {str(t): str(t) for t in gz.get("bodies") or []}
+        self.places_m = TermMatcher({t: [("p", 1.0)] for t in self.place_names})
+        self.bodies_m = TermMatcher({t: [("b", 1.0)] for t in self.body_names})
+
         self.watch_meta: dict[str, str] = {}
         self.watch_rules: dict[str, list[TermMatcher]] = {}
         for wid, meta in (topics.get("watch_areas") or {}).items():
@@ -133,6 +153,13 @@ class Classifier:
             for _, entries in self.kw.find(text).items():
                 for sid, w in entries:
                     scores[sid] += w * mult
+        # another country's parliament / constitution / courts is world affairs, not Indian polity
+        if (self.foreign_terms.find(title) and not self.india_link.find(f"{title} {summary}")
+                and not self.india_exempt.find(title)):
+            a.foreign = "neighbourhood" if self.neighbour_terms.find(title) else "world"
+            moved = sum(scores.pop(s) for s in list(scores) if s in self.foreign_move)
+            if moved and "ir" in self.subject_meta:
+                scores["ir"] += moved
         ranked = sorted(scores.items(), key=lambda kv: -kv[1])
         a.subject_scores = {k: round(v, 2) for k, v in ranked}
         a.subjects = [sid for sid, s in ranked if s >= self.subject_threshold][: self.max_subjects]
@@ -150,6 +177,35 @@ class Classifier:
             a.india = bool(a.watch or self.india_terms.find(full) or self.india_exempt.find(full))
         return a
 
+    # ── the Where / Who lines of the write-ups: only names that occur in the text ──
+    @staticmethod
+    def _in_order(text: str, found: dict, names: dict) -> list[str]:
+        lower = text.lower()
+        canon = {_norm(n).lower(): n for n in names}
+        out = []
+        for key in found:
+            name = canon.get(key.lower(), key)
+            pos = lower.find(name.lower())
+            out.append((pos if pos >= 0 else 10**6, name))
+        seen, res = set(), []
+        for _, name in sorted(out):
+            if name.lower() not in seen and not any(name.lower() in r.lower() for r in res):
+                seen.add(name.lower())
+                res.append(name)
+        return res
+
+    def places(self, text: str, limit: int = 4) -> list[str]:
+        return self._in_order(text, self.places_m.find(text), self.place_names)[:limit]
+
+    def people_and_bodies(self, text: str, limit: int = 4) -> list[str]:
+        people = []
+        for m in TITLED.finditer(text or ""):
+            name, title = m.group(2).strip(), m.group(1)
+            if name.split()[0] not in ("Of", "The", "For") and not any(name in p for p in people):
+                people.append(f"{name} ({title})")
+        bodies = self._in_order(text, self.bodies_m.find(text), self.body_names)
+        return (people + [b for b in bodies if not any(b in p for p in people)])[:limit]
+
     def score(self, a: Analysis, tier: str, kind: str = "news") -> float:
         """kind: news / editorial / explained. Opinion and explainers on world affairs are
         GS2 material in their own right, so the India-angle penalty only applies to news."""
@@ -159,7 +215,9 @@ class Classifier:
         s += min(best / 4.0, 2.0) if a.subjects else -self.no_subject_penalty
         s += min(0.5 * len(a.tags), 1.5)
         s -= a.noise
-        if not a.india and tier in self.india_tiers and kind == "news":
+        if a.foreign and kind == "news":
+            s -= self.neighbour_penalty if a.foreign == "neighbourhood" else self.foreign_penalty
+        elif not a.india and tier in self.india_tiers and kind == "news":
             s -= self.india_penalty
         return round(s, 2)
 

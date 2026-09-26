@@ -47,6 +47,9 @@ Fields:
 - gs: the GS papers it maps to (GS1 history/culture/geography/society, GS2 polity/governance/IR/
   social justice, GS3 economy/environment/S&T/security/disaster, GS4 ethics).
 - keywords: 3-6 key terms to remember.
+- when: the date(s) or timeline from the text ("" if none).
+- where: the place(s) involved ("" if none).
+- who: the key people and bodies involved, with their role ("" if none).
 - video_query: the best YouTube search query (5-9 words) to find an explainer video on this exact topic.
 - insufficient: true when the text did not carry enough substance.
 
@@ -67,11 +70,14 @@ SCHEMA = {
         "mains": {"type": "string"},
         "gs": {"type": "array", "items": {"type": "string", "enum": ["GS1", "GS2", "GS3", "GS4"]}},
         "keywords": {"type": "array", "items": {"type": "string"}},
+        "when": {"type": "string"},
+        "where": {"type": "string"},
+        "who": {"type": "string"},
         "video_query": {"type": "string"},
         "insufficient": {"type": "boolean"},
     },
     "required": ["headline", "what", "why_in_news", "background", "significance", "prelims", "mains",
-                 "gs", "keywords", "video_query", "insufficient"],
+                 "gs", "keywords", "when", "where", "who", "video_query", "insufficient"],
     "additionalProperties": False,
 }
 
@@ -122,14 +128,57 @@ def _nice_date(d: str | None) -> str:
         return d or ""
 
 
-def auto_explain(story: dict, labels: dict) -> dict:
-    """No-AI explainer: first sentence = why in news, the next ones = what happened."""
+_MONTHS = ("January|February|March|April|May|June|July|August|September|October|November|December|"
+           "Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec")
+WHEN = re.compile(
+    rf"\b(?:(?:on|from|by|till|until|since|before|after|in)\s+)?(?:\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTHS})\.?(?:,?\s+\d{{4}})?"
+    rf"|(?:{_MONTHS})\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:,\s*\d{{4}})?|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"
+    rf"|(?:this|next|last)\s+(?:week|month|year)|(?:in|by|till|until)\s+20\d\d)\b")
+
+
+def _words(s: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9]+", s.lower()) if len(w) > 3}
+
+
+def _dedupe(sents: list[str]) -> list[str]:
+    """Drop sentences that repeat an earlier one (several outlets often open with the same fact)."""
+    out: list[str] = []
+    for s in sents:
+        w = _words(s)
+        if any(len(w & _words(o)) >= 0.6 * max(1, min(len(w), len(_words(o)))) for o in out):
+            continue
+        out.append(s)
+    return out
+
+
+def five_w(text: str, story: dict, clf=None) -> dict:
+    """When / Where / Who lines, only from names and dates actually in the text."""
+    when = []
+    for m in WHEN.finditer(text or ""):
+        phrase = m.group(0).strip()
+        if phrase.lower() not in (x.lower() for x in when):
+            when.append(phrase)
+        if len(when) == 2:
+            break
+    reported = _nice_date(story.get("date_ist") or story.get("date"))
+    out = {"when": " · ".join([f"Reported {reported}"] + when) if reported else " · ".join(when)}
+    if clf is not None:
+        full = f"{story.get('title') or ''}. {text or ''}"
+        out["where"] = ", ".join(clf.places(full))
+        out["who"] = ", ".join(clf.people_and_bodies(full))
+    return out
+
+
+def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -> dict:
+    """No-AI explainer: first sentence = why in news, the next ones = what happened, plus when / where /
+    who. text: all the outlets' summaries of this story together (more to go on than one feed line)."""
     subj_labels = labels.get("subjects", {})
     watch_labels = labels.get("watch", {})
     title = (story.get("title") or "").strip()
-    summary = clean_summary(story.get("summary") or "").replace("…", "").strip()
+    summary = clean_summary(text or story.get("summary") or "").replace("…", "").strip()
     sents = [_LABEL.sub("", _SYLLABUS.sub("", s)) for s in _sentences(summary) if not _FURNITURE.search(s)]
     sents = [s for s in sents if s and s.lower() != title.lower() and not title.lower().startswith(s.lower()[:60])]
+    sents = _dedupe(sents)
     if sents and not re.search(r"[.!?\"”’)]$", sents[-1]):  # feed excerpt cut mid-sentence
         sents[-1] += "…"
     pubs = story.get("publishers") or [x.get("p") for x in story.get("sources", []) if x.get("p")]
@@ -168,7 +217,7 @@ def auto_explain(story: dict, labels: dict) -> dict:
     if len(pubs) >= 3:
         sig.append(f"Widely reported: {len(pubs)} outlets")
     return {"what": what, "why_in_news": why, "background": "", "significance": sig, "prelims": facts,
-            "mains": "", "keywords": [], "auto": True}
+            "mains": "", "keywords": [], "auto": True, **five_w(summary, story, clf)}
 
 
 # ─────────────────────────── AI explainer ───────────────────────────

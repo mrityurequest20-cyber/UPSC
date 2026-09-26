@@ -6,8 +6,11 @@ candidate should actually read. Weekly and monthly views are built from the dail
 
 Selection for one day (stories first reported that day):
 1. Coverage pass: the best NOTE/SKIM story of each syllabus subject, so no area is skipped.
-2. Fill pass: remaining slots by score (importance + coverage), max PER_SUBJECT per subject.
-3. Editorials and explainers: their own quotas, best syllabus match first. A first pass caps
+2. NOTE pass: every NOTE story gets in (max NOTE_MAX a day, NOTE_PER_SUBJECT per subject), so a
+   story graded NOTE is never missing from its day's brief.
+3. SKIM fill: up to `size` stories in all, max PER_SUBJECT per subject.
+   Other countries' internal affairs (no India link) only get in as NOTE, never as filler.
+4. Editorials and explainers: their own quotas, best syllabus match first. A first pass caps
    each publisher so one paper can't fill the section; leftover slots are then filled by score.
    Their headlines are opaque ("When we become too busy to think"), so any grade qualifies once
    a syllabus subject matched and the score clears OPINION_MIN_SCORE.
@@ -23,6 +26,8 @@ from .classify import Classifier
 from .normalize import today_ist
 
 PER_SUBJECT = 4
+NOTE_MAX = 35
+NOTE_PER_SUBJECT = 8
 TEXT_BONUS = 0.8
 OPINION_MIN_SCORE = 0.5
 
@@ -51,8 +56,9 @@ def _spread(items: list[dict], size: int) -> list[dict]:
 def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
                ex_size: int = 0) -> list[tuple[str, str, int]]:
     rows = db.q(
-        "SELECT id, score, grade, subjects, is_editorial, is_explained, publishers, "
-        "length(COALESCE(summary,'')) AS slen FROM stories WHERE date_ist=? AND is_library=0 ORDER BY score DESC",
+        "SELECT id, title, COALESCE(summary,'') AS summary, score, grade, subjects, is_editorial, is_explained, "
+        "publishers, length(COALESCE(summary,'')) AS slen FROM stories WHERE date_ist=? AND is_library=0 "
+        "ORDER BY score DESC",
         (day,),
     )
     news, eds, exps = [], [], []
@@ -71,28 +77,37 @@ def select_day(db: DB, clf: Classifier, day: str, size: int, ed_size: int,
             if opinion_ok:
                 exps.append(item)
         elif r["grade"] in ("NOTE", "SKIM"):
+            item["note"] = r["grade"] == "NOTE"
+            item["foreign"] = bool(clf.analyze(r["title"] or "", r["summary"]).foreign)
             news.append(item)
 
     picked: list[dict] = []
+    taken: set[str] = set()
     per_subject: dict[str, int] = {}
-    order = list(clf.subject_meta)
-    best_by_subject: dict[str, dict] = {}
-    for it in news:
-        best_by_subject.setdefault(it["subject"], it)
-    for subj in order:  # coverage pass
-        it = best_by_subject.get(subj)
-        if it and len(picked) < size:
-            picked.append(it)
-            per_subject[subj] = 1
-    taken = {p["id"] for p in picked}
-    for it in news:  # fill pass
-        if len(picked) >= size:
-            break
-        if it["id"] in taken or per_subject.get(it["subject"], 0) >= PER_SUBJECT:
-            continue
+
+    def take(it: dict) -> None:
         picked.append(it)
         taken.add(it["id"])
         per_subject[it["subject"]] = per_subject.get(it["subject"], 0) + 1
+
+    best_by_subject: dict[str, dict] = {}
+    for it in news:
+        if not it["foreign"]:
+            best_by_subject.setdefault(it["subject"], it)
+    for subj in clf.subject_meta:  # 1. coverage pass
+        it = best_by_subject.get(subj)
+        if it and len(picked) < size:
+            take(it)
+    for it in news:  # 2. every NOTE story
+        if (it["note"] and it["id"] not in taken and sum(p["note"] for p in picked) < NOTE_MAX
+                and per_subject.get(it["subject"], 0) < NOTE_PER_SUBJECT):
+            take(it)
+    for it in news:  # 3. SKIM fill
+        if len(picked) >= size:
+            break
+        if (it["id"] not in taken and not it["foreign"]
+                and per_subject.get(it["subject"], 0) < PER_SUBJECT):
+            take(it)
     picked.sort(key=lambda p: -p["score"])
 
     eds.sort(key=lambda p: -p["score"])

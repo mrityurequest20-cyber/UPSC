@@ -268,6 +268,9 @@ button { cursor: pointer; }
 .pill.new { background: var(--critical); color: #fff; }
 .pill.ed { background: var(--surface-2); color: var(--ink); }
 .pill.ex { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good-text); }
+.bchip { display: inline-block; font-size: 11.5px; font-weight: 650; border-radius: 6px; padding: 1px 7px; margin: 3px 0 2px; }
+.bchip.in { background: color-mix(in srgb, var(--good) 14%, var(--surface)); color: var(--good-text); }
+.bchip.out { background: var(--surface-2); color: var(--ink-2); font-weight: 600; }
 .actions { display: flex; gap: 2px; flex: none; }
 .actions button {
   border: 0; background: transparent; width: 30px; height: 30px; border-radius: 7px; color: var(--muted);

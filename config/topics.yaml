@@ -1110,6 +1110,59 @@ india_angle:
   exempt: [United Nations, UN, UNGA, UNSC, WTO, IMF, World Bank, WHO, BRICS, SCO, G20, G7, QUAD, Quad, ASEAN, BIMSTEC,
            SAARC, IORA, COP30, COP31, UNFCCC, IPCC, IUCN, UNESCO, NATO, OPEC, IAEA, ICJ, Nobel]
 
+# Other countries' domestic politics is not Indian polity. When a headline names a foreign
+# country and nothing links the story to India, its polity/governance/social-justice/security
+# score counts as International Relations instead, and the story is marked down (news only).
+# Global institutions (the india_angle exempt list: UN, WTO, BRICS…) keep a story un-penalised.
+foreign_affairs:
+  penalty: 3.0                 # e.g. US court rulings, Russia's parliament
+  neighbourhood_penalty: 2.5   # neighbours' internal politics: visible in Everything, in the brief only if big (NOTE)
+  move_subjects: [polity, governance, social_justice, internal_security]
+  neighbourhood: [Sri Lanka, Lankan, Colombo, Nepal, Nepali, Nepalese, Kathmandu, Bangladesh, Bangladeshi, Dhaka,
+                  Pakistan, Pakistani, Islamabad, Maldives, Maldivian, Bhutan, Bhutanese, Thimphu, Myanmar, Burma,
+                  Afghanistan, Afghan, Taliban, Kabul]
+  countries: [Sri Lanka, Lankan, Colombo, Nepal, Nepali, Nepalese, Kathmandu, Bangladesh, Bangladeshi, Dhaka,
+              Pakistan, Pakistani, Islamabad, Maldives, Maldivian, Bhutan, Bhutanese, Thimphu, Myanmar, Burma,
+              Afghanistan, Afghan, Taliban, Kabul, China, Chinese, Beijing, Xi Jinping, Taiwan, Taiwanese, Tibetan,
+              US, U.S., USA, United States, American, America, Washington, White House, Trump, Biden, Russia, Russian,
+              Kremlin, Moscow, Putin, Ukraine, Ukrainian, Kyiv, UK, Britain, British, London, France, French, Paris,
+              Macron, Germany, German, Berlin, Italy, Italian, Spain, Spanish, EU, European, Brussels, Japan, Japanese,
+              Tokyo, South Korea, North Korea, Korean, Seoul, Iran, Iranian, Tehran, Israel, Israeli, Gaza, Netanyahu,
+              Saudi, UAE, Qatar, Egypt, Turkey, Turkish, Canada, Canadian, Ottawa, Australia, Australian, Canberra,
+              Brazil, Brazilian, Mexico, Argentina, Venezuela, South Africa, Nigeria, Kenya, Indonesia, Indonesian,
+              Thailand, Thai, Bangkok, Vietnam, Philippines, Malaysia, Singapore, Greenland, Denmark, Norway, Sweden,
+              Poland, Hungary, Syria, Iraq, Yemen, Houthi, Trinidad]
+  # a story is India-linked only by these (not by generic words like "Parliament" or "Supreme Court")
+  india_link: [India, Indian, Indians, New Delhi, Delhi, Modi, Jaishankar, MEA, Lok Sabha, Rajya Sabha, Indo, rupee,
+               crore, lakh, Tamil, Tamils, Andhra Pradesh, Arunachal, Assam, Bihar, Chhattisgarh, Goa, Gujarat,
+               Haryana, Himachal, Jharkhand, Karnataka, Kerala, Keralam, Madhya Pradesh, Maharashtra, Manipur,
+               Meghalaya, Mizoram, Nagaland, Odisha, Punjab, Rajasthan, Sikkim, Tamil Nadu, Telangana, Tripura,
+               Uttar Pradesh, Uttarakhand, West Bengal, Jammu, Kashmir, Ladakh, Mumbai, Kolkata, Chennai, Bengaluru,
+               Hyderabad, Indian Ocean]
+
+# Places and institutions for the Where / Who lines of the write-ups (only names found in the text are shown).
+gazetteer:
+  india: [Andhra Pradesh, Arunachal Pradesh, Assam, Bihar, Chhattisgarh, Goa, Gujarat, Haryana, Himachal Pradesh,
+          Jharkhand, Karnataka, Kerala, Keralam, Madhya Pradesh, Maharashtra, Manipur, Meghalaya, Mizoram, Nagaland,
+          Odisha, Punjab, Rajasthan, Sikkim, Tamil Nadu, Telangana, Tripura, Uttar Pradesh, Uttarakhand, West Bengal,
+          Jammu and Kashmir, Jammu, Kashmir, Ladakh, Delhi, New Delhi, Puducherry, Chandigarh, Lakshadweep,
+          Andaman and Nicobar, Andaman, Nicobar, Dadra and Nagar Haveli, Daman and Diu, Mumbai, Kolkata, Chennai,
+          Bengaluru, Hyderabad, Ahmedabad, Pune, Lucknow, Jaipur, Bhopal, Patna, Guwahati, Srinagar, Leh, Thiruvananthapuram,
+          Kochi, Visakhapatnam, Bhubaneswar, Ranchi, Raipur, Dehradun, Shimla, Imphal, Kohima, Aizawl, Agartala, Shillong,
+          Gangtok, Itanagar, Panaji, Western Ghats, Eastern Ghats, Himalaya, Himalayas, Thar, Deccan, Sundarbans,
+          Indian Ocean, Bay of Bengal, Arabian Sea, Ganga, Brahmaputra, Yamuna, Godavari, Krishna, Kaveri, Narmada]
+  world: [Sri Lanka, Nepal, Bangladesh, Pakistan, Maldives, Bhutan, Myanmar, Afghanistan, China, Taiwan, Tibet, United States,
+          US, Russia, Ukraine, United Kingdom, UK, France, Germany, Italy, Spain, European Union, Japan, South Korea,
+          North Korea, Iran, Israel, Gaza, Palestine, Saudi Arabia, UAE, Qatar, Oman, Egypt, Turkey, Canada, Australia,
+          New Zealand, Brazil, Mexico, Argentina, South Africa, Nigeria, Kenya, Ethiopia, Indonesia, Thailand, Vietnam,
+          Philippines, Malaysia, Singapore, Greenland, Strait of Hormuz, Red Sea, South China Sea, Arctic, Antarctica]
+  bodies: [Supreme Court, High Court, Parliament, Lok Sabha, Rajya Sabha, Union Cabinet, Cabinet, Election Commission,
+           ECI, RBI, SEBI, NITI Aayog, CAG, UPSC, ISRO, DRDO, NGT, CBI, NIA, NHRC, NCW, FSSAI, TRAI, IRDAI, PFRDA, CCI,
+           NPCI, UIDAI, CDSCO, ICMR, IMD, INCOIS, BIS, GST Council, Finance Commission, Law Commission, MEA,
+           Ministry of Home Affairs, Ministry of Finance, Ministry of Defence, Ministry of External Affairs,
+           United Nations, UN, UNGA, UNSC, WHO, WTO, IMF, World Bank, BRICS, SCO, G20, ASEAN, Quad, IAEA, UNESCO,
+           UNFCCC, ICJ, NATO, OPEC, IPCC]
+
 # High-yield words: an item is more examinable when it carries a structure,
 # not just an event.
 signals:
@@ -1167,6 +1220,18 @@ signals:
 
 # Not examinable: pushed down (not deleted).
 noise:
+  Government Stock: 3
+  Underwriting Auction: 4
+  Daily Current Affairs: 3
+  UPSC Key: 3
+  Current Affairs Quiz: 4
+  "News & Editorials": 3
+  PIB Summary: 3
+  Mains Answer Practice: 2
+  Makes New Investment: 4
+  Acquires New Stake: 4
+  Buys Shares: 3
+  Sells Shares: 3
   letters to the editor: 4
   "DH Toon": 4
   cartoon: 3
