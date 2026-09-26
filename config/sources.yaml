@@ -99,6 +99,9 @@ sources:
     url: https://indianexpress.com/section/upsc-current-affairs/feed/
     tier: examprep
     describe: true
+    fallbacks:
+      - kind: gnews
+        query: "site:indianexpress.com/article/upsc-current-affairs when:3d"
   - id: insights
     name: Insights on India
     kind: rss
@@ -187,16 +190,17 @@ sources:
   - {id: businessline-opinion, name: BusinessLine, section: Opinion, kind: rss, url: "https://www.thehindubusinessline.com/opinion/feeder/default.rss", tier: quality, editorial: true, limit: 30}
 
   # ─────────────── Indian Express ───────────────
-  # Indian Express feeds carry headlines only, hence `describe`
+  # Indian Express feeds carry headlines only, hence `describe`. indianexpress.com answers 403 to
+  # cloud IPs (GitHub Actions), so every section falls back to Google News on its own URL path.
   - {id: ie-india, name: Indian Express, section: India, kind: rss, url: "https://indianexpress.com/section/india/feed/", tier: quality, site: indianexpress.com, limit: 80, describe: true}
-  - {id: ie-explained, name: Indian Express, section: Explained, kind: rss, url: "https://indianexpress.com/section/explained/feed/", tier: examprep, explained: true, limit: 80, describe: true}
-  - {id: ie-world, name: Indian Express, section: World, kind: rss, url: "https://indianexpress.com/section/world/feed/", tier: quality, limit: 60, describe: true}
-  - {id: ie-economy, name: Indian Express, section: Economy, kind: rss, url: "https://indianexpress.com/section/business/economy/feed/", tier: quality, limit: 60, describe: true}
-  - {id: ie-science, name: Indian Express, section: Science, kind: rss, url: "https://indianexpress.com/section/technology/science/feed/", tier: quality, limit: 60, describe: true}
-  - {id: ie-political-pulse, name: Indian Express, section: Political Pulse, kind: rss, url: "https://indianexpress.com/section/political-pulse/feed/", tier: general, limit: 40}
-  - {id: ie-editorials, name: Indian Express, section: Editorials, kind: rss, url: "https://indianexpress.com/section/opinion/editorials/feed/", tier: quality, editorial: true, limit: 40, describe: true}
-  - {id: ie-columns, name: Indian Express, section: Columns, kind: rss, url: "https://indianexpress.com/section/opinion/columns/feed/", tier: quality, editorial: true, limit: 40, describe: true}
-  - {id: ie-opinion, name: Indian Express, section: Opinion, kind: rss, url: "https://indianexpress.com/section/opinion/feed/", tier: quality, editorial: true, limit: 60, describe: true}
+  - {id: ie-explained, name: Indian Express, section: Explained, kind: rss, url: "https://indianexpress.com/section/explained/feed/", tier: examprep, explained: true, limit: 80, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/explained when:2d"}]}
+  - {id: ie-world, name: Indian Express, section: World, kind: rss, url: "https://indianexpress.com/section/world/feed/", tier: quality, limit: 60, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/world when:1d"}]}
+  - {id: ie-economy, name: Indian Express, section: Economy, kind: rss, url: "https://indianexpress.com/section/business/economy/feed/", tier: quality, limit: 60, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/business when:1d"}]}
+  - {id: ie-science, name: Indian Express, section: Science, kind: rss, url: "https://indianexpress.com/section/technology/science/feed/", tier: quality, limit: 60, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/technology/science when:3d"}]}
+  - {id: ie-political-pulse, name: Indian Express, section: Political Pulse, kind: rss, url: "https://indianexpress.com/section/political-pulse/feed/", tier: general, limit: 40, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/political-pulse when:2d"}]}
+  - {id: ie-editorials, name: Indian Express, section: Editorials, kind: rss, url: "https://indianexpress.com/section/opinion/editorials/feed/", tier: quality, editorial: true, limit: 40, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/opinion/editorials when:3d"}]}
+  - {id: ie-columns, name: Indian Express, section: Columns, kind: rss, url: "https://indianexpress.com/section/opinion/columns/feed/", tier: quality, editorial: true, limit: 40, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/opinion/columns when:2d"}]}
+  - {id: ie-opinion, name: Indian Express, section: Opinion, kind: rss, url: "https://indianexpress.com/section/opinion/feed/", tier: quality, editorial: true, limit: 60, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/opinion when:2d"}]}
 
   # ─────────────── Business & economy ───────────────
   - {id: mint-economy, name: Mint, section: Economy, kind: rss, url: "https://www.livemint.com/rss/economy", tier: quality, site: livemint.com}
