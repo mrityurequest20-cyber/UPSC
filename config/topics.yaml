@@ -1110,6 +1110,15 @@ india_angle:
   exempt: [United Nations, UN, UNGA, UNSC, WTO, IMF, World Bank, WHO, BRICS, SCO, G20, G7, QUAD, Quad, ASEAN, BIMSTEC,
            SAARC, IORA, COP30, COP31, UNFCCC, IPCC, IUCN, UNESCO, NATO, OPEC, IAEA, ICJ, Nobel]
 
+# Content farms (AI-rewritten legal blogs, stock-filing bots, listicle sites) and portals that
+# only post notices. Their items are marked down so they never lead on their own; a story a
+# mainstream outlet also carries keeps that outlet's score. Matched on the exact publisher name.
+low_value_publishers:
+  penalty: 2.0
+  names: [Lawtext, lawtext.in, Legal Service India, Raw Law, Local Samosa, TradingView, MarketBeat, scanx.trade,
+          Social News XYZ, Yahoo Finance, Rediff MoneyWiz, AD HOC NEWS, urbanacres.in, SMEStreet, Metro Vaartha,
+          ISRO e-Procurement Portal]
+
 # Other countries' domestic politics is not Indian polity. When a headline names a foreign
 # country and nothing links the story to India, its polity/governance/social-justice/security
 # score counts as International Relations instead, and the story is marked down (news only).
@@ -1348,6 +1357,27 @@ noise:
   treasury bills: 3.5
   state government securities: 1.5
   auction of: 1
+  # regulators' and departments' routine paperwork: case-by-case orders, tenders, library lists
+  settlement order: 4
+  remittance advice: 4
+  recovery certificate: 4
+  order for compliance: 3
+  adjudication order: 3
+  defaulter: 3
+  tender for: 2
+  corrigendum: 3
+  expression of interest: 2.5
+  "DOCPLAN": 5
+  compiled by: 3
+  # department housekeeping (awareness drives, cleanliness weeks, memento auctions)
+  e-auction: 2.5
+  memento: 2
+  awareness programme: 2
+  awareness program: 2
+  awareness drive: 2
+  cleanliness: 2
+  to visit in: 2.5
+  places to visit: 3
 
 # Prelims-style tags (regex, case-insensitive unless (?-i) used).
 tags:

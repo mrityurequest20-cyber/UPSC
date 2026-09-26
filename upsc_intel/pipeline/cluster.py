@@ -175,3 +175,33 @@ def split_mixed_stories(db: DB) -> int:
             moved += len(ids)
     db.commit()
     return moved
+
+
+def merge_republished(db: DB, window_days: int = WINDOW_DAYS) -> set[str]:
+    """Exam-prep sites repost op-eds and explainers under the original headline ("Revisiting
+    India's nuclear doctrine…", with their notes). Such a news item *is* that piece: it is
+    relabelled and moved into the op-ed's / explainer's story, so the brief doesn't carry the
+    same article twice. Only an identical headline (same word set, 3+ words) counts.
+    Returns the story ids whose items changed (to re-aggregate)."""
+    since = (utcnow() - timedelta(days=window_days)).date().isoformat()
+    rows = db.q("SELECT id, story_id, tokens, is_editorial, is_explained FROM items "
+                "WHERE is_library=0 AND story_id IS NOT NULL AND date_ist >= ? ORDER BY published_at", (since,))
+    pieces: dict[frozenset, tuple[str, str]] = {}
+    for r in rows:
+        kind = item_kind(dict(r))
+        toks = frozenset(json.loads(r["tokens"] or "[]"))
+        if kind != "news" and len(toks) >= 3:
+            pieces.setdefault(toks, (r["story_id"], kind))
+    touched: set[str] = set()
+    for r in rows:
+        if item_kind(dict(r)) != "news":
+            continue
+        hit = pieces.get(frozenset(json.loads(r["tokens"] or "[]")))
+        if not hit or hit[0] == r["story_id"]:
+            continue
+        sid, kind = hit
+        db.update_item(r["id"], story_id=sid, is_editorial=int(kind == EDITORIAL), is_explained=int(kind == EXPLAINED))
+        touched.update((sid, r["story_id"]))
+    if touched:
+        db.commit()
+    return touched

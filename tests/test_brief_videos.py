@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from upsc_intel.pipeline.brief import select_day
-from upsc_intel.pipeline.cluster import split_mixed_stories
+from upsc_intel.pipeline.cluster import merge_republished, split_mixed_stories
 from upsc_intel.pipeline.enrich import _sentences, auto_explain, has_ai_explainer
 from upsc_intel.pipeline.kinds import content_kind
 from upsc_intel.pipeline.normalize import title_tokens
@@ -162,6 +162,14 @@ def test_auto_explain_skips_page_furniture(clf):
     assert auto_explain({**bare, "is_editorial": 1, "publishers": ["The Tribune"]}, {})["why_in_news"].startswith("Opinion piece in The Tribune")
 
 
+def test_auto_explain_marks_only_real_cuts(clf):
+    base = {"title": "Step up regulation", "date_ist": "2026-09-26", "subjects": [], "gs": [], "tags": [], "watch": []}
+    standfirst = auto_explain({**base, "summary": "Alternative medicine systems should comply with quality control"}, {})
+    assert standfirst["why_in_news"] == "Alternative medicine systems should comply with quality control"
+    cut = auto_explain({**base, "summary": "The Union Cabinet on Wednesday approved the scheme " * 4}, {})
+    assert cut["why_in_news"].endswith("…")
+
+
 def test_auto_explain_without_text(clf):
     e = auto_explain({"title": "Some headline", "date_ist": "2026-09-26", "summary": "", "subjects": [],
                       "gs": [], "tags": [], "watch": [], "publishers": ["Lawtext"]}, clf.labels())
@@ -228,6 +236,11 @@ def test_foreign_affairs_are_not_indian_polity(clf, title, foreign, subject):
     ("Auction of 91-Day, 182-Day and 364-Day Treasury Bills", "official"),
     ("DAILY CURRENT AFFAIRS IAS | UPSC Prelims and Mains Exam – 22nd September", "examprep"),
     ("Bank of America Corp DE Makes New Investment in Conagra Brands", "watch"),
+    ("Settlement Order in the matter of Kaizen Domestic Scheme I", "official"),
+    ("General Remittance Advice against: Heena Khatoon, Proprietor of Heena Enterprises [Defaulter]", "official"),
+    ("SEBI Order for Compliance - General Remittance Order dated 23.09.2026 in Recovery Certificate No. 8933", "official"),
+    ("NITI AAYOG DOCPLAN- SEPTEMBER 2026 Compiled By: Dr. Kumar Sanjay, Director (Library)", "official"),
+    ("20 Tranquil Ramsar Sites To Visit In Tamil Nadu!", "watch"),
 ])
 def test_routine_notices_are_not_note(clf, title, tier):
     assert clf.grade(clf.score(clf.analyze(title), tier)) in ("READ", "LOW")
@@ -297,3 +310,45 @@ def test_story_carried_only_by_foreign_outlets_is_foreign(clf):
     assert clf.story_foreign("India, Sri Lanka sign MoU on energy", "", ["Ada Derana"]) == ""  # India link
     a = clf.analyze(t, "", publisher="Ada Derana")
     assert a.foreign == "neighbourhood" and "polity" not in a.subjects and clf.grade(clf.score(a, "watch")) != "NOTE"
+
+
+def test_low_value_publishers_and_bare_site_names(clf):
+    title = "Supreme Court Refers Question of Law to Constitution Bench in Civil Procedure"
+    good = clf.score(clf.analyze(title, publisher="Live Law"), "watch")
+    farm = clf.score(clf.analyze(title, publisher="Lawtext"), "watch")
+    assert good - farm == pytest.approx(2.0)
+    tender = clf.analyze("Tender for RF connector Space qualified SMA RF Connectors", publisher="ISRO e-Procurement Portal")
+    assert clf.grade(clf.score(tender, "official")) in ("READ", "LOW")
+    assert clf.grade(clf.score(clf.analyze("NITI Aayog", publisher="NITI Aayog"), "official")) == "LOW"
+
+
+def test_reposted_oped_joins_the_oped(db):
+    """Exam-prep sites repost an op-ed under its own headline: that copy is the op-ed, not news."""
+    day, now = NOW.date().isoformat(), NOW.isoformat()
+    title = "Revisiting India's nuclear doctrine without revising it"
+    rows = (("hindu", "sed", 1, title), ("forumias", "sfor", 0, title), ("civils", "sfor", 0, title),
+            ("nextias", "snext", 0, "India's Nuclear Doctrine: Review Without Unnecessary Revision"))
+    for iid, sid, ed, t in rows:
+        db.insert_item({"id": iid, "source_id": iid, "title": t, "url": "https://x/" + iid, "date_ist": day,
+                        "published_at": now, "is_editorial": ed, "is_explained": 0, "is_library": 0,
+                        "story_id": sid, "tokens": title_tokens(t)})
+    db.commit()
+    assert merge_republished(db) == {"sed", "sfor"}
+    assert merge_republished(db) == set()  # idempotent
+    got = {r["id"]: (r["story_id"], r["is_editorial"]) for r in db.q("SELECT id, story_id, is_editorial FROM items")}
+    assert got == {"hindu": ("sed", 1), "forumias": ("sed", 1), "civils": ("sed", 1), "nextias": ("snext", 0)}
+
+
+def test_five_w_ignores_page_furniture(clf):
+    story = {"title": "Revisiting India's nuclear doctrine without revising it", "date_ist": "2026-09-26",
+             "summary": "Source: The post has been created based on an article published in The Hindu on 26th "
+                        "September 2026. UPSC Syllabus: GS-2- International Relations Context: India's nuclear "
+                        "doctrine was adopted in 2003 and rests on No-First-Use.",
+             "subjects": ["ir"], "gs": ["GS2"], "tags": [], "watch": [], "publishers": ["ForumIAS"]}
+    e = auto_explain(story, clf.labels(), clf=clf)
+    assert e["why_in_news"].startswith("India's nuclear doctrine was adopted in 2003")
+    assert "UPSC" not in e["who"] and "September" not in e["when"] and "2003" not in e["when"]
+    prep = auto_explain({**story, "title": "UPSC Editorial Analysis: Counterfeit Medicines", "summary":
+                         "Introduction The seizure of counterfeit medicines in Bengaluru shows weak regulation by 2027."},
+                        clf.labels(), clf=clf)
+    assert "UPSC" not in prep["who"] and "by 2027" in prep["when"]

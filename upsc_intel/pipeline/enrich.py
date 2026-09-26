@@ -151,22 +151,36 @@ def _dedupe(sents: list[str]) -> list[str]:
     return out
 
 
+# exam-prep series names in headlines ("UPSC Editorial Analysis: …") are not who the story is about
+_PREP_PREFIX = re.compile(r"^UPSC\s+((daily\s+)?editorial analysis|issue at a glance|key|essentials|current affairs)"
+                          r"\s*[:|\-–]\s*", re.I)
+_BARE_YEAR = re.compile(r"^(?:in|by|till|until)\s+(20\d\d)$", re.I)
+
+
 def five_w(text: str, story: dict, clf=None) -> dict:
     """When / Where / Who lines, only from names and dates actually in the text."""
+    day = story.get("date_ist") or story.get("date") or ""
+    this_year = int(day[:4]) if day[:4].isdigit() else 0
     when = []
     for m in WHEN.finditer(text or ""):
         phrase = m.group(0).strip()
+        year = _BARE_YEAR.match(phrase)
+        if year and this_year and int(year.group(1)) < this_year:  # "adopted in 2003" is background
+            continue
         if phrase.lower() not in (x.lower() for x in when):
             when.append(phrase)
         if len(when) == 2:
             break
-    reported = _nice_date(story.get("date_ist") or story.get("date"))
+    reported = _nice_date(day)
     out = {"when": " · ".join([f"Reported {reported}"] + when) if reported else " · ".join(when)}
     if clf is not None:
-        full = f"{story.get('title') or ''}. {text or ''}"
+        full = f"{_PREP_PREFIX.sub('', story.get('title') or '')}. {text or ''}"
         out["where"] = ", ".join(clf.places(full))
         out["who"] = ", ".join(clf.people_and_bodies(full))
     return out
+
+
+CUT_MIN = 140
 
 
 def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -> dict:
@@ -179,7 +193,8 @@ def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -
     sents = [_LABEL.sub("", _SYLLABUS.sub("", s)) for s in _sentences(summary) if not _FURNITURE.search(s)]
     sents = [s for s in sents if s and s.lower() != title.lower() and not title.lower().startswith(s.lower()[:60])]
     sents = _dedupe(sents)
-    if sents and not re.search(r"[.!?\"”’)]$", sents[-1]):  # feed excerpt cut mid-sentence
+    # a long line without an end mark is a feed excerpt cut mid-sentence; a short one is a standfirst
+    if sents and len(sents[-1]) >= CUT_MIN and not re.search(r"[.!?\"”’)]$", sents[-1]):
         sents[-1] += "…"
     pubs = story.get("publishers") or [x.get("p") for x in story.get("sources", []) if x.get("p")]
     facts: list[str] = []
@@ -217,7 +232,7 @@ def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -
     if len(pubs) >= 3:
         sig.append(f"Widely reported: {len(pubs)} outlets")
     return {"what": what, "why_in_news": why, "background": "", "significance": sig, "prelims": facts,
-            "mains": "", "keywords": [], "auto": True, **five_w(summary, story, clf)}
+            "mains": "", "keywords": [], "auto": True, **five_w(" ".join(sents), story, clf)}
 
 
 # ─────────────────────────── AI explainer ───────────────────────────

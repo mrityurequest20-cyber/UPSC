@@ -134,6 +134,10 @@ class Classifier:
         self.foreign_pubs = {str(p).lower(): "neighbourhood" for p in pubs.get("neighbourhood") or []}
         self.foreign_pubs.update({str(p).lower(): "world" for p in pubs.get("world") or []})
 
+        lv = topics.get("low_value_publishers") or {}
+        self.low_value_penalty = float(lv.get("penalty", 0))
+        self.low_value = {str(p).strip().lower() for p in lv.get("names") or []}
+
         gz = topics.get("gazetteer") or {}
         self.place_names = {str(t): str(t) for t in (gz.get("india") or []) + (gz.get("world") or [])}
         self.body_names = {str(t): str(t) for t in gz.get("bodies") or []}
@@ -174,6 +178,11 @@ class Classifier:
         a.signal += 0.5 * sum(w for k, es in self.signals.find(summary).items() for _, w in es)
         a.noise = sum(w for es in self.noise.find(title).values() for _, w in es)
         a.noise += 0.3 * sum(w for es in self.noise.find(summary[:400]).values() for _, w in es)
+        pub = publisher.strip().lower()
+        if pub and pub in self.low_value:
+            a.noise += self.low_value_penalty
+        if pub and title.strip().lower() == pub:  # a bare site name ("NITI Aayog") is not a story
+            a.noise += 5
 
         head = f"{title} {summary[:220]}"
         a.tags = [name for name, rx in self.tag_rx.items() if rx.search(head)]
