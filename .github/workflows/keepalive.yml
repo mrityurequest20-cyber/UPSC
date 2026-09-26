@@ -1,17 +1,19 @@
-# The 20-minute clock. GitHub's own schedule (the cron in pages.yml) is best-effort: on a new
-# repository it can take hours to start, and later it can skip runs at busy times. This workflow
-# keeps the updates going regardless: each run starts a site update, waits out the interval, then
-# starts the next run of itself. Only one timer runs at a time (the concurrency group below).
+# Watchdog for the 20-minute updates. GitHub's own schedule (the cron in pages.yml) is best-effort:
+# on this repository it took hours to start, it can skip or delay runs at busy times, and GitHub
+# turns it off after 60 days without a commit. This workflow makes sure an update still happens:
+# every 5 minutes it looks at the latest site build, and if none started in the last ~21 minutes
+# (and none is queued or running) it starts one. While GitHub's schedule works, it starts nothing.
 #
-# It switches itself off once GitHub's scheduler is seen running pages.yml, and pages.yml restarts
-# it if the scheduler stops again. To stop it by hand: Actions → "Update timer" → ⋯ → Disable workflow.
+# One run watches for about 5 hours, then starts its successor. Only one runs at a time (the
+# concurrency group below), and every site build restarts it if it isn't running.
+# To stop it: Actions → "Update timer" → ⋯ → Disable workflow.
 name: Update timer
 
 on:
   workflow_dispatch:
 
 permissions:
-  actions: write  # to start pages.yml and the next timer run
+  actions: write  # to start pages.yml and the next watchdog run
   contents: read
 
 concurrency:
@@ -19,39 +21,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  tick:
+  watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 330
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      EVERY_MIN: 20  # keep in step with UPSC_SITE_REFRESH_MIN in pages.yml
+      EVERY_MIN: 20    # keep in step with UPSC_SITE_REFRESH_MIN in pages.yml
+      CHECK_MIN: 5
+      WATCH_HOURS: 5
     steps:
-      - name: Stop if GitHub's own schedule is running the updates
-        id: check
+      - name: Start an update whenever one is overdue
         run: |
-          echo "T0=$(date +%s)" >> "$GITHUB_ENV"
-          last=$(gh run list --workflow pages.yml --event schedule --limit 1 --json createdAt --jq '.[0].createdAt // empty')
-          if [ -n "$last" ] && [ $(( $(date +%s) - $(date -d "$last" +%s) )) -lt 3600 ]; then
-            echo "GitHub's schedule ran pages.yml at $last, so it is working: this timer stops here."
-            echo "stop=1" >> "$GITHUB_OUTPUT"
-          fi
+          end=$(( $(date +%s) + WATCH_HOURS * 3600 ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            # the latest site build, whatever started it (GitHub's schedule, this watchdog, a push)
+            latest=$(gh run list --workflow pages.yml --limit 1 --json createdAt,status \
+                       --jq '.[0] | "\(.createdAt) \(.status)"' || echo "")
+            created=${latest% *}; status=${latest#* }
+            if [ -z "$latest" ]; then
+              echo "$(date -u +%H:%MZ) could not read builds; retrying next check"
+            elif [ "$status" != "completed" ]; then
+              echo "$(date -u +%H:%MZ) a build is $status; nothing to do"
+            else
+              age=$(( $(date +%s) - $(date -d "$created" +%s 2>/dev/null || date +%s) ))
+              if [ "$age" -ge $(( (EVERY_MIN + 1) * 60 )) ]; then
+                echo "$(date -u +%H:%MZ) last build started $((age / 60)) min ago: starting an update"
+                gh workflow run pages.yml --ref main || echo "start failed; retrying next check"
+              else
+                echo "$(date -u +%H:%MZ) last build $((age / 60)) min ago: on schedule"
+              fi
+            fi
+            sleep $(( CHECK_MIN * 60 ))
+          done
 
-      - name: Start a site update
-        if: steps.check.outputs.stop != '1'
-        run: |
-          for _ in 1 2 3 4 5; do gh workflow run pages.yml --ref main && exit 0; sleep 20; done
-          exit 1
-
-      - name: Wait for the next slot
-        if: ${{ !cancelled() && steps.check.outputs.stop != '1' }}  # also after a failed start: never a tight loop
-        run: |
-          left=$(( EVERY_MIN * 60 - ($(date +%s) - T0) - 20 ))
-          echo "next update in ${left}s"
-          [ "$left" -gt 0 ] && sleep "$left" || true
-
-      - name: Start the next timer run
-        if: ${{ !cancelled() && steps.check.outputs.stop != '1' }}
+      - name: Hand over to the next watchdog run
+        if: ${{ !cancelled() }}
         run: |
           for _ in 1 2 3 4 5; do gh workflow run keepalive.yml --ref main && exit 0; sleep 20; done
           exit 1

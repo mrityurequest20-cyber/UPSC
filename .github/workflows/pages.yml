@@ -98,9 +98,9 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v4
 
-  # GitHub's schedule above is best-effort (on a new repository it can take hours to start), so the
-  # "Update timer" workflow (keepalive.yml) keeps the 20-minute updates going. Every build checks
-  # that the timer is alive and restarts it if not, unless GitHub's schedule is doing the job.
+  # GitHub's schedule above is best-effort (on this repository it took hours to start, and it can skip
+  # runs), so the "Update timer" watchdog (keepalive.yml) starts an update whenever one is overdue.
+  # Every build checks that the watchdog is running and restarts it if not.
   timer:
     needs: deploy
     if: ${{ !cancelled() }}
@@ -112,11 +112,6 @@ jobs:
     steps:
       - name: Make sure the update timer is running
         run: |
-          last=$(gh run list --workflow pages.yml --event schedule --limit 1 --json createdAt --jq '.[0].createdAt // empty')
-          if [ -n "$last" ] && [ $(( $(date +%s) - $(date -d "$last" +%s) )) -lt 3600 ]; then
-            echo "GitHub's schedule is running the updates (last at $last); no timer needed."
-            exit 0
-          fi
           active=$(gh run list --workflow keepalive.yml --limit 20 --json status --jq '[.[] | select(.status != "completed")] | length')
           if [ "$active" -gt 0 ]; then echo "Update timer is running."; exit 0; fi
           echo "Update timer is not running: starting it."
