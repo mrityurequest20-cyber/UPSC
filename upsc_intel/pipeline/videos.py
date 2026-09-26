@@ -33,12 +33,14 @@ TRUSTED = re.compile(
     r"dd india|dhyeya|upsc wallah)",
     re.I,
 )
-# national English / Hindi news channels: fine at the normal threshold; anything else must match harder
+# established English / Hindi news channels. Videos are only taken from these, TRUSTED (UPSC and official)
+# channels and the library: random uploaders re-post titles and real-estate ads match "World Tourism Day".
 NATIONAL_NEWS = re.compile(
-    r"(wion|ndtv|india today|hindustan times|\bmint\b|livemint|theprint|firstpost|cnn[- ]?news18|news18 india|"
-    r"\bani\b|times now|mirror now|business standard|newsx|economic times|\bet now|moneycontrol|aaj tak|zee news|"
-    r"abp news|the hindu|indian express)", re.I)
-UNKNOWN_CHANNEL_MALUS = 0.35  # an unknown channel needs ≈ ACCEPT + 0.35 to be attached
+    r"(wion|ndtv|india today|hindustan times|\bmint\b|livemint|theprint|firstpost|cnn[- ]?news18|\bnews18\b|"
+    r"\bani\b|times now|mirror now|business standard|business today|newsx|economic times|\bet now|moneycontrol|"
+    r"aaj tak|zee news|zee business|abp news|abp live|india tv|tv9 bharatvarsh|republic|the hindu|indian express|"
+    r"the logical indian|the quint|\bscroll\b|the wire|down to earth|mongabay|cnbc[- ]?tv18|ndtv profit|"
+    r"bloomberg|reuters|\bbbc\b|al jazeera|dw news|france 24|lok sabha tv|rajya sabha tv)", re.I)
 DAILY_ANALYSIS = re.compile(
     r"(current affairs|news analysis|newspaper analysis|the hindu|editorial analysis|pib|daily news|"
     r"perspective|big picture|in depth|desh deshantar|news simplified|dns|daily dose|mains answer|"
@@ -79,7 +81,7 @@ one two three four five six seven eight nine ten first second third extend exten
 allowed seeks says said amid over after new take takes looks set sets hold holds held
 """.split())
 SHORTS = re.compile(r"(#shorts|\bshorts?\b|in \d+ (sec|seconds)\b|\d+ ?sec(ond)? (explainer|video))", re.I)  # not explainers
-ACCEPT = 0.75
+ACCEPT = 0.9
 RETRY_AFTER = timedelta(hours=3)
 MAX_SEARCHES_PER_RUN = 150
 
@@ -194,10 +196,10 @@ def score_video(story: dict, title: str, channel: str, published: datetime | Non
         return 0.0  # Hindi or English only by default (UPSC_VIDEO_LANG)
     if SHORTS.search(title):
         return 0.0
-    if TRUSTED.search(channel or ""):
+    if TRUSTED.search(channel or "") or hint:  # hint = one of our library channels
         score += 0.25
     elif not NATIONAL_NEWS.search(channel or ""):
-        score -= UNKNOWN_CHANNEL_MALUS
+        return 0.0  # unknown channel
     if BULLETIN.search(title):
         score -= 0.5
     if NON_NEWS.search(title):
@@ -343,6 +345,8 @@ def link_brief_videos(settings: Settings, db: DB, days: list[str]) -> dict:
                for v in db.videos_between(lo, hi)]
     langs = allowed_langs(settings.video_lang)
     wanted = [x for x in ("en", "hi") if x in langs]
+    # a library channel's language tag also applies when that channel turns up in a search
+    hints = {(v["channel"] or "").lower(): v["lang"] for v in library if v.get("lang")}
     http = Http(timeout=settings.http_timeout, retries=1)
     idf = build_idf(db)
     now = utcnow()
@@ -386,11 +390,16 @@ def link_brief_videos(settings: Settings, db: DB, days: list[str]) -> dict:
                 except Exception as exc:  # search is best-effort
                     log.info("video search failed for %s: %s", r["id"], exc)
                     break
+                for c in cands:
+                    c["lang"] = hints.get((c.get("channel") or "").lower())
                 if only == "trusted":
-                    cands = [c for c in cands if TRUSTED.search(c.get("channel") or "")]
+                    cands = [c for c in cands if TRUSTED.search(c.get("channel") or "") or c["lang"]]
                 for k, (sc, c) in _best_by_lang(story, cands, settings.video_lang, idf).items():
                     if k in wanted and sc > found.get(k, (0.0,))[0]:
                         found[k] = (sc, c, via)
+            if "en" in found and "hi" in found and found["en"][1]["id"] == found["hi"][1]["id"]:
+                keep = found["en"][1].get("lang") or "hi"  # one video, one language: trust the channel's tag
+                found.pop("en" if keep == "hi" else "hi")
             video = None
             if "en" in found:
                 sc, c, how = found["en"]

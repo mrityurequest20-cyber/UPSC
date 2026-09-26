@@ -305,8 +305,11 @@
     if (vids.length) return vids.map(([v, lang]) => `<a class="vchip" href="${esc(v.url)}" target="_blank" rel="noopener" title="${esc(v.title)} · ${esc(v.channel)}">${ICON.play}<span>${lang} · ${esc(v.channel || "video")}</span></a>`).join("");
     const v = s.video;
     const kw = s.explain && s.explain.keywords && s.explain.keywords.length ? s.explain.keywords.slice(0, 5).join(" ") : null;
-    const url = v && v.search_url ? v.search_url : `https://www.youtube.com/results?search_query=${encodeURIComponent((kw || s.title) + " UPSC")}`;
-    return `<a class="vchip ghost" href="${esc(url)}" target="_blank" rel="noopener" title="No exact match yet: opens a YouTube search">${ICON.search}<span>Find video</span></a>`;
+    const q = v && v.query ? v.query : (kw || s.title);
+    const url = v && v.search_url ? v.search_url : `https://www.youtube.com/results?search_query=${encodeURIComponent(q + " UPSC")}`;
+    const urlHi = `https://www.youtube.com/results?search_query=${encodeURIComponent(q + " UPSC hindi")}`;
+    return `<a class="vchip ghost" href="${esc(url)}" target="_blank" rel="noopener" title="No confident match yet: opens a YouTube search">${ICON.search}<span>Find video</span></a>` +
+      `<a class="vchip ghost" href="${esc(urlHi)}" target="_blank" rel="noopener" title="Search YouTube for a Hindi explainer">${ICON.search}<span>हिंदी में खोजें</span></a>`;
   }
   function videoBlock(s) {
     return storyVideos(s).map(([v, lang]) => `<a class="vblock" href="${esc(v.url)}" target="_blank" rel="noopener">

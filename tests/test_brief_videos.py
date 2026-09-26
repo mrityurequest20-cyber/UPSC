@@ -8,7 +8,7 @@ from upsc_intel.pipeline.cluster import split_mixed_stories
 from upsc_intel.pipeline.enrich import _sentences, auto_explain, has_ai_explainer
 from upsc_intel.pipeline.kinds import content_kind
 from upsc_intel.pipeline.normalize import title_tokens
-from upsc_intel.pipeline.videos import _relative_time, queries, score_video, video_language
+from upsc_intel.pipeline.videos import ACCEPT, _relative_time, queries, score_video, video_language
 
 NOW = datetime.now(timezone.utc)
 
@@ -200,7 +200,7 @@ IDF.update({t: 1.0 for t in title_tokens("centre extend part pradesh six month u
 ])
 def test_score_video(story, video, channel, expected):
     sc = score_video({"title": story, "date_ist": NOW.date().isoformat()}, video, channel, NOW, "en", IDF)
-    assert (sc >= 0.75) is expected, sc
+    assert (sc >= ACCEPT) is expected, sc
 
 
 def test_old_videos_rejected():
@@ -254,12 +254,12 @@ def test_video_rules_hindi_ok_regional_and_junk_rejected():
     story = {"title": "Centre extends AFSPA in parts of Manipur, Nagaland and Arunachal Pradesh for six months",
              "date_ist": NOW.date().isoformat()}
     ok_hi = score_video(story, "AFSPA Manipur Nagaland Arunachal extended kya hai", "Drishti IAS", NOW, "en,hi", IDF, "hi")
-    assert ok_hi >= 0.75
+    assert ok_hi >= ACCEPT
     assert score_video(story, "AFSPA Manipur Nagaland Arunachal extended", "Mission IAS Malayalam", NOW, "en,hi", IDF) == 0
     unknown = score_video(story, "AFSPA Manipur Nagaland Arunachal extended", "Random Uploader", NOW, "en,hi", IDF)
     trusted = score_video(story, "AFSPA Manipur Nagaland Arunachal extended", "Vajiram and Ravi", NOW, "en,hi", IDF)
-    assert trusted - unknown >= 0.5  # unknown channels must match much more strongly
-    assert score_video(story, "AFSPA Manipur Nagaland Arunachal extended #shorts", "WION", NOW, "en,hi", IDF) < 0.75
+    assert trusted >= ACCEPT and unknown == 0  # unknown channels are not used at all
+    assert score_video(story, "AFSPA Manipur Nagaland Arunachal extended #shorts", "WION", NOW, "en,hi", IDF) < ACCEPT
 
 
 def test_auto_explain_five_w_from_several_outlets(clf):
