@@ -192,7 +192,7 @@ sources:
   # ─────────────── Indian Express ───────────────
   # Indian Express feeds carry headlines only, hence `describe`. indianexpress.com answers 403 to
   # cloud IPs (GitHub Actions), so every section falls back to Google News on its own URL path.
-  - {id: ie-india, name: Indian Express, section: India, kind: rss, url: "https://indianexpress.com/section/india/feed/", tier: quality, site: indianexpress.com, limit: 80, describe: true}
+  - {id: ie-india, name: Indian Express, section: India, kind: rss, url: "https://indianexpress.com/section/india/feed/", tier: quality, limit: 80, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/india when:1d"}]}
   - {id: ie-explained, name: Indian Express, section: Explained, kind: rss, url: "https://indianexpress.com/section/explained/feed/", tier: examprep, explained: true, limit: 80, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/explained when:2d"}]}
   - {id: ie-world, name: Indian Express, section: World, kind: rss, url: "https://indianexpress.com/section/world/feed/", tier: quality, limit: 60, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/world when:1d"}]}
   - {id: ie-economy, name: Indian Express, section: Economy, kind: rss, url: "https://indianexpress.com/section/business/economy/feed/", tier: quality, limit: 60, describe: true, fallbacks: [{kind: gnews, query: "site:indianexpress.com/article/business when:1d"}]}

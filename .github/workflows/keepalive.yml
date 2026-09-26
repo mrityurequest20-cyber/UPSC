@@ -1,0 +1,57 @@
+# The 20-minute clock. GitHub's own schedule (the cron in pages.yml) is best-effort: on a new
+# repository it can take hours to start, and later it can skip runs at busy times. This workflow
+# keeps the updates going regardless: each run starts a site update, waits out the interval, then
+# starts the next run of itself. Only one timer runs at a time (the concurrency group below).
+#
+# It switches itself off once GitHub's scheduler is seen running pages.yml, and pages.yml restarts
+# it if the scheduler stops again. To stop it by hand: Actions → "Update timer" → ⋯ → Disable workflow.
+name: Update timer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write  # to start pages.yml and the next timer run
+  contents: read
+
+concurrency:
+  group: update-timer
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      EVERY_MIN: 20  # keep in step with UPSC_SITE_REFRESH_MIN in pages.yml
+    steps:
+      - name: Stop if GitHub's own schedule is running the updates
+        id: check
+        run: |
+          echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+          last=$(gh run list --workflow pages.yml --event schedule --limit 1 --json createdAt --jq '.[0].createdAt // empty')
+          if [ -n "$last" ] && [ $(( $(date +%s) - $(date -d "$last" +%s) )) -lt 3600 ]; then
+            echo "GitHub's schedule ran pages.yml at $last, so it is working: this timer stops here."
+            echo "stop=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Start a site update
+        if: steps.check.outputs.stop != '1'
+        run: |
+          for _ in 1 2 3 4 5; do gh workflow run pages.yml --ref main && exit 0; sleep 20; done
+          exit 1
+
+      - name: Wait for the next slot
+        if: ${{ !cancelled() && steps.check.outputs.stop != '1' }}  # also after a failed start: never a tight loop
+        run: |
+          left=$(( EVERY_MIN * 60 - ($(date +%s) - T0) - 20 ))
+          echo "next update in ${left}s"
+          [ "$left" -gt 0 ] && sleep "$left" || true
+
+      - name: Start the next timer run
+        if: ${{ !cancelled() && steps.check.outputs.stop != '1' }}
+        run: |
+          for _ in 1 2 3 4 5; do gh workflow run keepalive.yml --ref main && exit 0; sleep 20; done
+          exit 1
