@@ -75,6 +75,7 @@
     if (s <= 30) return "any moment";
     return s < 3600 ? `in ${Math.round(s / 60)} min` : `in ${Math.round(s / 3600)} h`;
   }
+  const clockIST = (isoStr) => isoStr ? new Date(isoStr).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" }) : "";
   const shortTime = (isoStr) => isoStr ? new Date(isoStr).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const plural = (n, one, many) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : (many || one + "s")}`;
@@ -249,7 +250,7 @@
     if (SNAPSHOT) { dot.className = "live-dot idle"; txt.textContent = `Snapshot · data from ${shortTime(m.built_at)} IST`; }
     else if (STATIC) {
       dot.className = "live-dot" + (buildLate() ? " stale" : "");
-      txt.textContent = `Updates every ${m.refresh_min || 60} min · last ${ago(m.built_at)}${buildLate() ? " (running late)" : ""}`;
+      txt.textContent = `Updates every ${m.refresh_min || 60} min · last ${clockIST(m.built_at)} IST, ${ago(m.built_at)}${buildLate() ? " (running late)" : ""}`;
     }
     else if (m.running) { dot.className = "live-dot busy"; txt.textContent = "Fetching all sources…"; }
     else {
@@ -432,6 +433,15 @@
       <span class="vmeta"><b>${esc(v.title)}</b><small>${esc(v.channel || "")}${v._day && S.view !== "day" ? " · " + esc(dayShort(v._day)) : ""}</small></span></a>`;
   }
   const reportedTotal = () => briefDays().reduce((n, d) => n + (S.meta.date_counts[d] || 0), 0);
+  // Days follow IST. Just after midnight the new day has almost nothing in it, so the site opens on
+  // yesterday's full brief until today has EARLY_MIN graded stories (see boot()), and says so.
+  const EARLY_MIN = 60;
+  function earlyNote() {
+    const today = todayIST();
+    if (S.view !== "day" || S.anchor !== addDays(today, -1) || !S.early) return "";
+    const n = S.meta.date_counts[today] || 0;
+    return `<div class="searchnote"><span>It's early in the day (IST): <b>${esc(dayShort(today))}</b>'s brief fills up as the news comes in (${plural(n, "story", "stories")} so far), so this is yesterday's full brief.</span><button class="linkbtn" data-early>Open ${esc(dayShort(today))} →</button></div>`;
+  }
 
   function renderBrief() {
     const el = $("#content");
@@ -442,7 +452,10 @@
     const exps = briefList("explained").filter(briefPasses);
     const vids = briefVideos();
     if (!news.length && !eds.length && !exps.length) {
-      el.innerHTML = briefHero(news, eds, exps, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter." : S.meta.last_run || STATIC ? "No brief for this period yet." : "The first fetch is running: the brief appears in a minute or two."}</div>`;
+      const fresh = S.view === "day" && S.anchor === todayIST();
+      el.innerHTML = earlyNote() + briefHero(news, eds, exps, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter."
+        : fresh ? `The day has just started (IST): this brief fills up as the news comes in. <br><button class="linkbtn" data-yesterday>Read yesterday's brief →</button>`
+        : S.meta.last_run || STATIC ? "No brief for this period yet." : "The first fetch is running: the brief appears in a minute or two."}</div>`;
       $("#side").innerHTML = "";
       return;
     }
@@ -454,8 +467,8 @@
     for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
     const compact = S.view !== "day";
     const sections = [];
-    let html = briefHero(news, eds, exps, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
-    html += section("sec-top", S.view === "day" ? "Top stories today" : S.view === "week" ? "Top 10 of the week" : "Top 15 of the month",
+    let html = earlyNote() + briefHero(news, eds, exps, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
+    html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Top stories today" : `Top stories of ${dayShort(S.anchor)}`) : S.view === "week" ? "Top 10 of the week" : "Top 15 of the month",
       "tap any card for the full explainer", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
     sections.push({ id: "sec-top", label: S.view === "day" ? "Top stories" : "Top " + topN, n: top.length });
     for (const [k, arr] of bySubject) {
@@ -484,7 +497,7 @@
       sections.push({ id: "sec-videos", label: "Videos", n: vids.length });
     }
     el.innerHTML = html;
-    $("#side").innerHTML = contentsNav(sections, S.view === "day" ? "In today's brief" : "In this " + S.view) +
+    $("#side").innerHTML = contentsNav(sections, S.view === "day" ? (S.anchor === todayIST() ? "In today's brief" : `In the ${dayShort(S.anchor)} brief`) : "In this " + S.view) +
       `<div class="side-note">Picked from ${plural(reportedTotal(), "story", "stories")} reported. The full list is under <button class="linkbtn" data-tab-go="everything">Everything</button>.</div>`;
   }
 
@@ -744,8 +757,9 @@
 
   // ─────────────────────────── loading & live updates ───────────────────────────
   function syncHash() {
-    const h = `#${S.view}/${S.anchor}${S.tab !== "brief" ? "/" + S.tab : ""}`;
-    try { if (location.hash !== h) history.replaceState(null, "", h); } catch (e) { /* sandboxed frame */ }
+    // the automatic early-morning view of yesterday isn't pinned: a reload re-decides from the clock
+    const h = S.early ? "" : `#${S.view}/${S.anchor}${S.tab !== "brief" ? "/" + S.tab : ""}`;
+    try { if (location.hash !== h) history.replaceState(null, "", h || location.pathname + location.search); } catch (e) { /* sandboxed frame */ }
   }
   function readHash() {
     const m = location.hash.match(/^#(day|week|month)\/(\d{4}-\d{2}-\d{2})(?:\/(\w+))?/);
@@ -767,6 +781,7 @@
     S.loadedKey = key; S.loadedAt = S.serverStamp || new Date().toISOString(); S.pending = [];
   }
   async function go(patch = {}) {
+    if ("anchor" in patch || "view" in patch) S.early = false;  // the reader picked a period
     Object.assign(S, patch);
     S.expanded.clear(); S.search = null;
     syncHash(); renderPeriod();
@@ -948,6 +963,8 @@
     if (t.id === "prev") return go({ anchor: stepAnchor(S.view, S.anchor, -1) });
     if (t.id === "next") return go({ anchor: stepAnchor(S.view, S.anchor, 1) });
     if (t.id === "todayBtn") return go({ view: "day", anchor: todayIST() });
+    if (t.matches("[data-early]")) return go({ view: "day", anchor: todayIST() });
+    if (t.matches("[data-yesterday]")) return go({ view: "day", anchor: addDays(todayIST(), -1) });
     if (t.id === "themeBtn") {
       const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
         (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1035,6 +1052,9 @@
     try { [S.meta, S.marks] = await Promise.all([api.meta(), api.marks()]); }
     catch (e) { $("#content").innerHTML = `<div class="empty">Could not reach the data (${esc(e.message)}). Is the server running?</div>`; return; }
     S.lastRunSeen = STATIC ? S.meta.built_at : (S.meta.last_run && S.meta.last_run.finished_at) || "none";
+    if (!location.hash && S.view === "day" && S.anchor === todayIST() && (S.meta.date_counts[todayIST()] || 0) < EARLY_MIN) {
+      S.anchor = addDays(todayIST(), -1); S.early = true;
+    }
     await go();
     if (!SNAPSHOT) setInterval(poll, POLL_MS);
     setInterval(renderLive, 30000);
