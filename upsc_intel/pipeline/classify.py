@@ -8,6 +8,7 @@ import math
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 
 DEFAULT_TIERS = {"official": 3.0, "examprep": 2.5, "premium": 2.5, "quality": 1.5, "library": 2.0,
                  "watch": 1.25, "general": 1.0, "intl": 1.0}
@@ -23,6 +24,15 @@ TITLED = re.compile(
 
 def _norm(text: str) -> str:
     return re.sub(r"[\s\-]+", " ", text.strip())
+
+
+# Scripts of outlets from other countries (Arabic/Persian/Urdu, Cyrillic, Hebrew, Thai, Sinhala, CJK, Korean).
+# Devanagari and the other Indian scripts are Indian outlets, so they don't count.
+FOREIGN_SCRIPT = re.compile(r"[\u0590-\u06FF\u0750-\u077F\u0400-\u04FF\u0E00-\u0E7F\u0D80-\u0DFF"
+                            r"\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]")
+# Titles in a script other than Latin/Devanagari (a Tamil YouTube title): not readable in English or Hindi
+OTHER_SCRIPT_TITLE = re.compile(r"[\u0980-\u0DFF\u0590-\u06FF\u0E00-\u0E7F\u3040-\u9FFF\uAC00-\uD7AF]")
+TITLE_DATE = re.compile(r"\b(\d{1,2})\.(\d{1,2})\.(20\d\d)\b")  # "Above the Fold | 17.06.2026"
 
 
 class TermMatcher:
@@ -92,6 +102,8 @@ class Analysis:
     watch: list[str] = field(default_factory=list)
     india: bool = True
     foreign: str = ""  # "neighbourhood" / "world": another country's affairs with no India link
+    foreign_local: bool = False  # …and nothing of wider consequence (no war, trade, summit, UN…)
+    rejected: str = ""  # why it is not UPSC material at all (kept, graded LOW, never shown)
 
 
 class Classifier:
@@ -102,9 +114,14 @@ class Classifier:
         self.subject_threshold = float(sc.get("subject_threshold", 2))
         self.max_subjects = int(sc.get("max_subjects", 3))
         self.no_subject_penalty = float(sc.get("no_subject_penalty", 1.5))
+        self.require_subject = bool(sc.get("require_subject", False))
+        self.reject_noise = float(sc.get("reject_noise", 0) or 0)  # noise at or above this = not UPSC material
         grades = sc.get("grades") or {}
         self.grade_cut = [("NOTE", float(grades.get("NOTE", 5.0))), ("SKIM", float(grades.get("SKIM", 3.2))),
                           ("READ", float(grades.get("READ", 1.6)))]
+        # where rejected items land: far below READ, so that no coverage bonus can lift them into view
+        # (and plain LOW items, well above it, still get their bonus)
+        self.reject_score = self.grade_cut[-1][1] - 3.0
 
         self.subject_meta: dict[str, dict] = {}
         kw_entries: dict[str, list[tuple[str, float]]] = defaultdict(list)
@@ -115,6 +132,7 @@ class Classifier:
         self.kw = TermMatcher(kw_entries)
         self.signals = TermMatcher({str(t): [("s", float(w))] for t, w in (topics.get("signals") or {}).items()})
         self.noise = TermMatcher({str(t): [("n", float(w))] for t, w in (topics.get("noise") or {}).items()})
+        self.noise_rx = [(float(w), re.compile(rx, re.I)) for w, rx in topics.get("noise_patterns") or []]
         self.tag_rx = {name: re.compile(p, re.I) for name, p in (topics.get("tags") or {}).items()}
 
         ia = topics.get("india_angle") or {}
@@ -122,6 +140,9 @@ class Classifier:
         self.india_tiers = set(ia.get("applies_to") or [])
         self.india_terms = TermMatcher({str(t): [("i", 1.0)] for t in ia.get("terms") or []})
         self.india_exempt = TermMatcher({str(t): [("x", 1.0)] for t in ia.get("exempt") or []})
+        # watch areas that are about India's region by definition (the neighbourhood); the others
+        # (marine, DPI…) only count when the story is about India
+        self.regional_watch = set(ia.get("regional_watch") or ["neighbourhood"])
 
         fa = topics.get("foreign_affairs") or {}
         self.foreign_penalty = float(fa.get("penalty", 0))
@@ -133,10 +154,18 @@ class Classifier:
         pubs = fa.get("publishers") or {}
         self.foreign_pubs = {str(p).lower(): "neighbourhood" for p in pubs.get("neighbourhood") or []}
         self.foreign_pubs.update({str(p).lower(): "world" for p in pubs.get("world") or []})
+        self.foreign_domains = tuple(str(d).lower() for d in fa.get("publisher_domains") or [])
+        self.ambiguous_links = {str(t) for t in fa.get("ambiguous_links") or []}
+        self.foreign_local_penalty = float(fa.get("local_penalty", 0))
+        # a foreign story stays in view only if it touches something of wider consequence
+        self.world_terms = TermMatcher({str(t): [("w", 1.0)] for t in fa.get("world_affairs") or []})
+        self.country_of = {str(n).lower(): str(canon) for canon, names in (fa.get("aliases") or {}).items()
+                           for n in names}
 
         lv = topics.get("low_value_publishers") or {}
         self.low_value_penalty = float(lv.get("penalty", 0))
         self.low_value = {str(p).strip().lower() for p in lv.get("names") or []}
+        self.blocked = {str(p).strip().lower() for p in topics.get("blocked_publishers") or []}
 
         gz = topics.get("gazetteer") or {}
         self.place_names = {str(t): str(t) for t in (gz.get("india") or []) + (gz.get("world") or [])}
@@ -152,7 +181,23 @@ class Classifier:
             self.watch_rules[wid] = [TermMatcher({str(t): [("w", 1.0)] for t in g}) for g in groups]
 
     # ── per item ──
-    def analyze(self, title: str, summary: str = "", hint: str = "", publisher: str = "") -> Analysis:
+    def _foreign_publisher(self, publisher: str) -> str:
+        """An outlet from another country: listed by name, a foreign web domain, a foreign script,
+        or a country in its name ("Radio Pakistan", "Business News Nigeria")."""
+        name = publisher.strip()
+        low = name.lower()
+        if not low:
+            return ""
+        if low in self.foreign_pubs:
+            return self.foreign_pubs[low]
+        if FOREIGN_SCRIPT.search(name) or (self.foreign_domains and low.endswith(self.foreign_domains)):
+            return "world"
+        if self.foreign_terms.find(name):
+            return "neighbourhood" if self.neighbour_terms.find(name) else "world"
+        return ""
+
+    def analyze(self, title: str, summary: str = "", hint: str = "", publisher: str = "", day: str = "") -> Analysis:
+        """day: the item's IST date (spots republished old material such as "… | 17.06.2026")."""
         a = Analysis()
         scores: dict[str, float] = defaultdict(float)
         body = f"{summary} {hint}".strip()
@@ -161,15 +206,24 @@ class Classifier:
                 for sid, w in entries:
                     scores[sid] += w * mult
         # another country's parliament / constitution / courts is world affairs, not Indian polity
-        linked = self.india_link.find(f"{title} {summary}") or self.india_exempt.find(title)
+        links = self.india_link.find(f"{title} {summary}")
+        if links and self.foreign_terms.find(title) and set(links) <= self.ambiguous_links:
+            links = {}  # "Punjab governor pushes for Made-in-Pakistan solar policy" is Pakistan's Punjab
+        linked = links or self.india_exempt.find(title)
         if self.foreign_terms.find(title) and not linked:
             a.foreign = "neighbourhood" if self.neighbour_terms.find(title) else "world"
         elif publisher and not linked:  # only a foreign outlet carried it
-            a.foreign = self.foreign_pubs.get(publisher.strip().lower(), "")
+            a.foreign = self._foreign_publisher(publisher)
         if a.foreign:
             moved = sum(scores.pop(s) for s in list(scores) if s in self.foreign_move)
             if moved and "ir" in self.subject_meta:
                 scores["ir"] += moved
+            # a Michigan summit, a Thai heritage listing, a Sri Lankan bill: nothing that reaches India.
+            # Two countries in the headline (Trump-Xi, US-Iran) is world affairs; so is anything touching war,
+            # trade, the UN… A neighbour's news is dropped only when it is its own legislation or courts.
+            countries = {self.country_of.get(k.lower(), k.lower()) for k in self.foreign_terms.find(title)}
+            a.foreign_local = (len(countries) < 2 and not self.world_terms.find(f"{title} {summary[:300]}")
+                               and (a.foreign == "world" or bool(moved)))
         ranked = sorted(scores.items(), key=lambda kv: -kv[1])
         a.subject_scores = {k: round(v, 2) for k, v in ranked}
         a.subjects = [sid for sid, s in ranked if s >= self.subject_threshold][: self.max_subjects]
@@ -178,18 +232,40 @@ class Classifier:
         a.signal += 0.5 * sum(w for k, es in self.signals.find(summary).items() for _, w in es)
         a.noise = sum(w for es in self.noise.find(title).values() for _, w in es)
         a.noise += 0.3 * sum(w for es in self.noise.find(summary[:400]).values() for _, w in es)
+        a.noise += sum(w for w, rx in self.noise_rx if rx.search(title))
         pub = publisher.strip().lower()
         if pub and pub in self.low_value:
             a.noise += self.low_value_penalty
         if pub and title.strip().lower() == pub:  # a bare site name ("NITI Aayog") is not a story
             a.noise += 5
+        if pub and pub in self.blocked:  # stock tickers, press releases, petitions, foreign local news
+            a.noise += max(self.reject_noise, 10)
+            a.rejected = "outlet that carries no UPSC material"
+        if len(OTHER_SCRIPT_TITLE.findall(title)) >= 3:  # neither English nor Hindi
+            a.noise += max(self.reject_noise, 10)
+            a.rejected = "not in English or Hindi"
+        if day:
+            for m in TITLE_DATE.finditer(title):
+                try:
+                    dated = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+                    if (date.fromisoformat(day) - dated).days > 20:
+                        a.noise += max(self.reject_noise, 10)
+                        a.rejected = "old material republished"
+                except ValueError:
+                    pass
+        if self.reject_noise and a.noise >= self.reject_noise and not a.rejected:
+            a.rejected = "not UPSC material"
 
         head = f"{title} {summary[:220]}"
         a.tags = [name for name, rx in self.tag_rx.items() if rx.search(head)]
         full = f"{title} {summary}"
-        a.watch = [wid for wid, groups in self.watch_rules.items() if all(g.find(full) for g in groups)]
+        india_hit = bool(self.india_terms.find(full) or self.india_link.find(full))
+        # watch areas other than the neighbourhood (marine, DPI…) only count for stories about India:
+        # a "blue economy week" in Maine is not India's blue economy
+        a.watch = [wid for wid, groups in self.watch_rules.items()
+                   if all(g.find(full) for g in groups) and (wid in self.regional_watch or india_hit)]
         if self.india_penalty:
-            a.india = bool(a.watch or self.india_terms.find(full) or self.india_exempt.find(full))
+            a.india = bool(india_hit or a.watch or self.india_exempt.find(full))
         return a
 
     def story_foreign(self, title: str, summary: str = "", publishers: list[str] | None = None) -> str:
@@ -240,10 +316,21 @@ class Classifier:
         s += min(best / 4.0, 2.0) if a.subjects else -self.no_subject_penalty
         s += min(0.5 * len(a.tags), 1.5)
         s -= a.noise
-        if a.foreign and kind == "news":
+        # official Indian sources (an MEA statement on a ship attacked off Oman) and exam-prep sites (their
+        # "Ethiopia" is a map item) are UPSC material by definition: no foreign-news mark-down for them
+        indian_curated = tier in ("official", "examprep")
+        if a.foreign_local and not indian_curated:  # any kind: an explainer on a Spanish eviction isn't GS material
+            s = min(s - self.foreign_local_penalty, self.reject_score)
+            a.rejected = a.rejected or "another country's local or domestic news"
+        elif a.foreign and kind == "news" and not indian_curated:
             s -= self.neighbour_penalty if a.foreign == "neighbourhood" else self.foreign_penalty
         elif not a.india and tier in self.india_tiers and kind == "news":
             s -= self.india_penalty
+        # not UPSC material (sports results, stock tickers, weather alerts, job ads…), or no syllabus
+        # subject at all: graded LOW, so it never reaches the dashboard (kept in the database)
+        no_subject = self.require_subject and not a.subjects and tier != "library"
+        if (self.reject_noise and a.noise >= self.reject_noise) or no_subject:
+            s = min(s, self.reject_score)
         return round(s, 2)
 
     def grade(self, score: float) -> str:
@@ -255,6 +342,13 @@ class Classifier:
     @staticmethod
     def coverage_bonus(n_publishers: int) -> float:
         return min(0.8 * math.log2(max(n_publishers, 1)), 3.0)
+
+    def story_score(self, best_item_score: float, n_publishers: int) -> float:
+        """A story scores as its best item plus a bonus for wide coverage, except that a rejected story
+        (not UPSC material) stays rejected however many outlets carried it."""
+        if best_item_score <= self.reject_score:
+            return round(best_item_score, 2)
+        return round(best_item_score + self.coverage_bonus(n_publishers), 2)
 
     def gs_for(self, subjects: list[str], tags: list[str]) -> list[str]:
         papers = {self.subject_meta.get(s, {}).get("gs") for s in subjects} - {None}

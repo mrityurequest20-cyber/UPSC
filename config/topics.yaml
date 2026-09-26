@@ -13,6 +13,8 @@ scoring:
   subject_threshold: 2        # min keyword score for a subject to stick
   max_subjects: 3
   no_subject_penalty: 1.5     # item matched no syllabus subject at all
+  require_subject: true       # a story that matches no syllabus subject is not shown at all (graded LOW)
+  reject_noise: 5             # noise this strong = not UPSC material (sports, stock ticks, job ads…): LOW
   grades: {NOTE: 5.5, SKIM: 3.2, READ: 1.6}   # below READ → LOW (hidden by default, never deleted); ~25-30 NOTE a day, all of them in the brief
 
 gs_papers:
@@ -26,6 +28,8 @@ subjects:
     label: Polity & Constitution
     gs: GS2
     kw:
+      trial by media: 3
+      media trial: 3
       death penalty: 2.5
       capital punishment: 2.5
       right to vote: 2.5
@@ -130,6 +134,8 @@ subjects:
     label: Governance & Policy
     gs: GS2
     kw:
+      Appointments Committee: 3
+      bureaucratic reshuffle: 2
       civic: 1.5
       regulation: 1
       municipal: 1.5
@@ -189,6 +195,11 @@ subjects:
     label: International Relations
     gs: GS2
     kw:
+      "EAM": 2.5
+      seafarers: 2
+      State of Palestine: 3
+      Palestine: 2.5
+      visa exemption: 2
       "Trump": 1.5
       Xi Jinping: 2
       "Xi": 1.5
@@ -399,6 +410,9 @@ subjects:
     label: Health
     gs: GS2
     kw:
+      "FSSAI": 3
+      food safety: 2.5
+      analogue paneer: 2.5
       "Ayurveda": 2.5
       nutrition: 2
       suicide prevention: 2
@@ -485,6 +499,14 @@ subjects:
     label: Economy
     gs: GS3
     kw:
+      Ways and Means: 3
+      "WMA": 3
+      financial sector: 2
+      import duty: 2.5
+      import duties: 2.5
+      growth outlook: 2.5
+      growth forecast: 2.5
+      chief economists: 2
       import duty: 2.5
       edible oil: 2
       informal sector: 2.5
@@ -588,6 +610,8 @@ subjects:
     label: Agriculture & Allied
     gs: GS3
     kw:
+      edible oil: 2.5
+      edible oils: 2.5
       agriculture: 2
       agricultural: 2
       farmer: 1.5
@@ -694,6 +718,12 @@ subjects:
     label: Environment & Ecology
     gs: GS3
     kw:
+      rhinoceros: 3
+      one-horned rhino: 3
+      Kasturirangan: 3
+      Gadgil: 3
+      "ESA": 2.5
+      eco sensitive area: 3
       nuclear waste: 2.5
       water crisis: 2
       water scarcity: 2
@@ -835,6 +865,15 @@ subjects:
     label: Internal Security
     gs: GS3
     kw:
+      "CISF": 2.5
+      "CRPF": 2.5
+      "BSF": 2.5
+      "ITBP": 2.5
+      "CAPF": 2.5
+      "NSCN": 3
+      Naga peace: 3
+      Naga talks: 3
+      insurgent group: 2.5
       internal security: 3
       terror: 2
       terrorism: 2.5
@@ -878,6 +917,10 @@ subjects:
     label: Defence
     gs: GS3
     kw:
+      Yudh Abhyas: 3
+      joint firing: 2
+      firing demonstration: 2
+      joint exercise: 2.5
       nuclear doctrine: 3
       no first use: 3
       defence: 1.5
@@ -1099,6 +1142,7 @@ subjects:
 # (unless they involve a global institution or a watch area such as the neighbourhood).
 india_angle:
   penalty: 1.5
+  regional_watch: [neighbourhood, dpi]   # other watch areas (marine…) need an India link of their own
   applies_to: [intl, general, watch, quality]
   terms: [India, Indian, Indians, New Delhi, Delhi, Centre, Union government, Modi, Parliament, Lok Sabha, Rajya Sabha,
           Supreme Court, RBI, SEBI, ISRO, DRDO, NITI Aayog, CAG, Election Commission, PIB, ministry, MEA, Jaishankar,
@@ -1106,7 +1150,13 @@ india_angle:
           Jharkhand, Karnataka, Kerala, Keralam, Madhya Pradesh, Maharashtra, Manipur, Meghalaya, Mizoram, Nagaland,
           Odisha, Punjab, Rajasthan, Sikkim, Tamil Nadu, Telangana, Tripura, Uttar Pradesh, Uttarakhand, West Bengal,
           Jammu, Kashmir, Ladakh, Puducherry, Chandigarh, Lakshadweep, Andaman, Mumbai, Kolkata, Chennai, Bengaluru,
-          Hyderabad, Himalaya, Ganga, Indian Ocean, Bay of Bengal, Arabian Sea]
+          Hyderabad, Himalaya, Ganga, Indian Ocean, Bay of Bengal, Arabian Sea, UPI, Aadhaar, NPCI, UIDAI, ONDC,
+          DigiLocker, GST, CBDT, CBIC, EPFO, NABARD, SIDBI, IRDAI, Irdai, PFRDA, TRAI, NHAI, ICAR, ICMR, CSIR, AIIMS, IIT,
+          IIM, NIT, UPSC, NTA, CBSE, NCERT, UGC, AICTE, FSSAI, CDSCO, NGT, NHRC, Lokpal, CVC, CBI, NIA, UAPA, BNSS, BNS,
+          SC, HC, EC, ECI, CEC, CJI, Union Minister, Union Cabinet, Union Budget, panchayat, gram sabha, MGNREGA,
+          Viksit Bharat, Atmanirbhar, Make in India, Digital India, Ayushman, Jal Jeevan, NISAR, Chandrayaan,
+          Gaganyaan, Aditya-L1, PSLV, GSLV, LVM3, NavIC, IMEC, GI tag, GI-tagged, Agniveer, CISF, CRPF, BSF, ITBP,
+          Sansad, Niti Aayog]
   exempt: [United Nations, UN, UNGA, UNSC, WTO, IMF, World Bank, WHO, BRICS, SCO, G20, G7, QUAD, Quad, ASEAN, BIMSTEC,
            SAARC, IORA, COP30, COP31, UNFCCC, IPCC, IUCN, UNESCO, NATO, OPEC, IAEA, ICJ, Nobel]
 
@@ -1114,18 +1164,44 @@ india_angle:
 # only post notices. Their items are marked down so they never lead on their own; a story a
 # mainstream outlet also carries keeps that outlet's score. Matched on the exact publisher name.
 low_value_publishers:
-  penalty: 2.0
+  penalty: 3.0
   names: [Lawtext, lawtext.in, Legal Service India, Raw Law, Local Samosa, TradingView, MarketBeat, scanx.trade,
           Social News XYZ, Yahoo Finance, Rediff MoneyWiz, AD HOC NEWS, urbanacres.in, SMEStreet, Metro Vaartha,
-          ISRO e-Procurement Portal]
+          ISRO e-Procurement Portal, Bar & Bench, National Herald, Livemint, Careers360, nenews.in, Brighter Kashmir,
+          KashmirPEN, nktv.in, FM Bharat, Staff News, Loktej English, chemindigest.com, Indian Chemical News, Bodhi Wire,
+          Dynamite News, EdexLive, Dainik Jagran MP CG, News24Online, thekashmirimages.com, Moneylife,
+          News Mobile, Newspatrolling.com, safariindia.com, RADIO PAKISTAN, bssnews.net, daily-sun.com, bnpbd, 24newshd.tv,
+          Ratopati, The Eastern Herald, Bangladesh Sangbad Sangstha (BSS)]
 
 # Other countries' domestic politics is not Indian polity. When a headline names a foreign
 # country and nothing links the story to India, its polity/governance/social-justice/security
 # score counts as International Relations instead, and the story is marked down (news only).
 # Global institutions (the india_angle exempt list: UN, WTO, BRICS…) keep a story un-penalised.
 foreign_affairs:
-  penalty: 3.0                 # e.g. US court rulings, Russia's parliament
-  neighbourhood_penalty: 2.5   # neighbours' internal politics: visible in Everything, in the brief only if big (NOTE)
+  penalty: 1.5                 # world affairs with no India link (US-China, Russia-Ukraine): visible, marked down
+  neighbourhood_penalty: 1.0   # the neighbourhood's politics matters to India; in the brief only if big (NOTE)
+  local_penalty: 4.0           # another country's local news with no wider consequence (no war, trade, summit, UN…):
+                               # a Michigan 'blue economy' summit, a Thai heritage listing, a Sri Lankan amendment
+  world_affairs: [war, wars, warfare, ceasefire, truce, sanction, sanctions, tariff, tariffs, trade deal, trade pact,
+                  trade war, trade talks, free trade, FTA, summit, treaty, pact, accord, nuclear, missile, missiles,
+                  military, troops, army, navy, air force, border, invasion, conflict, peace deal, peace talks,
+                  peace plan, peace process, UN, U.N., United Nations, UNSC, UNGA, NATO, G7, G20, BRICS, SCO, ASEAN,
+                  QUAD, Quad, WTO, IMF, World Bank, WHO, COP31, COP30, UNFCCC, climate, election, elections, coup,
+                  strait, Hormuz, Red Sea, Gaza, Ukraine, Taiwan, South China Sea, oil, crude, OPEC, LNG, embargo,
+                  refugee, refugees, genocide, ICJ, ICC, veto, defence, defense, arms, weapons, drone, drones, cyber,
+                  AI, artificial intelligence, semiconductor, semiconductors, chips, rare earth, rare earths,
+                  critical minerals, supply chain, supply chains, dollar, de-dollarisation, de-dollarization, Fed,
+                  Federal Reserve, interest rates, recession, inflation, GDP, pandemic, outbreak, Ebola, epidemic,
+                  visa, H-1B, immigration, diaspora, terror, terrorism, terrorist, hostage, blockade, sovereignty,
+                  geopolitics, geopolitical, diplomacy, diplomatic, envoy, foreign minister, foreign ministers,
+                  space, satellite, Mars, Moon, lunar, earthquake, tsunami, cyclone, hurricane, typhoon, floods, flood,
+                  strategic, strategy, security, realignment, agreement, rivalry, alliance, allies, superpower,
+                  great power, hegemony, multilateral, world order, state visit, General Assembly, Security Council,
+                  Taliban, sea level, sea levels, rising seas, EEZ, West Philippine Sea, battleground, humanitarian]
+  # foreign web domains among Google News publisher names (thecitizen.co.tz, bssnews.net…)
+  publisher_domains: [.co.tz, .co.za, .com.ng, .ng, .co.ke, .com.pk, .pk, .lk, .com.bd, .bd, .np, .com.np, .af, .mv,
+                      .co.uk, .com.au, .co.nz, .ca, .sg, .ph, .th, .vn, .kr, .jp, .cn, .hk, .tw, .ae, .qa, .ir,
+                      .ru, .ua, .de, .fr, .it, .es, .pt, .nl, .be, .ch, .at, .se, .no, .dk, .fi, .pl, .gr, .ie]
   move_subjects: [polity, governance, social_justice, internal_security]
   neighbourhood: [Sri Lanka, Lankan, Colombo, Nepal, Nepali, Nepalese, Kathmandu, Bangladesh, Bangladeshi, Dhaka,
                   Pakistan, Pakistani, Islamabad, Maldives, Maldivian, Bhutan, Bhutanese, Thimphu, Myanmar, Burma,
@@ -1140,7 +1216,36 @@ foreign_affairs:
               Saudi, UAE, Qatar, Egypt, Turkey, Turkish, Canada, Canadian, Ottawa, Australia, Australian, Canberra,
               Brazil, Brazilian, Mexico, Argentina, Venezuela, South Africa, Nigeria, Kenya, Indonesia, Indonesian,
               Thailand, Thai, Bangkok, Vietnam, Philippines, Malaysia, Singapore, Greenland, Denmark, Norway, Sweden,
-              Poland, Hungary, Syria, Iraq, Yemen, Houthi, Trinidad]
+              Poland, Hungary, Syria, Iraq, Yemen, Houthi, Trinidad, Türkiye, Turkiye, Tanzania, Tanzanian, Ghana,
+              Ghanaian, Ethiopia, Ethiopian, Sudan, Sudanese, Uganda, Zambia, Zimbabwe, Mozambique, Madagascar, Cambodia,
+              Cambodian, Laos, Portugal, Portuguese, Netherlands, Dutch, Belgium, Switzerland, Swiss, Austria, Austrian,
+              Finland, Finnish, Ireland, Irish, Greece, Greek, Armenia, Armenian, Azerbaijan, Kazakhstan, Uzbekistan,
+              Kyrgyz, Kyrgyzstan, Tajikistan, Turkmenistan, Mongolia, Mongolian, Chile, Chilean, Peru, Colombia, Bolivia,
+              Bolivian, Ecuador, Cuba, Cuban, Haiti, Jamaica, Fiji, Tuvalu, Papua New Guinea, Jordan, Lebanon, Oman,
+              Kuwait, Bahrain, Libya, Algeria, Morocco, Tunisia, Congo, Rwanda, Somalia, Senegal, Angola, Namibia,
+              Botswana, Cameroon, Liberia, Michigan, Maine, California, Texas, Florida, Ohio, Chiang Rai, Chiang Mai,
+              Phuket, Algarve, Akwa Ibom, Lagos, Nairobi, Johannesburg, Cape Town, Manila, Jakarta, Kuala Lumpur, Hanoi,
+              Geneva, Vienna, Dublin, Lisbon, Madrid, Rome, Athens, Amsterdam, Karachi, Lahore, Chittagong, Xi,
+              Zelensky, Zelenskyy, Zelenskiy, Lavrov, Sharif, Rubio, Albanese]
+  ambiguous_links: [Punjab]      # an India link only by these, with a foreign country in the headline, is no link
+  # names of the same country, for telling a two-country story (world affairs) from one country's own news
+  aliases:
+    US: [US, U.S., USA, United States, American, America, Washington, White House, Trump, Biden, Rubio]
+    China: [China, Chinese, Beijing, Xi Jinping, Xi]
+    Russia: [Russia, Russian, Kremlin, Moscow, Putin, Lavrov]
+    UK: [UK, Britain, British, London]
+    Iran: [Iran, Iranian, Tehran]
+    Israel: [Israel, Israeli, Netanyahu]
+    Pakistan: [Pakistan, Pakistani, Islamabad, Karachi, Lahore, Sharif]
+    Ukraine: [Ukraine, Ukrainian, Kyiv, Zelensky, Zelenskyy, Zelenskiy]
+    EU: [EU, European, Brussels]
+    Sri Lanka: [Sri Lanka, Lankan, Colombo]
+    Nepal: [Nepal, Nepali, Nepalese, Kathmandu]
+    Bangladesh: [Bangladesh, Bangladeshi, Dhaka, Chittagong]
+    Afghanistan: [Afghanistan, Afghan, Taliban, Kabul]
+    Japan: [Japan, Japanese, Tokyo]
+    Australia: [Australia, Australian, Canberra, Albanese]
+    Turkey: [Turkey, Turkish, Türkiye, Turkiye]
   # outlets from other countries: a story that ONLY they carry, with no India link, is foreign affairs too
   # (Google News watchlist queries like "bill passed parliament India" also return Sri Lankan papers)
   publishers:
@@ -1150,16 +1255,22 @@ foreign_affairs:
                     The Daily Star, Dhaka Tribune, Prothom Alo, bdnews24.com, The Business Standard, New Age, Daily Sun,
                     Dawn, The Express Tribune, Geo News, The News International, ARY News, Business Recorder,
                     Pakistan Today, Samaa TV, Sun Online, The Edition, Maldives Independent, PSM News, Kuensel,
-                    Kuensel Online, The Bhutanese, The Irrawaddy, Myanmar Now, TOLOnews, Ariana News, Amu TV]
+                    Kuensel Online, The Bhutanese, The Irrawaddy, Myanmar Now, TOLOnews, Ariana News, Amu TV, bssnews.net,
+                    Bangladesh Sangbad Sangstha (BSS), daily-sun.com, bnpbd, tbsnews.net, Island.lk, RADIO PAKISTAN,
+                    The News Pakistan, 24newshd.tv, Ratopati, tolonews.com, Myanmar International]
     world: [CNN, Fox News, NBC News, CBS News, ABC News, The New York Times, The Washington Post, The Guardian,
-            BBC, Sky News, The Independent, Politico, Axios, NPR, Los Angeles Times, The Telegraph UK]
+            BBC, BBC News, Sky News, The Independent, Politico, Axios, NPR, Los Angeles Times, The Telegraph UK,
+            gulfnews.com, Gulf News, malaysiasun.com, fulcrum.sg, Rappler, Anadolu Ajansı, TRT World, IOL, UA.NEWS,
+            The Eastern Herald, tovima.com, Eurasia Review, Al Jazeera, DW.com, Deutsche Welle]
   # a story is India-linked only by these (not by generic words like "Parliament" or "Supreme Court")
   india_link: [India, Indian, Indians, New Delhi, Delhi, Modi, Jaishankar, MEA, Lok Sabha, Rajya Sabha, Indo, rupee,
                crore, lakh, Tamil, Tamils, Andhra Pradesh, Arunachal, Assam, Bihar, Chhattisgarh, Goa, Gujarat,
                Haryana, Himachal, Jharkhand, Karnataka, Kerala, Keralam, Madhya Pradesh, Maharashtra, Manipur,
                Meghalaya, Mizoram, Nagaland, Odisha, Punjab, Rajasthan, Sikkim, Tamil Nadu, Telangana, Tripura,
                Uttar Pradesh, Uttarakhand, West Bengal, Jammu, Kashmir, Ladakh, Mumbai, Kolkata, Chennai, Bengaluru,
-               Hyderabad, Indian Ocean]
+               Hyderabad, Indian Ocean, UPI, Aadhaar, NISAR, Chandrayaan, Gaganyaan, IMEC, UAPA, NIA, CBI, GI tag,
+               GI-tagged, Kalaburagi, Gulbarga, ISRO, DRDO, RBI, SEBI, Agniveer, Yudh Abhyas, Tarang Shakti,
+               Nomadic Elephant, VARUNA, Malabar]
 
 # Places and institutions for the Where / Who lines of the write-ups (only names found in the text are shown).
 gazetteer:
@@ -1244,7 +1355,7 @@ noise:
   Government Stock: 3
   Underwriting Auction: 4
   Daily Current Affairs: 3
-  UPSC Key: 3
+  UPSC Key: 5
   Current Affairs Quiz: 4
   "News & Editorials": 3
   PIB Summary: 3
@@ -1306,39 +1417,41 @@ noise:
   recipe: 3
   fashion: 2.5
   wedding: 2
-  lottery: 3
-  slams: 2
-  hits out: 2
+  lottery result: 4
+  lottery results: 4
+  lottery winner: 4
+  slams: 1
+  hits out: 1
   jibe: 2.5
   takes a dig: 2.5
   war of words: 2
   "BJP": 0.5
   "Congress": 0.5
-  pays tributes: 2.5
-  pays tribute: 2.5
+  pays tributes: 5
+  pays tribute: 5
   pays homage: 2.5
-  greets: 2.5
+  greets: 4
   greetings: 2
-  condoles: 3
-  condolence: 3
+  condoles: 5
+  condolence: 5
   to visit: 1.5
   calls on: 1.5
   graces: 2
   swachhata: 1
   live updates: 1.5
   "LIVE": 1.5
-  quiz: 3
-  static quiz: 3
+  quiz: 5
+  static quiz: 5
   "MCQ": 2
   "MCQs": 2
-  mock test: 3
+  mock test: 5
   accuses: 1.5
-  hits back: 2
+  hits back: 1
   payoff: 2
   bribery: 1.5
   scam: 1.5
-  admit card: 3
-  answer key: 3
+  admit card: 5
+  answer key: 5
   how to check: 3
   official website: 2
   results declared: 2
@@ -1354,20 +1467,20 @@ noise:
   money market operations: 3
   auction result: 2
   result of: 1
-  treasury bills: 3.5
-  state government securities: 1.5
+  treasury bills: 6
+  state government securities: 5
   auction of: 1
   # regulators' and departments' routine paperwork: case-by-case orders, tenders, library lists
-  settlement order: 4
-  remittance advice: 4
-  recovery certificate: 4
-  order for compliance: 3
+  settlement order: 6
+  remittance advice: 6
+  recovery certificate: 6
+  order for compliance: 5
   adjudication order: 3
   defaulter: 3
   tender for: 2
   corrigendum: 3
   expression of interest: 2.5
-  "DOCPLAN": 5
+  "DOCPLAN": 6
   compiled by: 3
   # department housekeeping (awareness drives, cleanliness weeks, memento auctions)
   e-auction: 2.5
@@ -1378,6 +1491,85 @@ noise:
   cleanliness: 2
   to visit in: 2.5
   places to visit: 3
+
+# Headline patterns (regular expressions, case-insensitive) for news that is not UPSC material.
+# Weights add to the noise score; noise at or above scoring.reject_noise (5) rejects the item outright
+# (graded LOW: kept in the database, never shown). Each pattern is [weight, regex].
+noise_patterns:
+  # sports results and congratulations
+  - [5, '\bcongratulat(es|ed|ing)\b']
+  - [5, '\b(gold|silver|bronze)\s+medals?\b|\bmedal tally\b|\b(wins?|won|bags?|bagged|clinch(es|ed)?)\s+(a\s+)?(gold|silver|bronze)\b']
+  - [5, '\b(kabaddi|wushu|squash|table tennis|shot put|air pistol|air rifle|archery|badminton|boxer|boxing|hockey|chess|javelin|relay race|UEFA|Nations League|World Cup|Grand Prix|Wimbledon|Premier League|La Liga|Formula One|Asian Games|Commonwealth Games|Diamond League|grandmaster)\b']
+  - [3, '\b(storm(s|ed)? into|reach(es|ed)?) (the )?(semi-?finals?|quarter-?finals?|finals?)\b|\bthriller\b|\bpenultimate[- ]round\b']
+  # party politics: leaders' demands and attacks, bypolls, campaign news (the policy itself is covered elsewhere)
+  - [3, '\b(targets?|attacks?|slams?|blames?|flays?|mocks?|lambasts?|rips into|hits out at|lashes out at|takes (a )?dig at)\s+(the\s+)?(Centre|Union government|government|govt|BJP|Congress|PM|Modi|CM|Chief Minister|Opposition|INDIA bloc|NDA)\b']
+  - [3, '\b(bypolls?|by-?elections?|core committee|ticket distribution|poll campaign|election rally|INDIA bloc|NDA allies|PM face|party workers)\b']
+  - [6, '\bDelhi Confidential\b']
+  - [3, '^(CPI\(M\)|CPI|CPM|Congress|BJP|AAP|TMC|DMK|AIADMK|YSRCP|TDP|BRS|JD\(U\)|JD\(S\)|RJD|SP|BSP|NCP|Shiv Sena|BJD|JMM|INLD|IUML|MNS)(?!\w)[^:]{0,40}\b(urges?|demands?|seeks?|slams?|questions?|asks?|criticises|criticizes|accuses|blames|alleges|vows|warns|backs|says|leaders?)\b']
+  - [3, '\b(says|alleges|claims)\s+(CPI\(M\)|CPI|CPM|Congress|BJP|AAP|TMC|DMK|AIADMK|YSRCP|TDP|BRS|JD\(U\)|JD\(S\)|RJD|SP|BSP|NCP|Shiv Sena|BJD|JMM|INLD|IUML|MNS)(?!\w)|:\s*(CPI\(M\)|CPI|CPM|Congress|BJP|AAP|TMC|DMK|AIADMK|YSRCP|TDP|BRS|JD\(U\)|JD\(S\)|RJD|SP|BSP|NCP|Shiv Sena|BJD|JMM|INLD|IUML|MNS)\s*$']
+  - [2, '\b(CPI\(M\)|CPI|CPM|Congress|BJP|AAP|TMC|DMK|AIADMK|YSRCP|TDP|BRS|JD\(U\)|JD\(S\)|RJD|SP|BSP|NCP|Shiv Sena|BJD|JMM|INLD|IUML|MNS)[''’]s\b|\b(MLAs?|MLCs?)\b']
+  - [3, '\b(Siddaramaiah|Kumaraswamy|Mamata|Chandrababu|Naidu|Jagan|Kejriwal|Rahul Gandhi|Priyanka|Akhilesh|Tejashwi|Owaisi|Kapil Sibal|Jairam Ramesh|Aaditya|Uddhav|Patnaik|Pinarayi|Satheesan|Annamalai|Dotasra|Gehlot|Prakash Raj|Binoy Viswam|Harish Rawat|Manjhi|Revanth|Sukhu|Hooda|Kharge|Venugopal|Surjewala|Sanjay Raut|Abhishek Banerjee)\b[^:|]{0,60}\b(says|said|slams|demands|backs|urges|asks|vows|warns|seeks|blames|questions|calls|joins|writes|resigns|appears|alleges|accuses|begins|holds|meets|on)\b|\b(says|said)\b.{0,30}\b(Siddaramaiah|Kumaraswamy|Mamata|Chandrababu|Naidu|Jagan|Kejriwal|Rahul Gandhi|Priyanka|Akhilesh|Tejashwi|Owaisi|Kapil Sibal|Jairam Ramesh|Aaditya|Uddhav|Patnaik|Pinarayi|Satheesan|Annamalai|Dotasra|Gehlot|Prakash Raj|Binoy Viswam|Harish Rawat|Manjhi|Revanth|Sukhu|Hooda|Kharge|Venugopal|Surjewala|Sanjay Raut|Abhishek Banerjee)\b|:\s*(Siddaramaiah|Kumaraswamy|Mamata|Chandrababu|Naidu|Jagan|Kejriwal|Rahul Gandhi|Priyanka|Akhilesh|Tejashwi|Owaisi|Kapil Sibal|Jairam Ramesh|Aaditya|Uddhav|Patnaik|Pinarayi|Satheesan|Annamalai|Dotasra|Gehlot|Prakash Raj|Binoy Viswam|Harish Rawat|Manjhi|Revanth|Sukhu|Hooda|Kharge|Venugopal|Surjewala|Sanjay Raut|Abhishek Banerjee)\s*$|^(Siddaramaiah|Kumaraswamy|Mamata|Chandrababu|Naidu|Jagan|Kejriwal|Rahul Gandhi|Priyanka|Akhilesh|Tejashwi|Owaisi|Kapil Sibal|Jairam Ramesh|Aaditya|Uddhav|Patnaik|Pinarayi|Satheesan|Annamalai|Dotasra|Gehlot|Prakash Raj|Binoy Viswam|Harish Rawat|Manjhi|Revanth|Sukhu|Hooda|Kharge|Venugopal|Surjewala|Sanjay Raut|Abhishek Banerjee)\b[^:]{0,40}:']
+  # weather alerts, school closures
+  - [5, '\b(yellow|orange|red)\s+alert\b']
+  - [5, '\b(rain|rainfall|thunderstorm|storm|heat ?wave|cold ?wave|weather|fog)\s+(alerts?|warnings?|updates?|forecast|today|tomorrow|threat)\b']
+  - [4, '\b(may see|likely to (see|receive|witness)|to receive|set to receive)\b.{0,30}\b(rain|rainfall|showers|thunderstorms?|snowfall)\b|\brainfall likely\b|\b(heavy )?rains? (hit|hits|lash|lashes|triggers?)\b|\bIMD (warns|issues)\b']
+  - [5, '\bschools?\b.{0,40}\b(closed|shut|holiday|closure)\b|\b(shut|close|closes|closure of)\b.{0,30}\bschools?\b|\bschool holiday\b']
+  # job ads, exam results, admissions
+  - [5, '\brecruitment\s+(20\d\d|notification|drive|exam|out|rally)\b|\bdirect recruitment\b|\bvacanc(y|ies)\b|\b(apply (from|online|now|before|by)|how to apply|last date to apply)\b|\b\d[\d,]*\s+posts\b']
+  - [5, '\b(declares?|announces?|releases?)\b.{0,40}\bresults?\b|\bresults?\b.{0,60}\b(declared|announced|out|released)\b']
+  - [4, '\b(hall ticket|merit list|cut-?off marks|seat allotment|exam (date|dates|schedule|calendar)|debars?)\b']
+  # market ticks, stock tips, personal finance
+  - [4, '\brupee\s+(gains?|falls?|slips?|rises?|declines?|ends|opens|settles|recovers|weakens|strengthens|hits)\b|\bpaise\b|\bone-week (low|high)\b']
+  - [6, '\bstocks? (to buy|forecasts?|price|target|in focus)\b|\bshares? (jump|surge|slump|tumble|rally|fall|rise)\b|\bearnings (preview|report|call)\b|\bpre-?market\b|\((NYSE|NASDAQ)\s*:|\bportfolio has\b|\bgreed (and|&) fear\b|\bthe week ahead\b|\bsell-?off\b|\bmultibagger\b|\bIPO (GMP|allotment|subscription)\b']
+  - [4, '\b(housing|home|property) sales\b|\bproperty prices\b|\bfestive (budgets?|shopping|sales|spending)\b|\byour (policy|money|loan|EMI|taxes|investments?|portfolio|salary)\b|\bmis-?sell|\bNRI property\b|\bTDS norms\b|\btax-?saving\b']
+  # company press releases
+  - [6, '\blimited edition\b|\bcountry head\b']
+  - [4, '\badvises?\b.{0,60}\b(investment|acquisition|deal|IPO|financing|stake|transaction)\b|\beyes?\b.{0,30}\bmarkets?\b|\b(plans?|eyes?|eye)\s+expansion\b|\bwins?\b.{0,40}\bcontract\b|\branked\s+(#\s?1|no\.? ?1|number one)\b|^interview\s*:']
+  - [3, '\blaunch(es|ed)?\b.{0,40}\b(fungicide|pesticide|smartphone|phone|car|SUV|motorcycle|scooter|watch|watches|variant|edition|collection)\b|\b(opens|expands|sets up)\b.{0,30}\b(data ?cent(re|er)s?|datacenter region|office|showroom|store|outlet)\b|\bacquires?\b.{0,30}\bstake\b|\b(partners|ties up|joins hands) with\b']
+  # local ceremonies, events, civic works, routine transfers
+  - [3, '\bfoundation stone\b.{0,60}\b(road|bridge|ROB|building|block|hall|school|park|stadium)\b|\blays? foundation\b.{0,40}\bprojects? (worth|in)\b|\bbhoomi ?pujan\b|\b(road over bridge|flyover|underpass|sewer|sewerage|streetlights?|potholes?)\b']
+  - [5, '\b(new trains?|new stops?|special trains?|tri-?weekly|bi-?weekly)\b|\bcheck routes\b|\bflag(s|ged)? off\b']
+  - [3, '\b(nature walk|heritage walk|photography exhibition|photo exhibition|drone show|literature festival|lit fest|mini expo|webinar|workshop|seminar|symposium|conclave|roundtable|boardroom|full agenda|key speakers|launch event|book launch|latest book|book of poetry|convocation|open house|Krishi Mela|office-bearers|to remain open|bank holiday|good news for)\b|\btells? .{0,30}graduates\b|\brepatriated to\b.{0,20}\bcadre\b|\bpremature repatriation\b']
+  - [4, '\b(celebrates?|celebrated)\b.{0,40}\b(Day|Diwas|Jayanti|anniversary|foundation day|Ganesh Chaturthi|Diwali|Holi|Eid|Christmas|Onam|Pongal|Navratri|Durga Puja)\b|\b(awareness|sensiti[sz]ation)\s+(programme|program|drive|campaign|rally|camp|session|walk|week)\b|\bcalls? for awareness\b|\bstudents urged\b|\b(officials|staff|officers|crews) (trained|to be trained)\b|\bto train\b.{0,25}\b(officials|crews|staff|officers|teachers)\b|\bmock (drill|exercise)\b|\bcleanliness\b|\bswachhata\b']
+  - [3, '\b(Governor|Vice-President|Chief Minister|CM|MLA)\b.{0,50}\bto visit\b|\breviews? (the )?(physical|financial|progress|works|preparedness|arrangements)\b|\bconstituency\b|\bahead of\b.{0,30}\b(polls?|elections?)\b|:\s*[\w-]+\s+MLA\s*$|\binaugurates?\b.{0,50}\b(spiritual|retreat|ashram|temple|bhawan)\b']
+  - [2, '\bcampus\b']
+  - [2, '\bhelpline\b']
+  # crime, accidents, individual court cases
+  - [5, '\bkills? (his |her )?(wife|husband|son|daughter|mother|father|parents|girlfriend|boyfriend|colleague|neighbou?r)\b|\b(found dead|body found|dumps? (the )?body|bodies found)\b|\b(car|bus|truck|jeep|SUV|van|vehicle)\b.{0,25}\b(plunges|overturns|falls into|rams|collides)\b|\bfire accident\b|\bfire breaks? out\b|\binfants? killed\b']
+  - [6, '^\d{4}\s+LiveLaw\s+\(SC\)\s+\d+']
+  - [3, '\bacquits\b|\bdefamat(ion|ory)\b|\bwithdraws plea\b']
+  - [3, '\b(seizes?|seized|seizure of)\b.{0,40}\b(contrabands?|drugs|ganja|heroin|narcotics|gold|liquor|cash)\b']
+  # wildlife incidents (the policy stories say 'human-wildlife conflict', not 'cub rescued')
+  - [3, '\brescued from (a |the )?(house|village|well|kitchen|home)\b|\bstrays? into\b|\benter(s|ed)?\b.{0,20}\b(house|village|human habitat|habitat|kitchen)\b|\bkitchen garden\b|\b(killed|dies|died) in\b.{0,20}\b(elephant|tiger|leopard|bear|wild boar|crocodile) attack\b|\bconflicts? with elephants\b']
+  # coaching digests, quizzes, PDFs, listing pages, live-blog furniture
+  - [4, '\bcurrent affairs\b|\bheadlines of the day\b|\bnews analysis \d|\bnews from the world of\b|\bpractice questions\b|\bdaily quiz\b|\bMCQs?\b']
+  - [6, '\btable of contents\b|\.pdf\b|^\d{6,}|\bdownload pdf\b|\bpage-?\d+ of\b|\bspeeches (&|and) statements\b|\bweekly statistical supplement\b|\bmoney supply for the fortnight\b|\bissuance calendar\b']
+  - [5, '\bwhere to watch\b|\bwhat time\b.{0,40}\b(speech|address|watch)\b|\b(speech|address)\s+live\b|\blive (updates|blog|streaming|coverage)\b']
+  # think-tank self-promotion
+  - [4, '\b(quoted in|interviewed (in|by|on)|appears in|co-?authored|in conversation with)\b|[''’]s (co-authored )?(paper|article)\b.{0,80}\bpublished\b|\bparticipates in\b.{0,40}\b(discussion|panel|webinar|podcast)\b|\bpodcast\b|\basked\s*:']
+  # soft features, gossip, entertainment
+  - [5, '\bsatire\b|\bbody language\b|\bcostumes?\b|\bminiskirts?\b|\bin shades\b|\bweb series\b|\b(film|movie|series) review\b']
+
+  # (second audit round) more of the same kinds
+  - [4, '\bfrequently asked questions\b|\bFAQs?\b|\bcompliance (guide|checklist|for (companies|businesses|SaaS))\b']
+  - [3, '\bCM\b.{0,40}\b(launches|inaugurates|lays)\b.{0,40}\b(projects?|facilit(y|ies)|stations?)\b|\bdiscusses\b.{0,40}\bwith\b.{0,20}\b(CM|Chief Minister)\b']
+  - [3, '\b(defence|security|strategic|foreign policy) expert\b|\bformer diplomat\b']
+  - [3, '\b(Home Finance|Housing Finance|Finance Ltd)\b|\bmerges?\b.{0,40}\b(assets|trust|business|units?)\b|\bpartner to\b']
+  - [3, '\b(CPI\(M\)|CPI|CPM|Congress|BJP|AAP|TMC|DMK|AIADMK|YSRCP|TDP|BRS|RJD|NCP|JD\(U\)|JD\(S\))(?!\w)\s+(attacks?|slams?|targets?|demands?|seeks?|accuses|alleges|blames|questions|asks|workers|leaders|MPs|MLAs)\b|\b(rivals?|allies)\b.{0,10}\b(TMC|CPM|BJP|Congress|AAP|DMK)\b']
+  - [3, '\bwoman.?s plea\b|\bmorph(ing|ed)\b|\bdeepfake image\b|\bPD Act\b|\bplot to frame\b']
+  - [4, '\badjourns?\b|\bhearing (adjourned|deferred)\b|\barguments to resume\b']
+  - [4, '^I\s+\w+|\bmyself\b']
+  - [6, '\[Image \d+ of \d+\]']
+  - [3, '^How (one|a) \w+ (helped|turned|transformed|changed)\b']
+  - [2, '\bRs\.? ?\d+(\.\d+)? lakh\b(?!\s*crore)']
+  - [2, '\bto \d+ (farmers|beneficiaries|students|women)\b']
+  - [3, '\b(home ?buyers?|flat buyers?|delayed (flat|possession))\b']
+  - [3, '\bassistance to affected families\b|\bdamage due to rain(fall)? to be assessed\b']
+  - [4, ':\s*(Managing Director|MD|CEO|Chairman|Director|Country Head)\b.{0,40}$']
+
+# Outlets that carry no UPSC material at all (stock tickers, press releases, petitions, foreign local news):
+# their items are rejected outright. A story they share with a real outlet keeps that outlet's grade.
+blocked_publishers: [Seeking Alpha, Moomoo, Yahoo Finance, 'Yahoo! Finance Canada', MarketBeat, TradingView, StreetInsider, 'Schaeffer''s Investment Research', klsescreener.com, PR Newswire, Business Wire, GlobeNewswire, AZoM, fundsforNGOs, ThePetitionSite.com, Gogi Tech, Medium, digital terminal, Container News, India CSR, ehealth.eletsonline.com, Mainebiz, WSMH, WJHG, Utilities Middle East, Portugal Resident, discoverwildlife.com, Traders Union, IndexBox, Lawxy AI, grihik.com, India Sentinels, Maps of India, Social News XYZ, scanx.trade, Sahara Reporters, TheNigeriaLawyer, Business News Nigeria, Today FM 95.1, LEADERSHIP Newspaper, thecitizen.co.tz, dailynews.co.tz, 24newshd.tv, Chiang Rai Times, youtu.be, YouTube, AD HOC NEWS, A2Z Taxcorp LLP, Sahi, Local Samosa, Metro Vaartha, Bankersadda, LatestLY, Indulge Express, analyticsindiamag.com, communicationstoday.co.in, Pioneer Edge, Latest news from Azerbaijan, Big News Network.com, DVIDS]
 
 # Prelims-style tags (regex, case-insensitive unless (?-i) used).
 tags:
@@ -1406,7 +1598,7 @@ watch_areas:
     label: Political change in the neighbourhood
     all:
       - [Bangladesh, Nepal, Sri Lanka, Myanmar, Maldives, Pakistan, Afghanistan, Bhutan]
-      - [president, prime minister, election, elections, government, coup, parliament, sworn, protest, junta, taliban, cabinet, resigns, interim, poll]
+      - [president, prime minister, "PM", election, elections, government, coup, parliament, sworn, protest, junta, taliban, cabinet, resigns, interim, poll]
   appointments:
     label: Appointments to constitutional / statutory / regulatory bodies
     all:

@@ -270,3 +270,28 @@ def test_refresh_button_forces_every_source(settings, db, fake_env, monkeypatch)
     assert seen.get("force") is True
     due = [s for s in fake_sources(settings) if fetchers.is_due(s, db.get_source_state(s["id"]), 15, NOW)]
     assert not due  # without force nothing would have been fetched
+
+
+def test_story_mostly_rejected_stays_rejected(db, clf):
+    from upsc_intel.pipeline.cluster import aggregate_story
+    now = NOW.isoformat()
+    for iid, title, score in (("w1", "Weather tomorrow: IMD forecasts rain in 23 states", 2.0),
+                              ("w2", "Weather Today: storm alert in 11 states", clf.reject_score - 5),
+                              ("w3", "Rain Alert for 23 States", clf.reject_score - 5)):
+        db.insert_item({"id": iid, "source_id": iid, "title": title, "url": "https://x/" + iid, "date_ist": NOW.date().isoformat(),
+                        "published_at": now, "fetched_at": now, "is_library": 0, "story_id": "sw", "score": score,
+                        "publisher": iid, "subjects": ["disaster"]})
+    db.commit()
+    assert aggregate_story(db, clf, "sw")["grade"] == "LOW"
+
+
+def test_one_rejected_copy_does_not_sink_a_real_story(db, clf):
+    from upsc_intel.pipeline.cluster import aggregate_story
+    now = NOW.isoformat()
+    for iid, title, score in (("y1", "SkyStriker munition strikes during India-US Yudh Abhyas 2026", 4.0),
+                              ("y2", "SkyStriker munition strikes during India-US Yudh Abhyas", clf.reject_score - 5)):
+        db.insert_item({"id": iid, "source_id": iid, "title": title, "url": "https://x/" + iid, "date_ist": NOW.date().isoformat(),
+                        "published_at": now, "fetched_at": now, "is_library": 0, "story_id": "sy", "score": score,
+                        "publisher": iid, "subjects": ["security"]})
+    db.commit()
+    assert aggregate_story(db, clf, "sy")["grade"] != "LOW"
