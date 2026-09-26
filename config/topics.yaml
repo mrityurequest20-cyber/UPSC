@@ -1457,7 +1457,7 @@ watchlist:
     - 'BRICS OR QUAD OR SCO OR BIMSTEC India when:1d'
     - 'G20 OR UNGA OR "UN Security Council" India when:1d'
     - 'WTO OR IMF OR "World Bank" India when:2d'
-    - 'climate COP UNFCCC India when:2d'
+    - 'climate India (COP31 OR UNFCCC OR NDC OR "climate finance") when:2d'
     - 'Bangladesh OR Nepal OR "Sri Lanka" OR Maldives government election when:1d'
     - 'Myanmar OR Afghanistan OR Bhutan OR Pakistan government when:1d'
     - 'EEZ OR UNCLOS OR "blue economy" OR "deep sea mission" when:3d'
