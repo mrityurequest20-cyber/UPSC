@@ -51,7 +51,9 @@ Fields:
 - insufficient: true when the text did not carry enough substance.
 
 For an EDITORIAL / opinion piece: "what" is the core argument, "why_in_news" is the news peg,
-"significance" lists the key arguments, "background" is the context."""
+"significance" lists the key arguments, "background" is the context.
+For an EXPLAINER: "what" is the explanation in brief, "why_in_news" is the news peg, and
+"prelims" carries the definitions and facts the explainer sets out."""
 
 SCHEMA = {
     "type": "object",
@@ -104,7 +106,12 @@ def _sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if len(p.strip()) > 25]
 
 
-_LABEL = re.compile(r"^(news|context|why in (the )?news|in news|about|what'?s the news)\s*[:\-–]\s*", re.I)
+_LABEL = re.compile(r"^((?i:news|context|why in (the )?news|in news|about|what'?s the news)\s*[:\-–]\s*"
+                    r"|(Introduction|Context)\s+(?=[A-Z]))")  # "Introduction The seizure…", not "Introduction of GST…"
+# lines that are page furniture, not content: syllabus tags, bylines, source notes
+_FURNITURE = re.compile(r"^(general studies\b|gs[- ]?\d\b|topic\s*:|source\s*:|this (article|piece) is (authored|written) by\b|"
+                        r"the (writer|author) is\b|(written|authored) by\b)", re.I)
+_SYLLABUS = re.compile(r"^(upsc\s+)?syllabus\s*:.*?(\bcontext\s*:\s*|$)", re.I)  # ForumIAS: "UPSC Syllabus: GS-3 Context: …"
 
 
 def _nice_date(d: str | None) -> str:
@@ -121,8 +128,10 @@ def auto_explain(story: dict, labels: dict) -> dict:
     watch_labels = labels.get("watch", {})
     title = (story.get("title") or "").strip()
     summary = clean_summary(story.get("summary") or "").replace("…", "").strip()
-    sents = [_LABEL.sub("", s) for s in _sentences(summary)]
+    sents = [_LABEL.sub("", _SYLLABUS.sub("", s)) for s in _sentences(summary) if not _FURNITURE.search(s)]
     sents = [s for s in sents if s and s.lower() != title.lower() and not title.lower().startswith(s.lower()[:60])]
+    if sents and not re.search(r"[.!?\"”’)]$", sents[-1]):  # feed excerpt cut mid-sentence
+        sents[-1] += "…"
     pubs = story.get("publishers") or [x.get("p") for x in story.get("sources", []) if x.get("p")]
     facts: list[str] = []
     if sents:
@@ -136,7 +145,13 @@ def auto_explain(story: dict, labels: dict) -> dict:
         what = " ".join(parts)
     else:
         who = ", ".join(pubs[:3]) + (f" and {len(pubs) - 3} more" if len(pubs) > 3 else "")
-        why = f"Reported on {_nice_date(story.get('date_ist') or story.get('date'))}" + (f" by {who}." if who else ".")
+        when = _nice_date(story.get("date_ist") or story.get("date"))
+        if story.get("is_editorial") or story.get("editorial"):
+            why = f"Opinion piece{' in ' + who if who else ''}, {when}. Open it for the full argument."
+        elif story.get("is_explained") or story.get("explained"):
+            why = f"Explainer{' by ' + who if who else ''}, {when}. Open it for the full piece."
+        else:
+            why = f"Reported on {when}" + (f" by {who}." if who else ".")
         what = ""
     if len(what) > 420:
         what = what[:420].rsplit(" ", 1)[0] + "…"
@@ -163,7 +178,8 @@ def _story_text(db: DB, story: dict, kind: str) -> str:
         "LEFT JOIN items_fts f ON f.item_id = i.id WHERE i.story_id=? ORDER BY i.tier='official' DESC LIMIT 6",
         (story["id"],),
     )
-    parts = [f"Type: {'EDITORIAL / opinion' if kind == 'editorial' else 'NEWS'}",
+    label = {"editorial": "EDITORIAL / opinion", "explained": "EXPLAINER"}.get(kind, "NEWS")
+    parts = [f"Type: {label}",
              f"Headline: {story['title']}", f"Reported on: {', '.join(story.get('dates') or [])}"]
     for r in rows:
         body = (r["body"] or r["summary"] or "").strip()
@@ -216,7 +232,7 @@ def enrich_story(client, settings: Settings, db: DB, story: dict, kind: str = "n
 
 
 def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int = 2) -> dict:
-    """Explain the brief stories (news first, then editorials) of the last `days` days."""
+    """Explain the brief stories (news, then explainers, then editorials) of the last `days` days."""
     if not settings.ai_enabled:
         return {"enabled": False}
     import anthropic

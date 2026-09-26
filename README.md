@@ -1,19 +1,24 @@
 # UPSC Intel: live current-affairs dashboard
 
-A self-updating website that reads **~110 sources** every 15 minutes and turns hundreds of
+A self-updating website that reads **~140 sources** every 15 minutes and turns hundreds of
 stories a day into a short **Daily Brief** you can actually finish. The sources include:
 - PIB, RBI, SEBI, PRS and NITI
 - The Hindu, Indian Express, Mint, BS, ET, HT and more
+- 13 opinion pages and 7 explainer desks
 - coaching desks (IE UPSC, Insights, ForumIAS, Drishti…)
 - a 42-query Google News watchlist
 
-For each day it picks about 25 must-know stories and 8 editorials, balanced across the syllabus. Each one comes with:
+For each day it picks about 25 must-know stories, 15 editorials and 12 explainers, balanced across the syllabus. Each one comes with:
 - a UPSC-style explainer
 - the closest-matching YouTube video
 
 Week and Month views recap everything the daily briefs covered.
 
 ![Daily Brief](docs/dashboard-day.png)
+
+| Editorials (by GS paper) | Explained |
+|---|---|
+| ![Editorials](docs/dashboard-editorials.png) | ![Explained](docs/dashboard-explained.png) |
 
 | Week in review | Phone |
 |---|---|
@@ -39,7 +44,25 @@ Week and Month views recap everything the daily briefs covered.
   2. Then it searches YouTube.
   3. **What counts as a match:** words are weighted by rarity, so "AFSPA" or "Cybercrime" count far more than "minister" or "art". The video also has to be from the story's week. Travel vlogs, quiz videos and other-language uploads are rejected.
   4. **When nothing is confident enough,** the card shows a **Find video** search button instead of a wrong link.
-- **Editorials of the day:** The Hindu (Editorial, Lead, Op-Ed), Indian Express (Editorials, Columns) and Mint Opinion. Each has its core argument, GS paper and a Mains question.
+- **Editorials of the day (about 15):**
+  - **Sources:**
+    - The Hindu (Editorial, Lead, Op-Ed, Columns)
+    - Indian Express (Editorials, Columns, Opinion)
+    - HT (Editorials, Opinion, HT Insight)
+    - ET (Editorial, Opinion)
+    - Mint, BusinessLine, Business Standard, Financial Express, Deccan Herald, ThePrint, The Tribune and EPW
+    - Insights' UPSC Editorial Analysis
+  - **How they're ranked:** by syllabus relevance, with no paper taking more than a third of the day. The Editorials tab groups them by GS paper.
+  - **Also caught:** opinion pieces that arrive through news feeds are recognised from their URL (`/opinion/`, `/editorials/`, `/columns/`).
+- **Explained (about 12 a day), in its own section and tab:**
+  - **Sources:**
+    - Indian Express Explained, Expert Explains and Knowledge Nugget
+    - The Hindu's "… | Explained"
+    - Mint Explainer, ThePrint Essential, Deccan Herald Explained
+    - News18 and Firstpost explainers
+  - **Also caught:** question headlines ("What is …?", "Why has …?") from quality outlets.
+  - **Kept separate from news:** explainers never merge into a news card, so the news story and the deep dive both show up.
+- **Headline-only feeds get real text:** every Indian Express feed ships headlines only. For each new item the fetcher reads the article's public preview text (`og:description`, what link previews show), so the explainer card says what the piece is about.
 - **Videos tab:**
   - matched explainers for the brief stories
   - the day's analysis videos: news analysis, PIB summaries, Sansad TV programmes
@@ -56,6 +79,9 @@ Week and Month views recap everything the daily briefs covered.
   - the easy-miss watch (marine/EEZ, DPI, neighbourhood politics, appointments, defence-tech deals)
   - LOW-grade items, hidden but never deleted
 - **Live updates:** a "🔴 N new stories" button appears when a fetch lands.
+- **Refresh button:**
+  - **Local / Docker:** fetches *every* source right now (1–3 min) and reports "Done · N new stories".
+  - **Pages site:** checks for a newer build and loads it, or tells you when the last update ran and when the next one is due.
 - **Self-healing sources:** every source has a fallback chain (direct feed → alternate URL → Google News `site:` → headless browser). The **Sources** tab shows what each source is using right now.
 - **Keyboard:** `/` search · `t` today · `d w m` views · `← →` step · Export any view to Markdown notes.
 
@@ -80,16 +106,18 @@ To open it from your phone, run it on a home PC or VPS with `UPSC_HOST=0.0.0.0` 
 |---|---|---|
 | **Local** `python -m upsc_intel serve` | Full app, live every 15 min, stars and notes saved in SQLite | ✅ |
 | **Docker** `docker compose up -d` | The same, always on (VPS, home server, NAS). Data kept in `./data`, PDFs in `./inbox` | ✅ |
-| **GitHub Pages** (`.github/workflows/pages.yml`) | Free public URL, rebuilt **hourly** by GitHub Actions. Stars and notes are saved per browser | ❌ public sources only |
+| **GitHub Pages** (`.github/workflows/pages.yml`) | Free public URL, rebuilt **every 20 minutes** by GitHub Actions. Stars and notes are saved per browser | ❌ public sources only |
 
 **Turning on the GitHub Pages site takes 2 clicks:**
 1. Merge this branch into `main`. Scheduled workflows only run on the default branch.
 2. Go to **Settings → Pages → Build and deployment → Source: GitHub Actions**. Then open **Actions → "Live dashboard (GitHub Pages)" → Run workflow** once.
 
-The site will be at `https://<user>.github.io/<repo>/` and refreshes every hour after that.
+The site will be at `https://<user>.github.io/<repo>/` (the path is case-sensitive) and refreshes every 20 minutes after that.
 
 - **Private repos:** Pages needs a paid GitHub plan.
-- **Minutes:** hourly runs use about 2–3 Actions minutes each. That's free for public repos, but on a private repo on the free plan (2,000 min/month) it gets tight. Change the cron to every 2–3 hours if that matters.
+- **What each run fetches:** only the sources that are due. Most are every 15 minutes; Google News queries are hourly. The database, with each source's last-fetch time, is carried between runs in the Actions cache, and older caches are deleted.
+- **Minutes:** each run takes about 2–4 Actions minutes. That's free for public repos. On a private repo on the free plan (2,000 min/month), change the cron to every 2–3 hours and set `UPSC_SITE_REFRESH_MIN` to match.
+- **Inactivity:** GitHub pauses scheduled workflows in a public repo after 60 days without a commit. If that happens, re-enable the workflow in the **Actions** tab.
 
 ## Plugging in your premium accounts
 
@@ -117,14 +145,17 @@ Premium, email and library content **never** goes to the public Pages site.
 ```
 config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram · html · browser · imap · documents)
                           │ fallback chain per source, retries, per-host limits, per-source intervals
+                          │ + preview text for headline-only feeds
                           ▼
                        normalise  (canonical URL, IST date, clean title)
                           ▼
+                       kind       (news · editorial · explained: source flag, headline, URL)
+                          ▼
                        classify   (config/topics.yaml: 18 subjects → GS1–4, Prelims tags, watch areas,
                           ▼         India angle, grade)
-                       cluster    (same story across outlets → one card; "N outlets" = importance)
+                       cluster    (same story across outlets → one card, within its kind; "N outlets" = importance)
                           ▼
-                       brief      (per day: coverage pass + importance fill, editorials)
+                       brief      (per day: coverage pass + importance fill · editorials · explainers)
                           ▼
                        videos     (trusted-channel library → YouTube search, IDF-weighted matching)
                           ▼
@@ -144,7 +175,7 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
 
   The score is then pushed down by:
   - noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies, results notices, quizzes)
-  - foreign stories with no India link (global institutions and the neighbourhood are exempt)
+  - foreign news with no India link. Global institutions, the neighbourhood, editorials and explainers are exempt.
 
   NOTE ≥ 5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
 - **Tuning:** edit `config/topics.yaml` (keywords, weights, noise, watchlist queries), then run `python -m upsc_intel reclassify`.
@@ -155,20 +186,20 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
 python -m upsc_intel serve [--port 8000] [--no-scheduler] [--public-only]
 python -m upsc_intel fetch [--only pib hindu-] [--force] [--public-only] [--enrich]
 python -m upsc_intel sources            # health table: which step each source is using, counts, errors
-python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml
+python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 56 tests
+python -m pytest                        # 71 tests
 ```
 
 ## AI explainers (recommended)
 
 Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instead.
 
-- **What runs:** after each fetch, every brief story and editorial of the last two days gets a full explainer, up to `UPSC_AI_MAX_PER_RUN` (default 40). Each story is written once and cached.
+- **What runs:** after each fetch, every brief story, explainer and editorial of the last two days gets a full explainer, up to `UPSC_AI_MAX_PER_RUN` (default 40). Each story is written once and cached.
 - **Contents:** headline, why in news, what happened, background, why it matters, Prelims facts, a Mains question, keywords, and a tailored YouTube search query. The query is used to find a better video on the next run.
 - **Model:** `claude-opus-5` at low effort by default; `UPSC_AI_MODEL` switches it. Server-side refusal fallback is enabled, so a declined story is answered by another model instead of being dropped.
-- **Cost:** roughly 30–35 stories a day with a few thousand tokens each. That's around a dollar a day on the default model; a smaller model costs less.
+- **Cost:** roughly 50 stories a day with a few thousand tokens each. That's around one to two dollars a day on the default model; a smaller model, or lower `UPSC_BRIEF_EDITORIALS` / `UPSC_BRIEF_EXPLAINED`, costs less.
 - **Accuracy rules:**
   - News facts come only from the fetched text.
   - The Background line may use well-established static knowledge (what an institution or Article is), and is left empty when unsure.
@@ -179,7 +210,9 @@ Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instea
 | Setting | Default | What it does |
 |---|---|---|
 | `UPSC_BRIEF_SIZE` | 25 | must-know stories per day |
-| `UPSC_BRIEF_EDITORIALS` | 8 | editorials per day |
+| `UPSC_BRIEF_EDITORIALS` | 15 | editorials per day |
+| `UPSC_BRIEF_EXPLAINED` | 12 | explainers per day |
+| `UPSC_SITE_REFRESH_MIN` | 60 (20 in the Pages workflow) | minutes between static-site rebuilds, shown on the page |
 | `UPSC_VIDEO_LANG` | `en` | `hi` or `any` to allow Hindi / other-language explainer videos |
 | `UPSC_VIDEO_SEARCH` | on | `0` = only the trusted-channel library, no YouTube search |
 | `YOUTUBE_API_KEY` | — | use the official YouTube Data API for searches |
@@ -190,8 +223,10 @@ Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instea
 ```
 config/            sources.yaml · topics.yaml · sources.local.example.yaml
 upsc_intel/
-  fetchers/        rss, gnews, pib, telegram, html_links (html + browser), email_imap, documents, http, fallback chain
-  pipeline/        normalize, classify, cluster, brief (daily picks), enrich (explainers), videos (matching), run
+  fetchers/        rss, gnews, pib, telegram, html_links (html + browser), email_imap, documents, http,
+                   describe (preview text for headline-only feeds), fallback chain
+  pipeline/        normalize, kinds (news/editorial/explained), classify, cluster, brief (daily picks),
+                   enrich (explainers), videos (matching), run
   web/             app.py (API + scheduler) · static/ (index.html, app.js, styles.css)
   static_export.py
 tests/             parsers, classifier, clustering, brief selection, explainers, video matching, fallback chain, API, export

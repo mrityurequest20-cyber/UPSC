@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from ..db import DB, iso, utcnow
 from .classify import Classifier
+from .kinds import EDITORIAL, EXPLAINED, item_kind
 from .normalize import publisher_key
 
 WINDOW_DAYS = 3
@@ -34,33 +35,33 @@ def similar(a: set[str], b: set[str]) -> float:
 
 
 class Clusterer:
+    """Items only join stories of their own kind (news / editorial / explained)."""
+
     def __init__(self, db: DB, window_days: int = WINDOW_DAYS):
         self.members: dict[str, list[set[str]]] = defaultdict(list)
-        self.index: dict[tuple[bool, str], set[str]] = defaultdict(set)
-        self.editorial: dict[str, bool] = {}
+        self.index: dict[tuple[str, str], set[str]] = defaultdict(set)
         since = iso(utcnow() - timedelta(days=window_days))
         rows = db.q(
-            "SELECT story_id, tokens, is_editorial FROM items WHERE story_id IN "
+            "SELECT story_id, tokens, is_editorial, is_explained FROM items WHERE story_id IN "
             "(SELECT id FROM stories WHERE last_seen >= ? AND is_library=0)",
             (since,),
         )
         for r in rows:
             toks = set(json.loads(r["tokens"] or "[]"))
-            self.add(r["story_id"], toks, bool(r["is_editorial"]))
+            self.add(r["story_id"], toks, item_kind(dict(r)))
 
-    def add(self, story_id: str, tokens: set[str], editorial: bool) -> None:
-        self.editorial[story_id] = editorial
+    def add(self, story_id: str, tokens: set[str], kind: str) -> None:
         if len(self.members[story_id]) < MAX_MEMBERS:
             self.members[story_id].append(tokens)
         for t in tokens:
-            self.index[(editorial, t)].add(story_id)
+            self.index[(kind, t)].add(story_id)
 
-    def find(self, tokens: set[str], editorial: bool) -> str | None:
+    def find(self, tokens: set[str], kind: str) -> str | None:
         if len(tokens) < 2:
             return None
         cands: Counter = Counter()
         for t in tokens:
-            for sid in self.index.get((editorial, t), ()):
+            for sid in self.index.get((kind, t), ()):
                 cands[sid] += 1
         best, best_score = None, 0.0
         for sid, n in cands.items():
@@ -134,7 +135,8 @@ def aggregate_story(db: DB, clf: Classifier, story_id: str) -> dict | None:
         "watch": watch,
         "score": score,
         "grade": clf.grade(score),
-        "is_editorial": int(all(it.get("is_editorial") for it in items)),
+        "is_editorial": int(all(item_kind(it) == EDITORIAL for it in items)),
+        "is_explained": int(all(item_kind(it) == EXPLAINED for it in items)),
         "is_library": int(any(it.get("is_library") for it in items)),
         "is_private": int(all(it.get("is_private") for it in items)),
         "tier": rep.get("tier"),
@@ -144,3 +146,32 @@ def aggregate_story(db: DB, clf: Classifier, story_id: str) -> dict | None:
     db.upsert_story(story)
     return story
 
+
+
+def split_mixed_stories(db: DB) -> int:
+    """Move items out of stories of another kind (after kinds were re-labelled).
+    The group holding the story's founding item keeps the story id; each other kind gets a new story."""
+    rows = db.q("SELECT id, story_id, is_editorial, is_explained FROM items "
+                "WHERE story_id IS NOT NULL AND is_library=0 ORDER BY published_at")
+    by_story: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_story[r["story_id"]].append(r)
+    moved = 0
+    for sid, its in by_story.items():
+        groups: dict[str, list[str]] = defaultdict(list)
+        for r in its:
+            groups[item_kind(dict(r))].append(r["id"])
+        if len(groups) < 2:
+            continue
+        founder = sid[1:]  # story ids are "s" + the id of the item that started them
+        keep = next((k for k, ids in groups.items() if founder in ids), max(groups, key=lambda k: len(groups[k])))
+        for kind, ids in groups.items():
+            if kind == keep:
+                continue
+            new_sid = "s" + ids[0]
+            if new_sid == sid or db.q("SELECT 1 FROM stories WHERE id=?", (new_sid,)):
+                new_sid += "-" + kind[:2]
+            db.x(f"UPDATE items SET story_id=? WHERE id IN ({','.join('?' * len(ids))})", [new_sid, *ids])
+            moved += len(ids)
+    db.commit()
+    return moved

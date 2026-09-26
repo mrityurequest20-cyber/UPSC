@@ -24,6 +24,7 @@ from ..pipeline.videos import daily_videos
 log = logging.getLogger("upsc_intel.web")
 STATIC_DIR = Path(__file__).parent / "static"
 MAX_SOURCES_PER_STORY = 12
+BRIEF_KEYS = {"news": "news", "editorial": "editorials", "explained": "explained"}  # pick kind → payload key
 
 
 def story_out(s: dict, labels: dict | None = None, explain: bool = False) -> dict:
@@ -56,6 +57,7 @@ def story_out(s: dict, labels: dict | None = None, explain: bool = False) -> dic
         "watch": s.get("watch") or [],
         "n_pub": s.get("n_publishers") or len({x["p"] for x in srcs}),
         "editorial": bool(s.get("is_editorial")),
+        "explained": bool(s.get("is_explained")),
         "library": bool(s.get("is_library")),
         "private": bool(s.get("is_private")),
         "tier": s.get("tier"),
@@ -82,6 +84,7 @@ def sources_out(settings: Settings, db: DB, public_only: bool = False) -> list[d
         out.append({
             "id": src["id"], "name": src.get("name"), "section": src.get("section") or "",
             "tier": src.get("tier"), "editorial": bool(src.get("editorial")),
+            "explained": bool(src.get("explained")),
             "watchlist": bool(src.get("watchlist")), "private": bool(src.get("private")),
             "chain": [c.get("kind") for c in chain], "active_step": active,
             "using": st.get("last_step_kind") or chain[active].get("kind"),
@@ -93,9 +96,15 @@ def sources_out(settings: Settings, db: DB, public_only: bool = False) -> list[d
     return out
 
 
+def _names(sources: list[dict], flag: str) -> list[str]:
+    """Publisher names with at least one source of this kind, in registry order."""
+    return list(dict.fromkeys(s.get("name") for s in sources if s.get(flag) and s.get("name")))
+
+
 def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mode: str,
-               running: bool = False, next_run_at: str | None = None) -> dict:
+               running: bool = False, next_run_at: str | None = None, public_only: bool = False) -> dict:
     lo, hi = db.date_range()
+    srcs = load_sources(settings, public_only=public_only)
     return {
         "mode": mode,
         "version": __version__,
@@ -113,6 +122,11 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
         "gs_papers": topics.get("gs_papers") or {},
         "ai_enabled": settings.ai_enabled,
         "brief_size": settings.brief_size,
+        "brief_editorials": settings.brief_editorials,
+        "brief_explained": settings.brief_explained,
+        "editorial_sources": _names(srcs, "editorial"),
+        # The Hindu, Mint and Deccan Herald explainers are recognised by their headlines
+        "explained_sources": list(dict.fromkeys(_names(srcs, "explained") + ["The Hindu", "Mint", "Deccan Herald"])),
         "imap_enabled": settings.imap_enabled,
     }
 
@@ -130,8 +144,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
     for p in picks:
         if p["story_id"] not in stories:
             continue
-        day = days.setdefault(p["date_ist"], {"news": [], "editorials": []})
-        day["news" if p["kind"] == "news" else "editorials"].append(p["story_id"])
+        day = days.setdefault(p["date_ist"], {"news": [], "editorials": [], "explained": []})
+        day[BRIEF_KEYS.get(p["kind"], "news")].append(p["story_id"])
     return {
         "from": date_from, "to": date_to, "generated_at": iso(datetime.now(timezone.utc)),
         "days": days,
@@ -149,7 +163,8 @@ class Runner:
         self.scheduler = None
         self._lock = threading.Lock()
 
-    def run_once(self) -> None:
+    def run_once(self, force: bool = False) -> None:
+        """force=True (the Refresh button) fetches every source now, not only the ones due."""
         from ..pipeline.run import run_fetch
 
         with self._lock:
@@ -157,7 +172,7 @@ class Runner:
                 return
             self.running = True
         try:
-            res = run_fetch(self.settings, self.db, public_only=self.public_only)
+            res = run_fetch(self.settings, self.db, public_only=self.public_only, force=force)
             log.info("fetch done: %s new items, %s new stories in %ss",
                      res.get("n_new"), res.get("n_new_stories"), res.get("duration_s"))
             if self.settings.ai_enabled:
@@ -169,10 +184,10 @@ class Runner:
         finally:
             self.running = False
 
-    def trigger(self) -> bool:
+    def trigger(self, force: bool = True) -> bool:
         if self.running:
             return False
-        threading.Thread(target=self.run_once, daemon=True).start()
+        threading.Thread(target=self.run_once, kwargs={"force": force}, daemon=True).start()
         return True
 
     def start(self) -> None:
@@ -227,7 +242,7 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
     def meta():
         clf, topics = classifier()
         return build_meta(settings, db, clf, topics, mode="server", running=runner.running,
-                          next_run_at=runner.next_run_at())
+                          next_run_at=runner.next_run_at(), public_only=public_only)
 
     @app.get("/api/stories")
     def stories(date_from: str = Query(..., alias="from"), date_to: str = Query(..., alias="to"),

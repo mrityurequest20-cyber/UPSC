@@ -1,5 +1,5 @@
 /* UPSC Intel dashboard: vanilla JS, no build step. Works against the live API or a static export.
-   Tabs: Brief (curated, explained) · Editorials · Videos · Everything (firehose) · Starred · Library · Sources */
+   Tabs: Brief (curated, explained) · Editorials · Explained · Videos · Everything (firehose) · Starred · Library · Sources */
 (() => {
   "use strict";
 
@@ -102,7 +102,13 @@
   const GRADES = ["NOTE", "SKIM", "READ"];
   const GRADE_HELP = { NOTE: "High yield: make notes", SKIM: "Worth knowing", READ: "Background only", LOW: "Probably not examinable" };
   const PAPERS = ["GS1", "GS2", "GS3", "GS4", "Prelims"];
-  const BRIEF_TABS = new Set(["brief", "editorials", "videos"]);
+  const BRIEF_TABS = new Set(["brief", "editorials", "explained", "videos"]);
+  // how each kind of piece is labelled on its card
+  const kindOf = (s) => (s.editorial ? "editorial" : s.explained ? "explained" : "news");
+  const WHY_LABEL = { news: "Why in news:", editorial: "Argument:", explained: "In short:" };
+  const WHAT_LABEL = { news: "What happened", editorial: "Core argument", explained: "In brief" };
+  const SIG_LABEL = { news: "Why it matters", editorial: "Key points", explained: "Why it matters" };
+  const KIND_PILL = { editorial: '<span class="pill ed">Editorial</span>', explained: '<span class="pill ex">Explained</span>', news: "" };
 
   // ─────────────────────────── state ───────────────────────────
   const S = {
@@ -131,7 +137,7 @@
       if (!r.ok) throw new Error(`${r.status} ${url}`);
       return r.json();
     },
-    meta() { return STATIC ? this.json(`data/meta.json?t=${Date.now()}`) : this.json("api/meta"); },
+    meta() { return STATIC ? this.json(`data/meta.json?t=${Date.now()}`, { cache: "no-store" }) : this.json("api/meta", { cache: "no-store" }); },
     async month(kind, m, fresh) {
       const key = `${kind}-${m}`;
       if (!(S.meta.months || []).includes(m)) return null;
@@ -224,7 +230,7 @@
   function briefList(kind) {
     // Day: rank order. Week/month: every day's picks, best first.
     const out = [];
-    for (const d of briefDays()) for (const id of (S.brief.days[d][kind === "news" ? "news" : "editorials"] || [])) {
+    for (const d of briefDays()) for (const id of (S.brief.days[d][kind] || [])) { // news · editorials · explained
       const s = S.briefById.get(id); if (s) out.push({ ...s, _day: d });
     }
     if (S.view !== "day") out.sort((a, b) => (b.score + 0.4 * b.n_pub) - (a.score + 0.4 * a.n_pub));
@@ -241,7 +247,7 @@
     const dot = el.querySelector(".live-dot"); const txt = el.querySelector(".txt");
     const last = m.last_run && m.last_run.finished_at;
     if (SNAPSHOT) { dot.className = "live-dot idle"; txt.textContent = `Snapshot · data from ${shortTime(m.built_at)} IST`; }
-    else if (STATIC) { dot.className = "live-dot"; txt.textContent = `Auto-updates hourly · built ${ago(m.built_at)}`; }
+    else if (STATIC) { dot.className = "live-dot"; txt.textContent = `Updates every ${m.refresh_min || 60} min · last ${ago(m.built_at)}`; }
     else if (m.running) { dot.className = "live-dot busy"; txt.textContent = "Fetching all sources…"; }
     else {
       dot.className = last ? "live-dot" : "live-dot idle";
@@ -259,10 +265,12 @@
     const has = !!S.brief;
     const nNews = has ? briefList("news").length : "";
     const nEd = has ? briefList("editorials").length : "";
+    const nEx = has ? briefList("explained").length : "";
     const nVid = has ? briefVideos().length + briefList("news").filter((s) => s.video && s.video.id).length : "";
     const tabs = [
       ["brief", S.view === "day" ? "Daily Brief" : S.view === "week" ? "Week in review" : "Month in review", nNews],
       ["editorials", "Editorials", nEd],
+      ["explained", "Explained", nEx],
       ["videos", "Videos", nVid],
       ["everything", "Everything", S.tab === "everything" ? briefingPool().filter((s) => passes(s)).length : ""],
       ["starred", "Starred", Object.values(S.marks).filter((x) => x.starred).length],
@@ -309,9 +317,9 @@
     const labels = S.meta.labels.subjects;
     const li = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
     const rows = [];
-    if (e.what) rows.push([s.editorial ? "Core argument" : "What happened", `<p>${esc(e.what)}</p>`]);
+    if (e.what) rows.push([WHAT_LABEL[kindOf(s)], `<p>${esc(e.what)}</p>`]);
     if (e.background) rows.push(["Background", `<p>${esc(e.background)}</p>`]);
-    if (e.significance && e.significance.length) rows.push([s.editorial ? "Key points" : "Why it matters", li(e.significance)]);
+    if (e.significance && e.significance.length) rows.push([SIG_LABEL[kindOf(s)], li(e.significance)]);
     if (e.prelims && e.prelims.length) rows.push(["Prelims facts", li(e.prelims)]);
     if (e.mains) rows.push(["Mains question", `<p class="mq">${esc(e.mains)}</p>`]);
     if (e.keywords && e.keywords.length) rows.push(["Keywords", `<p class="kw">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</p>`]);
@@ -343,10 +351,10 @@
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${opts.showSubject && s.subjects[0] ? `<span class="pill subj">${esc(labels[s.subjects[0]] || s.subjects[0])}</span>` : ""}
           ${s.tags.filter((t) => t !== "Data/Stats").slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
-          ${s.editorial ? '<span class="pill ed">Editorial</span>' : ""}
+          ${KIND_PILL[kindOf(s)]}
         </span>
         <span class="btitle">${esc(headline)}</span>
-        ${why ? `<span class="why"><b>${s.editorial ? "Argument:" : "Why in news:"}</b> ${esc(why)}</span>` : ""}
+        ${why ? `<span class="why"><b>${WHY_LABEL[kindOf(s)]}</b> ${esc(why)}</span>` : ""}
         <span class="chev" aria-hidden="true">${ICON.chev}</span>
       </button>
       <div class="bactions">
@@ -373,16 +381,16 @@
     return `<div class="covchips"><span class="covlabel">What we covered</span>${all.filter((k) => counts[k]).map((k) => `<button class="cchip" data-jump="sec-${k}">${esc(labels[k])} <b>${counts[k]}</b></button>`).join("")}
       ${missing.length ? `<span class="cmiss" title="No brief story in these areas for this period">⚠ Nothing in: ${esc(missing.map((k) => labels[k]).join(", "))}</span>` : ""}</div>`;
   }
-  function briefHero(news, eds, totalReported) {
-    const all = news.concat(eds);
+  function briefHero(news, eds, exps, totalReported) {
+    const all = news.concat(eds, exps);
     const areas = new Set(news.map((s) => s.subjects[0])).size;
-    const minutes = Math.max(5, Math.round(news.length * 1.5 + eds.length * 2));
+    const minutes = Math.max(5, Math.round(news.length * 1.5 + (eds.length + exps.length) * 2));
     const [from, to] = periodRange(S.view, S.anchor);
     const d = D(from);
     const eyebrow = S.view === "day" ? `Daily Brief · ${WD_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`
       : S.view === "week" ? `Week ${isoWeek(from)} in review · ${periodLabel("week", S.anchor).split(" · ")[0]}` : `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()} in review`;
-    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")} · ${plural(eds.length, "editorial")}`
-      : `${plural(news.length, "story", "stories")} covered · ${plural(eds.length, "editorial")}`;
+    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
+      : `${plural(news.length, "story", "stories")} covered · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`;
     const sub = S.view === "day"
       ? `Covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min · picked from ${plural(totalReported, "story", "stories")} reported`
       : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported`;
@@ -421,9 +429,10 @@
     const labels = S.meta.labels.subjects;
     const news = briefList("news").filter(briefPasses);
     const eds = briefList("editorials").filter(briefPasses);
+    const exps = briefList("explained").filter(briefPasses);
     const vids = briefVideos();
-    if (!news.length && !eds.length) {
-      el.innerHTML = briefHero(news, eds, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter." : S.meta.last_run || STATIC ? "No brief for this period yet." : "The first fetch is running: the brief appears in a minute or two."}</div>`;
+    if (!news.length && !eds.length && !exps.length) {
+      el.innerHTML = briefHero(news, eds, exps, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter." : S.meta.last_run || STATIC ? "No brief for this period yet." : "The first fetch is running: the brief appears in a minute or two."}</div>`;
       $("#side").innerHTML = "";
       return;
     }
@@ -435,7 +444,7 @@
     for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
     const compact = S.view !== "day";
     const sections = [];
-    let html = briefHero(news, eds, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
+    let html = briefHero(news, eds, exps, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
     html += section("sec-top", S.view === "day" ? "Top stories today" : S.view === "week" ? "Top 10 of the week" : "Top 15 of the month",
       "tap any card for the full explainer", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
     sections.push({ id: "sec-top", label: S.view === "day" ? "Top stories" : "Top " + topN, n: top.length });
@@ -452,6 +461,12 @@
         `<div class="bcards">${eds.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null, showSubject: true })).join("")}</div>${eds.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${eds.length}</button>` : ""}`);
       sections.push({ id: "sec-editorials", label: "Editorials", n: eds.length });
     }
+    if (exps.length) {
+      const key = "b:exps"; const lim = S.expanded.has(key) || S.view === "day" ? exps.length : 10;
+      html += section("sec-explained", S.view === "day" ? "Explained: today's deep dives" : "Explained", "the concept behind the news, in exam format",
+        `<div class="bcards">${exps.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null, showSubject: true })).join("")}</div>${exps.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${exps.length}</button>` : ""}`);
+      sections.push({ id: "sec-explained", label: "Explained", n: exps.length });
+    }
     if (vids.length) {
       const lim = S.view === "day" ? 9 : 12;
       html += section("sec-videos", S.view === "day" ? "Watch: today's analysis" : "Analysis videos", "Sansad TV, PIB, DD News, Indian Express, Drishti, StudyIQ and more",
@@ -463,24 +478,44 @@
       `<div class="side-note">Picked from ${plural(reportedTotal(), "story", "stories")} reported. The full list is under <button class="linkbtn" data-tab-go="everything">Everything</button>.</div>`;
   }
 
-  function renderEditorialsTab() {
-    const el = $("#content");
+  const KIND_TAB = {
+    editorials: { noun: "editorial", eyebrow: "Editorials", srcKey: "editorial_sources", head: (n) => `${plural(n, "editorial")} worth your time`,
+      note: "ranked by syllabus relevance, with no single paper taking more than a third of the day" },
+    explained: { noun: "explainer", eyebrow: "Explained", srcKey: "explained_sources", head: (n) => `${plural(n, "explainer")} to build your concepts`,
+      note: "the \u201cwhat is it, why now, why it matters\u201d pieces behind the news, ranked by syllabus relevance" },
+  };
+  function renderKindTab(key) {
+    const cfg = KIND_TAB[key]; const el = $("#content");
     if (!S.brief) { el.innerHTML = '<div class="loading">Loading…</div>'; return; }
-    const eds = briefList("editorials").filter(briefPasses);
-    const byPub = {}; for (const s of eds) { const p = (s.sources[0] && s.sources[0].p) || "Other"; byPub[p] = (byPub[p] || 0) + 1; }
-    el.innerHTML = `<header class="bhero"><div class="bhero-text"><div class="eyebrow">Editorials · ${esc(periodLabel(S.view, S.anchor))}</div>
-        <h1>${plural(eds.length, "editorial")} worth your time</h1><p>${esc(Object.entries(byPub).map(([p, n]) => `${p} ${n}`).join(" · ") || "The Hindu, Indian Express, Mint")}</p></div>
-        <div class="bhero-side">${progress(eds)}${gsChips()}</div></header>` +
-      (eds.length ? `<div class="bcards">${eds.map((s) => bcard(s, { day: S.view !== "day" ? s._day : null, showSubject: true, compact: S.view !== "day" })).join("")}</div>`
-        : '<div class="empty">No editorials picked for this period yet.</div>');
-    $("#side").innerHTML = `<div class="side-note">Picked from The Hindu (Editorial, Lead, Op-Ed), Indian Express (Editorials, Columns) and Mint Opinion, ranked by syllabus relevance. Every opinion piece is under <button class="linkbtn" data-tab-go="everything">Everything</button>.</div>`;
+    const list = briefList(key).filter(briefPasses);
+    const byPub = {}; for (const s of list) { const p = (s.sources[0] && s.sources[0].p) || "Other"; byPub[p] = (byPub[p] || 0) + 1; }
+    const papers = ["GS1", "GS2", "GS3", "GS4", "Other"];
+    const groups = new Map(papers.map((g) => [g, []]));
+    for (const s of list) (groups.get(S.meta.labels.subject_gs[s.subjects[0]]) || groups.get("Other")).push(s);
+    const compact = S.view !== "day";
+    const sections = [];
+    let html = `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${cfg.eyebrow} · ${esc(periodLabel(S.view, S.anchor))}</div>
+        <h1>${cfg.head(list.length)}</h1><p>${esc(Object.entries(byPub).sort((a, b) => b[1] - a[1]).map(([p, n]) => `${p} ${n}`).join(" · "))}</p></div>
+        <div class="bhero-side">${progress(list)}${gsChips()}</div></header>`;
+    for (const [g, arr] of groups) {
+      if (!arr.length) continue;
+      const id = `sec-${key}-${g}`; const k = `${key}:${g}`;
+      const lim = S.expanded.has(k) || !compact ? arr.length : 8;
+      html += section(id, g === "Other" ? "Other" : `${g} · ${S.meta.gs_papers[g] || ""}`, plural(arr.length, cfg.noun),
+        `<div class="bcards">${arr.slice(0, lim).map((s) => bcard(s, { day: compact ? s._day : null, showSubject: true, compact })).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${esc(k)}">Show all ${arr.length}</button>` : ""}`);
+      sections.push({ id, label: g, n: arr.length });
+    }
+    el.innerHTML = html + (list.length ? "" : `<div class="empty">No ${cfg.noun}s picked for this period yet.</div>`);
+    const names = (S.meta[cfg.srcKey] || []).join(", ");
+    $("#side").innerHTML = (sections.length ? contentsNav(sections, "By GS paper") : "") +
+      `<div class="side-note">Picked from ${esc(names || "the opinion pages")}: ${cfg.note}. Everything else is under <button class="linkbtn" data-tab-go="everything">Everything</button>.</div>`;
   }
 
   function renderVideosTab() {
     const el = $("#content");
     if (!S.brief) { el.innerHTML = '<div class="loading">Loading…</div>'; return; }
     const vids = briefVideos();
-    const matched = briefList("news").concat(briefList("editorials")).filter((s) => s.video && s.video.id);
+    const matched = briefList("news").concat(briefList("explained"), briefList("editorials")).filter((s) => s.video && s.video.id);
     el.innerHTML = `<header class="bhero"><div class="bhero-text"><div class="eyebrow">Videos · ${esc(periodLabel(S.view, S.anchor))}</div>
         <h1>${plural(matched.length, "story explainer")} · ${plural(vids.length, "analysis video")}</h1>
         <p>A video is attached to a story only when its topic, key terms and date line up. Otherwise the story card offers a YouTube search instead of a wrong video.</p></div></header>` +
@@ -560,7 +595,7 @@
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${s.subjects.slice(0, 2).map((x) => `<span class="pill subj">${esc(labels[x] || x)}</span>`).join("")}
           ${s.tags.slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
-          ${s.editorial ? '<span class="pill ed">Editorial</span>' : ""}
+          ${KIND_PILL[kindOf(s)]}
         </div>
         <div class="actions">
           <button data-act="star" aria-pressed="${mk.starred}" aria-label="Star" title="Star for revision">${mk.starred ? ICON.starOn : ICON.star}</button>
@@ -670,7 +705,8 @@
     renderPeriod(); renderLive(); renderTabs(); setLayout();
     if (S.search) return renderSearch();
     if (S.tab === "brief") return renderBrief();
-    if (S.tab === "editorials") return renderEditorialsTab();
+    if (S.tab === "editorials") return renderKindTab("editorials");
+    if (S.tab === "explained") return renderKindTab("explained");
     if (S.tab === "videos") return renderVideosTab();
     if (S.tab === "everything") return renderEverything();
     if (S.tab === "starred") return renderStarred();
@@ -715,14 +751,16 @@
     window.scrollTo({ top: 0 });
   }
 
-  async function poll() {
+  // Checks for a new build/run. Returns how many new stories arrived (0 when nothing changed), or null
+  // when the data couldn't be reached. apply=true shows them at once instead of offering the banner.
+  async function poll(opts = {}) {
     try {
       S.meta = await api.meta(); renderLive();
       const stamp = STATIC ? S.meta.built_at : S.meta.last_run && S.meta.last_run.finished_at;
-      if (!stamp || stamp === S.lastRunSeen) return;
+      if (!stamp || stamp === S.lastRunSeen) return 0;
       S.lastRunSeen = stamp; S.sources = null;
       const [from, to] = periodRange(S.view, S.anchor);
-      if (to < addDays(todayIST(), -1)) return; // viewing the past: nothing new will land
+      if (to < addDays(todayIST(), -1)) return 0; // viewing the past: nothing new will land
       const before = new Set(S.brief ? S.brief.stories.map((s) => s.id) : []);
       const fresh = await api.brief(from, to, true);
       const added = fresh.stories.filter((s) => !before.has(s.id));
@@ -734,9 +772,52 @@
         S.loadedAt = S.serverStamp || S.loadedAt;
       }
       const n = added.length + S.pending.filter((s) => s.grade !== "LOW").length;
-      if (n) { const b = $("#newbanner"); b.innerHTML = `<span class="dot"></span>${plural(n, "new story", "new stories")}: show`; b.hidden = false; }
+      if (n && !opts.apply) { const b = $("#newbanner"); b.innerHTML = `<span class="dot"></span>${plural(n, "new story", "new stories")}: show`; b.hidden = false; }
       else applyPending(false);
-    } catch (e) { /* offline: try again next tick */ }
+      return n;
+    } catch (e) { return null; } // offline: try again next tick
+  }
+
+  // ─────────────────────────── refresh button ───────────────────────────
+  let toastTimer;
+  function toast(html, kind = "") {
+    const el = $("#toast");
+    el.className = `toast ${kind}`; el.innerHTML = html; el.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 9000);
+  }
+  function setBusy(btn, busy, label) {
+    btn.disabled = busy; btn.classList.toggle("busy", busy);
+    btn.querySelector(".txt").textContent = busy ? label : "Refresh";
+  }
+  function nextBuild() {
+    const every = S.meta.refresh_min || 60;
+    const next = new Date(new Date(S.meta.built_at).getTime() + every * 60000).toISOString();
+    return until(next) === "any moment" ? "the next one is due any minute" : `next one ${until(next)}`;
+  }
+  // Static site: the data is rebuilt on a schedule by GitHub Actions, so Refresh checks for a newer
+  // build and loads it. Server: Refresh fetches every source right now.
+  async function refreshNow(btn) {
+    if (STATIC) {
+      setBusy(btn, true, "Checking…");
+      const before = S.lastRunSeen;
+      const n = await poll({ apply: true });
+      setBusy(btn, false);
+      if (n === null) return toast("<b>Couldn't reach the site.</b> Check your connection and try again.", "warn");
+      if (S.lastRunSeen !== before) return toast(`<b>Updated.</b> ${n ? plural(n, "new story", "new stories") + " added to this view" : "Latest data loaded"} · built ${ago(S.meta.built_at)}.`, "ok");
+      return toast(`<b>You're up to date.</b> Last update ${ago(S.meta.built_at)}; the site rebuilds about every ${S.meta.refresh_min || 60} min (${nextBuild()}).`);
+    }
+    setBusy(btn, true, "Fetching…");
+    try { await api.refresh(); S.meta.running = true; renderLive(); } catch (err) {
+      setBusy(btn, false); return toast("<b>Couldn't reach the server.</b> Is it still running?", "warn");
+    }
+    toast("<b>Fetching every source now.</b> This takes 1–3 minutes; keep reading, new stories appear when it's done.");
+    const wait = setInterval(async () => {
+      await poll();
+      if (S.meta.running) return;
+      clearInterval(wait); setBusy(btn, false); applyPending(false);
+      const r = S.meta.last_run || {};
+      toast(`<b>Done.</b> ${r.n_ok ?? "?"} of ${r.n_sources ?? "?"} sources fetched · ${plural(r.n_new_stories || 0, "new story", "new stories")}.`, "ok");
+    }, 4000);
   }
   function applyPending(scroll = true) {
     if (S.pendingBrief) {
@@ -776,6 +857,8 @@
       for (const [k, arr] of groups) md += `\n## ${k}\n` + arr.map(block).join("");
       const eds = briefList("editorials").filter(briefPasses);
       if (eds.length) md += `\n## Editorials\n` + eds.map(block).join("");
+      const exps = briefList("explained").filter(briefPasses);
+      if (exps.length) md += `\n## Explained\n` + exps.map(block).join("");
     } else {
       for (const s of sortStories(briefingPool().filter((x) => passes(x)))) md += `\n- **${s.title}** \`${s.grade}\` ${s.gs.join(" ")} · [${(s.sources[0] || {}).p || "source"}](${s.url})`;
     }
@@ -791,7 +874,7 @@
   const findStory = (id) => S.briefById.get(id) || S.stories.find((s) => s.id === id) || (S.search && S.search.stories.find((s) => s.id === id)) || (S.library || []).find((s) => s.id === id);
   function refreshProgress() {
     const prog = $(".bhero .progress"); if (!prog) return;
-    const list = S.tab === "editorials" ? briefList("editorials").filter(briefPasses) : briefList("news").concat(briefList("editorials")).filter(briefPasses);
+    const list = (KIND_TAB[S.tab] ? briefList(S.tab) : briefList("news").concat(briefList("editorials"), briefList("explained"))).filter(briefPasses);
     prog.outerHTML = progress(list);
   }
   function rerenderCard(el) {
@@ -835,16 +918,7 @@
     if (t.id === "exportBtn") return exportMarkdown();
     if (t.id === "newbanner") return applyPending();
     if (t.id === "filtersBtn") { $("#side").classList.add("open"); $("#scrim").hidden = false; return; }
-    if (t.id === "refreshBtn") {
-      if (STATIC) { await poll(); return go(); }
-      t.disabled = true;
-      try { await api.refresh(); S.meta.running = true; renderLive(); } catch (err) { /* ignore */ }
-      const wait = setInterval(async () => {
-        await poll();
-        if (!S.meta.running) { clearInterval(wait); t.disabled = false; applyPending(false); }
-      }, 5000);
-      return;
-    }
+    if (t.id === "refreshBtn") return refreshNow(t);
     if (t.matches("rect.hit[data-day]")) return go({ view: "day", anchor: t.dataset.day });
     if (t.dataset.tab) return switchTab(t.dataset.tab);
     if (t.dataset.tabGo) return switchTab(t.dataset.tabGo);
@@ -916,7 +990,7 @@
   // ─────────────────────────── boot ───────────────────────────
   async function boot() {
     readHash();
-    if (STATIC) $("#refreshBtn").title = "Reload the latest hourly build";
+    if (STATIC) $("#refreshBtn").title = "Check for the latest update";
     if (SNAPSHOT) { $("#refreshBtn").hidden = true; $("#exportBtn").hidden = true; }
     try { [S.meta, S.marks] = await Promise.all([api.meta(), api.marks()]); }
     catch (e) { $("#content").innerHTML = `<div class="empty">Could not reach the data (${esc(e.message)}). Is the server running?</div>`; return; }

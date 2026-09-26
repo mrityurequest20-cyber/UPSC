@@ -26,6 +26,22 @@ subjects:
     label: Polity & Constitution
     gs: GS2
     kw:
+      death penalty: 2.5
+      capital punishment: 2.5
+      right to vote: 2.5
+      democracy: 1.5
+      democratic: 1
+      dissent: 1.5
+      judiciary: 2
+      judicial: 1.5
+      election: 1
+      electoral: 1.5
+      free speech: 2.5
+      freedom of speech: 2.5
+      censorship: 1.5
+      press freedom: 2.5
+      custodial: 2
+      police reforms: 2.5
       constitution: 2
       constitutional: 2
       supreme court: 2
@@ -114,6 +130,9 @@ subjects:
     label: Governance & Policy
     gs: GS2
     kw:
+      civic: 1.5
+      regulation: 1
+      municipal: 1.5
       scheme: 1.5
       yojana: 2
       abhiyan: 2
@@ -170,6 +189,16 @@ subjects:
     label: International Relations
     gs: GS2
     kw:
+      "Trump": 1.5
+      Xi Jinping: 2
+      "Xi": 1.5
+      "US-China": 2
+      geopolitics: 2
+      geopolitical: 1.5
+      multilateralism: 2
+      trade war: 2
+      UN General Assembly: 2.5
+      foreign policy: 2
       bilateral: 2
       multilateral: 2
       diplomatic: 1.5
@@ -370,6 +399,9 @@ subjects:
     label: Health
     gs: GS2
     kw:
+      "Ayurveda": 2.5
+      nutrition: 2
+      suicide prevention: 2
       health: 1
       public health: 2
       "WHO": 1.5
@@ -422,6 +454,9 @@ subjects:
     label: Education
     gs: GS2
     kw:
+      student suicide: 2
+      campus: 1.5
+      "IIM": 1.5
       education: 1
       national education policy: 3
       "NEP": 2
@@ -450,6 +485,24 @@ subjects:
     label: Economy
     gs: GS3
     kw:
+      import duty: 2.5
+      edible oil: 2
+      informal sector: 2.5
+      informal economy: 2.5
+      workforce: 1.5
+      livelihood: 1.5
+      customs duty: 2.5
+      customs: 1.5
+      antitrust: 2
+      competition law: 2.5
+      corporate governance: 2.5
+      trillion: 1
+      "GSDP": 2.5
+      economic growth: 2
+      job creation: 2
+      jobs: 1.5
+      insurance: 1.5
+      tourism: 1.5
       economy: 1.5
       economic: 1
       "GDP": 2
@@ -587,6 +640,8 @@ subjects:
     label: Infrastructure & Energy
     gs: GS3
     kw:
+      housing: 1.5
+      civic infrastructure: 2.5
       infrastructure: 1.5
       railway: 1.5
       vande bharat: 1.5
@@ -639,6 +694,9 @@ subjects:
     label: Environment & Ecology
     gs: GS3
     kw:
+      nuclear waste: 2.5
+      water crisis: 2
+      water scarcity: 2
       environment: 1.5
       environmental: 1.5
       climate change: 2.5
@@ -718,6 +776,8 @@ subjects:
     label: Science & Technology
     gs: GS3
     kw:
+      nuclear: 1.5
+      data protection: 2.5
       "ISRO": 2.5
       space: 1
       satellite: 2
@@ -818,6 +878,8 @@ subjects:
     label: Defence
     gs: GS3
     kw:
+      nuclear doctrine: 3
+      no first use: 3
       defence: 1.5
       defense: 1
       army: 1
@@ -891,6 +953,14 @@ subjects:
     label: History, Art & Culture
     gs: GS1
     kw:
+      Vande Mataram: 3
+      national song: 2.5
+      "Urdu": 2
+      battle of: 1.5
+      empire: 1.5
+      colonial: 1.5
+      colonialism: 2
+      "Swaraj": 2.5
       heritage: 2
       "UNESCO": 2.5
       world heritage: 3
@@ -978,6 +1048,8 @@ subjects:
     label: Society
     gs: GS1
     kw:
+      misinformation: 1.5
+      loneliness: 1.5
       society: 1
       social: 0.5
       population: 1.5
@@ -1095,6 +1167,13 @@ signals:
 
 # Not examinable: pushed down (not deleted).
 noise:
+  letters to the editor: 4
+  "DH Toon": 4
+  cartoon: 3
+  crossword: 4
+  sudoku: 4
+  "DH Speak Out": 4
+  40 years ago: 4
   murder: 3
   murdered: 3
   rape: 2.5

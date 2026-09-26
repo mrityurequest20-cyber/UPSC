@@ -45,6 +45,9 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     flags = "window.UPSC_STATIC = true;" + (" window.UPSC_SNAPSHOT = true;" if snapshot else "")
     html = html.replace("<!--STATIC_FLAG-->", f"<script>{flags}</script>")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")  # browsers keep assets 10 min on Pages
+    for name in ("app.js", "styles.css"):
+        html = html.replace(f"static/{name}", f"static/{name}?v={stamp}")
     (out / "index.html").write_text(html, encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
 
@@ -79,8 +82,9 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         _write_json(out / "data" / f"brief-{m}.json", {"month": m, **brief})
 
     topics = load_topics(settings)
-    meta = build_meta(settings, db, Classifier(topics), topics, mode="static")
+    meta = build_meta(settings, db, Classifier(topics), topics, mode="static", public_only=not include_private)
     meta.update({
+        "refresh_min": settings.site_refresh_min,
         "months": written,
         "built_at": iso(datetime.now(timezone.utc)),
         "sources": sources_out(settings, db, public_only=not include_private),

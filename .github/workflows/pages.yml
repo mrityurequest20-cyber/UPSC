@@ -1,4 +1,4 @@
-# Hourly: fetch every public source, rebuild the static dashboard, publish to GitHub Pages.
+# Every 20 minutes: fetch the public sources that are due, rebuild the static dashboard, publish to GitHub Pages.
 #
 # One-time setup (repo Settings):
 #   1. Merge this to the default branch (scheduled workflows only run there).
@@ -10,7 +10,7 @@ name: Live dashboard (GitHub Pages)
 
 on:
   schedule:
-    - cron: "7 * * * *"
+    - cron: "7,27,47 * * * *"  # GitHub may start scheduled runs a few minutes late at busy times
   workflow_dispatch:
   push:
     branches: [main, master]
@@ -20,6 +20,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write  # to delete old database caches
 
 concurrency:
   group: pages
@@ -31,6 +32,7 @@ jobs:
     timeout-minutes: 25
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      UPSC_SITE_REFRESH_MIN: "20"  # keep in step with the cron above (shown on the page)
     steps:
       # First, so a repo without Pages enabled fails in seconds instead of after a full fetch.
       - uses: actions/configure-pages@v5
@@ -52,10 +54,12 @@ jobs:
           key: upsc-db-${{ github.run_id }}
           restore-keys: upsc-db-
 
-      - name: Fetch all public sources
+      # Each source has its own interval (15 min for most, 60 for Google News queries); the database
+      # carries the last-fetch times between runs, so only sources that are due are fetched.
+      - name: Fetch public sources
         env:
           UPSC_BROWSER_FALLBACK: "0"
-        run: python -m upsc_intel fetch --public-only --force
+        run: python -m upsc_intel fetch --public-only
 
       - name: AI notes (only if the secret is set)
         if: env.ANTHROPIC_API_KEY != ''
@@ -67,6 +71,14 @@ jobs:
         with:
           path: data/upsc.db
           key: upsc-db-${{ github.run_id }}
+
+      - name: Delete older database caches
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key upsc-db- --sort created_at --order desc --limit 100 --json id --jq '.[2:][].id' \
+            | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY" || true
 
       - name: Build static site
         run: python -m upsc_intel export-static --out site --days 62

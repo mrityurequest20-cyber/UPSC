@@ -62,5 +62,22 @@ class Http:
                     continue
         raise FetchError(f"{type(last).__name__}: {last}" if last else "request failed")
 
+    def head_html(self, url: str, max_bytes: int = 300_000, timeout: float = 8) -> str:
+        """Download a page only up to its </head> (for meta tags); one short attempt, no retries."""
+        host = urlsplit(url).hostname or ""
+        buf = b""
+        with self._sem(host):
+            try:
+                with self.client.stream("GET", url, timeout=timeout) as resp:
+                    if resp.status_code >= 400:
+                        raise FetchError(f"HTTP {resp.status_code}")
+                    for chunk in resp.iter_bytes():
+                        buf += chunk
+                        if b"</head>" in buf or len(buf) >= max_bytes:
+                            break
+            except httpx.HTTPError as exc:
+                raise FetchError(f"{type(exc).__name__}: {exc}") from exc
+        return buf.decode("utf-8", errors="replace")
+
     def close(self) -> None:
         self.client.close()
