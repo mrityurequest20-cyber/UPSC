@@ -266,7 +266,7 @@
     const nNews = has ? briefList("news").length : "";
     const nEd = has ? briefList("editorials").length : "";
     const nEx = has ? briefList("explained").length : "";
-    const nVid = has ? briefVideos().length + briefList("news").filter((s) => s.video && s.video.id).length : "";
+    const nVid = has ? briefVideos().length + briefList("news").concat(briefList("explained"), briefList("editorials")).filter((s) => storyVideos(s).length).length : "";
     const tabs = [
       ["brief", S.view === "day" ? "Daily Brief" : S.view === "week" ? "Week in review" : "Month in review", nNews],
       ["editorials", "Editorials", nEd],
@@ -298,19 +298,23 @@
   function gsChips() {
     return `<div class="chips gs-chips" role="group" aria-label="Filter by paper">${PAPERS.map((g) => `<button class="chip" data-f="gs" data-v="${g}" aria-pressed="${S.f.gs.has(g)}" title="${esc(S.meta.gs_papers[g] || "Prelims facts")}">${g}</button>`).join("")}</div>`;
   }
+  // one English and one Hindi video per story when a confident match exists
+  const storyVideos = (s) => [[s.video, "English"], [s.video_hi, "हिंदी"]].filter(([v]) => v && v.id);
   function videoChip(s) {
+    const vids = storyVideos(s);
+    if (vids.length) return vids.map(([v, lang]) => `<a class="vchip" href="${esc(v.url)}" target="_blank" rel="noopener" title="${esc(v.title)} · ${esc(v.channel)}">${ICON.play}<span>${lang} · ${esc(v.channel || "video")}</span></a>`).join("");
     const v = s.video;
-    if (v && v.id) return `<a class="vchip" href="${esc(v.url)}" target="_blank" rel="noopener" title="${esc(v.title)} · ${esc(v.channel)}">${ICON.play}<span>Watch: ${esc(v.channel || "video")}</span></a>`;
     const kw = s.explain && s.explain.keywords && s.explain.keywords.length ? s.explain.keywords.slice(0, 5).join(" ") : null;
-    const url = v && v.search_url ? v.search_url : `https://www.youtube.com/results?search_query=${encodeURIComponent((kw || s.title) + " UPSC")}`;
-    return `<a class="vchip ghost" href="${esc(url)}" target="_blank" rel="noopener" title="No exact match yet: opens a YouTube search">${ICON.search}<span>Find video</span></a>`;
+    const q = v && v.query ? v.query : (kw || s.title);
+    const url = v && v.search_url ? v.search_url : `https://www.youtube.com/results?search_query=${encodeURIComponent(q + " UPSC")}`;
+    const urlHi = `https://www.youtube.com/results?search_query=${encodeURIComponent(q + " UPSC hindi")}`;
+    return `<a class="vchip ghost" href="${esc(url)}" target="_blank" rel="noopener" title="No confident match yet: opens a YouTube search">${ICON.search}<span>Find video</span></a>` +
+      `<a class="vchip ghost" href="${esc(urlHi)}" target="_blank" rel="noopener" title="Search YouTube for a Hindi explainer">${ICON.search}<span>हिंदी में खोजें</span></a>`;
   }
   function videoBlock(s) {
-    const v = s.video;
-    if (!v || !v.id) return "";
-    return `<a class="vblock" href="${esc(v.url)}" target="_blank" rel="noopener">
+    return storyVideos(s).map(([v, lang]) => `<a class="vblock" href="${esc(v.url)}" target="_blank" rel="noopener">
       <span class="thumb"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><span class="playbadge">${ICON.play}</span></span>
-      <span class="vmeta"><b>${esc(v.title)}</b><small>${esc(v.channel || "")}${v.published ? " · " + esc(shortTime(v.published)) : ""}</small></span></a>`;
+      <span class="vmeta"><b>${esc(v.title)}</b><small>${lang} · ${esc(v.channel || "")}${v.published ? " · " + esc(shortTime(v.published)) : ""}</small></span></a>`).join("");
   }
   function explainBody(s) {
     const e = s.explain || {};
@@ -318,6 +322,9 @@
     const li = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
     const rows = [];
     if (e.what) rows.push([WHAT_LABEL[kindOf(s)], `<p>${esc(e.what)}</p>`]);
+    if (e.when) rows.push(["When", `<p>${esc(e.when)}</p>`]);
+    if (e.where) rows.push(["Where", `<p>${esc(e.where)}</p>`]);
+    if (e.who) rows.push(["Who", `<p>${esc(e.who)}</p>`]);
     if (e.background) rows.push(["Background", `<p>${esc(e.background)}</p>`]);
     if (e.significance && e.significance.length) rows.push([SIG_LABEL[kindOf(s)], li(e.significance)]);
     if (e.prelims && e.prelims.length) rows.push(["Prelims facts", li(e.prelims)]);
@@ -329,7 +336,7 @@
     return `<div class="bbody">
       <dl class="explain">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
       ${videoBlock(s)}
-      ${e.auto ? `<p class="autonote">Quick auto-summary from the feed text. ${S.meta.ai_enabled ? "Full AI notes are on the way for this story." : "Add an AI key to get full notes: background, Mains question and keywords."}</p>` : ""}
+      ${e.auto ? `<p class="autonote">Auto write-up from what ${s.n_pub > 1 ? `the ${s.n_pub} outlets` : "the outlet"} published; names, places and dates are only those in the text. ${S.meta.ai_enabled ? "Full AI notes are on the way for this story." : "Add an AI key to get full notes: background, Mains question and keywords."}</p>` : ""}
       <p class="meta-line">${esc(subj)}${s.n_pub > 1 ? ` · reported by ${s.n_pub} outlets` : ""}${s.dates.length > 1 ? ` · in the news since ${esc(dayShort(s.dates[0]))}` : ""}</p>
       ${S.noteOpen.has(s.id) || mark(s).note ? `<div class="note"><textarea data-act="notetext" placeholder="Your notes for revision…" aria-label="Note">${esc(mark(s).note)}</textarea></div>` : ""}
     </div>`;
@@ -515,14 +522,14 @@
     const el = $("#content");
     if (!S.brief) { el.innerHTML = '<div class="loading">Loading…</div>'; return; }
     const vids = briefVideos();
-    const matched = briefList("news").concat(briefList("explained"), briefList("editorials")).filter((s) => s.video && s.video.id);
+    const matched = briefList("news").concat(briefList("explained"), briefList("editorials")).filter((s) => storyVideos(s).length);
     el.innerHTML = `<header class="bhero"><div class="bhero-text"><div class="eyebrow">Videos · ${esc(periodLabel(S.view, S.anchor))}</div>
         <h1>${plural(matched.length, "story explainer")} · ${plural(vids.length, "analysis video")}</h1>
-        <p>A video is attached to a story only when its topic, key terms and date line up. Otherwise the story card offers a YouTube search instead of a wrong video.</p></div></header>` +
+        <p>Up to two per story, one in English and one in हिंदी, attached only when the topic, key terms and date line up. Otherwise the card offers a YouTube search instead of a wrong video.</p></div></header>` +
       (matched.length ? section("sec-matched", "Explainers for brief stories", "matched by topic and date", `<div class="vlist">${matched.map((s) => `<div class="vrow">${videoBlock(s)}<div class="vfor">For: <button class="linkbtn" data-open-card="${s.id}">${esc((s.explain && s.explain.headline) || s.title)}</button></div></div>`).join("")}</div>`) : "") +
       (vids.length ? section("sec-daily", "Daily analysis videos", "news analysis, PIB summaries, Sansad TV programmes", `<div class="vgrid">${vids.map(videoTile).join("")}</div>`) : "") +
       (!matched.length && !vids.length ? '<div class="empty">No videos for this period yet. They are collected every hour from the channels\' feeds.</div>' : "");
-    $("#side").innerHTML = `<div class="side-note">Channels watched: Sansad TV, PIB India, DD News, The Indian Express, Drishti IAS (English & Hindi), StudyIQ IAS, ClearIAS, Prep together. Add your own in <code>config/sources.local.yaml</code>.</div>`;
+    $("#side").innerHTML = `<div class="side-note"><b>Hindi and English only.</b> Channels watched: English: Sansad TV, PIB, DD India, The Hindu, Indian Express, WION, Drishti IAS English, StudyIQ English, Vajiram & Ravi, NEXT IAS, PW OnlyIAS, Vision IAS, Sleepy Classes, ClearIAS, Prep together. Hindi: DD News, Drishti IAS, StudyIQ IAS, NEXT IAS Hindi, UPSC Wallah, Sanskriti IAS, Dhyeya TV, Khan Global Studies. A video is attached only when its topic, key terms and date match the story; other channels must match more strongly. Add your own in <code>config/sources.local.yaml</code>.</div>`;
   }
 
   // ─────────────────────────── Everything tab (firehose) ───────────────────────────
@@ -581,6 +588,23 @@
     $("#rail").innerHTML = `<section class="panel"><h3>Syllabus coverage <span class="sub">· stories per subject</span></h3><div class="cov-list">${rows}</div></section>
       <section class="panel"><h3>Easy-miss watch</h3>${watch}</section>`;
   }
+  // Why a story is (or isn't) in the Daily Brief: one rule set, stated on every card.
+  const BRIEF_RULE = "Daily Brief = every NOTE story first reported that day, the best story of each syllabus area, then SKIM stories up to 25 (max 4 per subject). Another country's internal affairs only make it as NOTE.";
+  function briefChip(s) {
+    const b = s.in_brief;
+    if (b) {
+      const where = b.k === "editorial" ? "Editorials" : b.k === "explained" ? "Explained" : "brief";
+      return `<span class="bchip in" title="${esc(BRIEF_RULE)}">✓ In ${esc(dayShort(b.d))} ${where}</span>`;
+    }
+    if (s.grade === "LOW") return "";
+    let why;
+    if (!s.subjects.length) why = "no syllabus match";
+    else if (s.grade === "READ") why = "READ: background only";
+    else if (s.foreign) why = "another country's affairs: only NOTE ones get in";
+    else if (s.grade === "SKIM") why = `SKIM: below ${esc(dayShort(s.date))}'s cut`;
+    else why = `${esc(dayShort(s.date))}'s brief hit the NOTE limit`;
+    return `<span class="bchip out" title="${esc(BRIEF_RULE)}">Not in brief · ${why}</span>`;
+  }
   function card(s) {
     const mk = mark(s); const labels = S.meta.labels.subjects;
     const open = S.openCards.has(s.id);
@@ -604,6 +628,7 @@
         </div>
       </div>
       <a class="title" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(s.title)}</a>
+      ${briefChip(s)}
       ${s.summary ? `<p class="summary">${esc(s.summary)}</p>` : ""}
       <div class="srcline">
         ${s.n_pub > 1 ? `<span class="cov">${s.n_pub} outlets</span>` : ""}
@@ -646,7 +671,7 @@
     renderKpis(); renderSide(); renderRail();
     const list = briefingPool().filter((s) => passes(s));
     const eds = editorialPool().filter((s) => passes(s)).length;
-    $("#content").innerHTML = `<p class="legend-note">Everything reported in this period, graded and grouped (${plural(eds, "opinion piece")} included under their subjects' filters). The curated version is the <button class="linkbtn" data-tab-go="brief">Brief</button>.</p>` +
+    $("#content").innerHTML = `<p class="legend-note">Everything reported in this period, graded and grouped (${plural(eds, "opinion piece")} included under their subjects' filters). A story shows on every day it's in the news, but joins the brief once, on the day it was first reported. <b>How the <button class="linkbtn" data-tab-go="brief">Brief</button> is picked:</b> ${esc(BRIEF_RULE)} Each card says whether it made the brief, and if not, why.</p>` +
       toolbar(list.length) + renderList(list, { empty: S.stories.length ? undefined : "No stories stored for this period yet." });
   }
 
@@ -840,6 +865,9 @@
       let out = `\n### ${e.headline || s.title}\n\`${s.grade}\` ${s.gs.join(" ")}${s.tags.length ? " · " + s.tags.join(", ") : ""}${S.view !== "day" && s._day ? " · " + s._day : ""}\n\n`;
       if (e.why_in_news) out += `- **Why in news:** ${e.why_in_news}\n`;
       if (e.what) out += `- **What happened:** ${e.what}\n`;
+      if (e.when) out += `- **When:** ${e.when}\n`;
+      if (e.where) out += `- **Where:** ${e.where}\n`;
+      if (e.who) out += `- **Who:** ${e.who}\n`;
       if (e.background) out += `- **Background:** ${e.background}\n`;
       (e.significance || []).forEach((x) => { out += `- **Why it matters:** ${x}\n`; });
       (e.prelims || []).forEach((x) => { out += `- **Prelims:** ${x}\n`; });

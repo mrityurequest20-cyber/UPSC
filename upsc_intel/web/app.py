@@ -18,7 +18,7 @@ from ..db import DB, iso
 from ..pipeline.brief import ensure_range
 from ..pipeline.classify import Classifier
 from ..pipeline.enrich import auto_explain, has_ai_explainer
-from ..pipeline.normalize import publisher_key, today_ist
+from ..pipeline.normalize import clean_summary, publisher_key, today_ist
 from ..pipeline.videos import daily_videos
 
 log = logging.getLogger("upsc_intel.web")
@@ -27,9 +27,11 @@ MAX_SOURCES_PER_STORY = 12
 BRIEF_KEYS = {"news": "news", "editorial": "editorials", "explained": "explained"}  # pick kind → payload key
 
 
-def story_out(s: dict, labels: dict | None = None, explain: bool = False) -> dict:
+def story_out(s: dict, labels: dict | None = None, explain: bool = False, text: str | None = None,
+              clf: Classifier | None = None) -> dict:
     """Compact story shape shared by the API and the static export.
-    explain=True adds the explainer (AI if available, otherwise the auto version)."""
+    explain=True adds the explainer (AI if available, otherwise the auto version built from `text`,
+    all the outlets' summaries of the story, with when / where / who from `clf`)."""
     srcs = []
     seen = set()
     ordered = sorted(s.get("sources") or [], key=lambda x: x.get("kind") == "gnews")  # direct links first
@@ -66,12 +68,43 @@ def story_out(s: dict, labels: dict | None = None, explain: bool = False) -> dic
         "n_src": len(srcs),
         "ai": s.get("ai") or None,
         "video": s.get("video") or None,
+        "video_hi": s.get("video_hi") or None,
     }
     if explain:
         ai = s.get("ai")
         out["explain"] = ai if has_ai_explainer(ai) else auto_explain(
-            {**s, "sources": srcs, "date_ist": s.get("date_ist")}, labels or {})
+            {**s, "sources": srcs, "date_ist": s.get("date_ist")}, labels or {}, text=text, clf=clf)
     return out
+
+
+def cluster_texts(db: DB, story_ids: list[str], include_private: bool, per_story: int = 4,
+                  max_chars: int = 2400) -> dict[str, str]:
+    """{story_id: the story's summary followed by other outlets' different summaries}. A headline-only
+    item (Google News, IE on the Pages build) then borrows what the other outlets wrote."""
+    out: dict[str, list[str]] = {}
+    for i in range(0, len(story_ids), 500):
+        chunk = story_ids[i:i + 500]
+        where = "" if include_private else " AND is_private=0"
+        rows = db.q(f"SELECT story_id, publisher, summary FROM items WHERE story_id IN ({','.join('?' * len(chunk))})"
+                    f"{where} AND COALESCE(summary,'') != '' ORDER BY tier='official' DESC, length(summary) DESC", chunk)
+        for r in rows:
+            parts = out.setdefault(r["story_id"], [])
+            text = clean_summary(r["summary"] or "")
+            if len(parts) < per_story and len(text) >= 60 and not any(text[:60].lower() == p[:60].lower() for p in parts):
+                parts.append(text)
+    return {sid: " ".join(parts)[:max_chars] for sid, parts in out.items()}
+
+
+def annotate(outs: list[dict], db: DB, clf: Classifier) -> list[dict]:
+    """Adds in_brief (the day and section a story was picked for, if any) and foreign (another
+    country's internal affairs, which only make the brief as NOTE), so every card can say why it
+    is or isn't in the Daily Brief."""
+    picks = db.brief_for_stories([o["id"] for o in outs])
+    for o in outs:
+        o["in_brief"] = picks.get(o["id"])
+        o["foreign"] = bool(clf.story_foreign(o.get("title") or "", o.get("summary") or "",
+                                              [x.get("p") for x in o.get("sources") or [] if x.get("p")]))
+    return outs
 
 
 def sources_out(settings: Settings, db: DB, public_only: bool = False) -> list[dict]:
@@ -140,6 +173,7 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
     if not include_private:
         stories = {k: v for k, v in stories.items() if not v.get("is_private")}
     labels = clf.labels()
+    texts = cluster_texts(db, [i for i in ids if i in stories], include_private)
     days: dict[str, dict[str, list[str]]] = {}
     for p in picks:
         if p["story_id"] not in stories:
@@ -149,8 +183,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
     return {
         "from": date_from, "to": date_to, "generated_at": iso(datetime.now(timezone.utc)),
         "days": days,
-        "stories": [story_out(stories[i], labels, explain=True) for i in ids if i in stories],
-        "videos": daily_videos(db, date_from, date_to),
+        "stories": [story_out(stories[i], labels, explain=True, text=texts.get(i), clf=clf) for i in ids if i in stories],
+        "videos": daily_videos(db, date_from, date_to, lang=settings.video_lang),
     }
 
 
@@ -252,8 +286,9 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
             raise HTTPException(400, "range too large (max ~3 months)")
         rows = db.stories_between(a, b, include_low=include_low, library=False, since=since,
                                   include_private=not public_only)
+        clf, _ = classifier()
         return {"from": a, "to": b, "generated_at": iso(datetime.now(timezone.utc)),
-                "stories": [story_out(s) for s in rows]}
+                "stories": annotate([story_out(s) for s in rows], db, clf)}
 
     @app.get("/api/brief")
     def brief(date_from: str = Query(..., alias="from"), date_to: str = Query(..., alias="to")):
@@ -277,7 +312,8 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
     def search(q: str = Query(..., min_length=2), limit: int = 200):
         ids = db.search(q, limit=min(limit, 500))
         by_id = {s["id"]: s for s in db.stories_by_ids(ids)}
-        return {"q": q, "stories": [story_out(by_id[i]) for i in ids if i in by_id]}
+        clf, _ = classifier()
+        return {"q": q, "stories": annotate([story_out(by_id[i]) for i in ids if i in by_id], db, clf)}
 
     @app.get("/api/sources")
     def sources():

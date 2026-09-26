@@ -8,7 +8,7 @@ from upsc_intel.pipeline.cluster import split_mixed_stories
 from upsc_intel.pipeline.enrich import _sentences, auto_explain, has_ai_explainer
 from upsc_intel.pipeline.kinds import content_kind
 from upsc_intel.pipeline.normalize import title_tokens
-from upsc_intel.pipeline.videos import _relative_time, queries, score_video
+from upsc_intel.pipeline.videos import ACCEPT, _relative_time, _still_good, queries, score_video, video_language
 
 NOW = datetime.now(timezone.utc)
 
@@ -29,9 +29,10 @@ def test_india_angle(clf, title, tier, india):
 
 
 # ── brief selection ──
-def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The Hindu", summary="", explained=False):
+def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The Hindu", summary="", explained=False,
+           title=None):
     db.upsert_story({
-        "id": sid, "title": sid, "url": "https://x/" + sid, "date_ist": day, "dates": [day],
+        "id": sid, "title": title or sid, "url": "https://x/" + sid, "date_ist": day, "dates": [day],
         "first_seen": NOW.isoformat(), "last_seen": NOW.isoformat(), "updated_at": NOW.isoformat(),
         "n_items": 1, "n_publishers": 1, "publishers": [publisher], "subjects": subjects, "gs": [],
         "tags": [], "watch": [], "score": score, "grade": grade, "is_editorial": int(editorial),
@@ -42,20 +43,26 @@ def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The
 
 def test_select_day_covers_syllabus_and_caps_subjects(db, clf):
     day = "2026-09-26"
-    for i in range(8):  # eight strong polity stories
+    for i in range(10):  # ten strong polity stories
         _story(db, f"pol{i}", day, 9 - i * 0.1, "NOTE", ["polity"])
+    for i in range(6):  # six middling economy stories
+        _story(db, f"eco{i}", day, 4.5 - i * 0.1, "SKIM", ["economy"])
     _story(db, "env", day, 3.5, "SKIM", ["environment"])       # weaker, but the only environment story
     _story(db, "low", day, 1.0, "LOW", ["economy"])            # never in the brief
     _story(db, "read", day, 2.0, "READ", ["economy"])          # READ news is not brief material
     _story(db, "nosubj", day, 8.0, "NOTE", [])                 # unclassified never makes the brief
+    _story(db, "lanka", day, 4.9, "SKIM", ["ir"], title="Sri Lanka's Parliament approves 22nd Amendment")
+    _story(db, "lanka-big", day, 5.2, "NOTE", ["ir"], title="Nepal Prime Minister resigns as protests spread")
     for i in range(4):
         _story(db, f"ed{i}", day, 2.0, "READ", ["polity"], editorial=True)
     db.commit()
-    picks = select_day(db, clf, day, size=6, ed_size=3)
+    picks = select_day(db, clf, day, size=20, ed_size=3)
     news = [p[0] for p in picks if p[1] == "news"]
     eds = [p[0] for p in picks if p[1] == "editorial"]
     assert "env" in news                                        # coverage pass
-    assert sum(1 for n in news if n.startswith("pol")) == 4     # per-subject cap
+    assert sum(1 for n in news if n.startswith("pol")) == 10    # every NOTE story, whatever its subject
+    assert sum(1 for n in news if n.startswith("eco")) == 4     # SKIM filler: max 4 per subject
+    assert "lanka" not in news and "lanka-big" in news          # foreign affairs: only as NOTE
     assert not {"low", "read", "nosubj"} & set(news)
     assert eds == ["ed0", "ed1", "ed2"]                         # max 3 per publisher, ed_size respected
     assert [p[2] for p in picks if p[1] == "news"] == list(range(1, len(news) + 1))
@@ -193,10 +200,100 @@ IDF.update({t: 1.0 for t in title_tokens("centre extend part pradesh six month u
 ])
 def test_score_video(story, video, channel, expected):
     sc = score_video({"title": story, "date_ist": NOW.date().isoformat()}, video, channel, NOW, "en", IDF)
-    assert (sc >= 0.75) is expected, sc
+    assert (sc >= ACCEPT) is expected, sc
 
 
 def test_old_videos_rejected():
     story = {"title": "UN Convention against Cybercrime", "date_ist": NOW.date().isoformat()}
     old = NOW - timedelta(days=300)
     assert score_video(story, "UN Convention Against Cybercrime explained", "DD News", old, "en", IDF) == 0
+
+
+@pytest.mark.parametrize("title,foreign,subject", [
+    ("Sri Lanka's Parliament approves 22nd Amendment to Constitution", "neighbourhood", "ir"),
+    ("Vladimir Putin's United Russia Party retains majority in Parliament", "world", "ir"),
+    ("White House reinstates media access: How the US judiciary checks presidential power", "world", "ir"),
+    ("India raises 13th Amendment and Tamil devolution with Sri Lanka", "", "polity"),
+    ("Parliament passes Transgender Persons Amendment Bill, 2026", "", "polity"),
+    ("Trump at UNGA: US pushes UN reform", "", "ir"),  # global institutions are not penalised
+])
+def test_foreign_affairs_are_not_indian_polity(clf, title, foreign, subject):
+    a = clf.analyze(title)
+    assert a.foreign == foreign and a.subjects[0] == subject
+    if foreign:
+        assert clf.grade(clf.score(a, "quality")) != "NOTE"
+
+
+@pytest.mark.parametrize("title,tier", [
+    ("Auction of 91-Day, 182-Day and 364-Day Treasury Bills", "official"),
+    ("DAILY CURRENT AFFAIRS IAS | UPSC Prelims and Mains Exam – 22nd September", "examprep"),
+    ("Bank of America Corp DE Makes New Investment in Conagra Brands", "watch"),
+])
+def test_routine_notices_are_not_note(clf, title, tier):
+    assert clf.grade(clf.score(clf.analyze(title), tier)) in ("READ", "LOW")
+
+
+# ── video language: Hindi or English only ──
+@pytest.mark.parametrize("title,channel,hint,lang", [
+    ("Tarang Shakti & Mission Pégase 26 | UPSC Current Affairs", "Mission IAS Malayalam", None, "other"),
+    ("Suvendu Adhikari | CM Hits Back at Baseless Claims", "News18 Bangla", None, "other"),
+    ("EAM Dr S Jaishankar Signs UN Convention Against Cybercrime", "DD NEWS Telangana", None, "other"),
+    ("World Tourism Day 2026", "Sri Lanka Tourism", None, "other"),
+    ("AFSPA explained in Tamil", "Some Channel", None, "other"),
+    ("அணை பாதுகாப்பு சட்டம்", "Some Channel", None, "other"),
+    ("Tamil Nadu floods: what the IMD warning means", "The Hindu", None, "en"),  # a place is not a language
+    ("AFSPA क्या है? | UPSC", "Drishti IAS", "hi", "hi"),
+    ("AFSPA kya hai? Manipur me kyun badhaya gaya", "Some Channel", None, "hi"),
+    ("Centre extends AFSPA in Manipur", "NEWS ON AIR OFFICIAL", None, "en"),
+])
+def test_video_language(title, channel, hint, lang):
+    assert video_language(title, channel, hint) == lang
+
+
+def test_video_rules_hindi_ok_regional_and_junk_rejected():
+    story = {"title": "Centre extends AFSPA in parts of Manipur, Nagaland and Arunachal Pradesh for six months",
+             "date_ist": NOW.date().isoformat()}
+    ok_hi = score_video(story, "AFSPA Manipur Nagaland Arunachal extended kya hai", "Drishti IAS", NOW, "en,hi", IDF, "hi")
+    assert ok_hi >= ACCEPT
+    assert score_video(story, "AFSPA Manipur Nagaland Arunachal extended", "Mission IAS Malayalam", NOW, "en,hi", IDF) == 0
+    unknown = score_video(story, "AFSPA Manipur Nagaland Arunachal extended", "Random Uploader", NOW, "en,hi", IDF)
+    trusted = score_video(story, "AFSPA Manipur Nagaland Arunachal extended", "Vajiram and Ravi", NOW, "en,hi", IDF)
+    assert trusted >= ACCEPT and unknown == 0  # unknown channels are not used at all
+    assert score_video(story, "AFSPA Manipur Nagaland Arunachal extended #shorts", "WION", NOW, "en,hi", IDF) < ACCEPT
+
+
+def test_auto_explain_five_w_from_several_outlets(clf):
+    story = {"title": "Centre extends AFSPA in parts of Manipur, Nagaland and Arunachal Pradesh for six months",
+             "date_ist": "2026-09-26", "subjects": ["internal_security"], "gs": ["GS3"], "tags": [], "watch": [],
+             "publishers": ["PIB", "The Hindu"]}
+    text = ("The Ministry of Home Affairs on Friday extended the Armed Forces (Special Powers) Act in eight districts "
+            "of Manipur from October 1 for six months. The Ministry of Home Affairs on Friday extended the Armed Forces "
+            "(Special Powers) Act in eight Manipur districts. Union Home Minister Amit Shah said the Supreme Court "
+            "had upheld the law in 1998.")
+    e = auto_explain(story, clf.labels(), text=text, clf=clf)
+    assert e["when"] == "Reported 26 Sep · on Friday · from October 1"
+    assert e["where"].startswith("Manipur") and "Nagaland" in e["where"]
+    assert e["who"].startswith("Amit Shah (Home Minister)") and "Supreme Court" in e["who"]
+    assert e["what"].count("eight districts") + e["what"].count("eight Manipur") <= 1  # repeated lead dropped
+    bare = auto_explain({**story, "title": "Some headline"}, clf.labels(), text="", clf=clf)
+    assert bare["when"] == "Reported 26 Sep" and bare["where"] == "" and bare["who"] == ""
+
+
+def test_stored_matches_are_rechecked_under_current_rules():
+    """A stored match's detected language must not count as 'one of our channels' (regression)."""
+    story = {"title": "World Tourism Day 2026 celebrated across India", "date_ist": NOW.date().isoformat()}
+    junk = {"id": "x1", "title": "World Tourism Day 2026 celebrated | Bahria Town", "channel": "Bahria Town",
+            "published": NOW.isoformat(), "lang": "en", "known": False}
+    assert not _still_good(story, junk, "en", "en,hi", IDF)
+    lib = {**junk, "channel": "Vajiram and Ravi", "known": True, "title": "World Tourism Day 2026 celebrated India"}
+    assert _still_good(story, lib, "en", "en,hi", IDF)
+    assert not _still_good(story, lib, "hi", "en,hi", IDF)  # right video, wrong language slot
+
+
+def test_story_carried_only_by_foreign_outlets_is_foreign(clf):
+    t = "22nd Amendment to the Constitution passed in Parliament"
+    assert clf.story_foreign(t, "", ["Newswire", "Hiru News", "Ada Derana"]) == "neighbourhood"
+    assert clf.story_foreign(t, "", ["Ada Derana", "The Hindu"]) == ""          # an Indian outlet carried it too
+    assert clf.story_foreign("India, Sri Lanka sign MoU on energy", "", ["Ada Derana"]) == ""  # India link
+    a = clf.analyze(t, "", publisher="Ada Derana")
+    assert a.foreign == "neighbourhood" and "polity" not in a.subjects and clf.grade(clf.score(a, "watch")) != "NOTE"

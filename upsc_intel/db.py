@@ -168,12 +168,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
 """
 
 JSON_COLS_ITEMS = {"tokens", "subjects", "tags", "watch", "extra"}
-JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video"}
+JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi"}
 MIGRATIONS = [  # (table, column, type): added when missing, so old databases keep working
     ("stories", "video", "TEXT"),
     ("stories", "video_checked_at", "TEXT"),
     ("items", "is_explained", "INTEGER DEFAULT 0"),
     ("stories", "is_explained", "INTEGER DEFAULT 0"),
+    ("stories", "video_hi", "TEXT"),
+    ("videos", "lang", "TEXT"),
 ]
 
 
@@ -294,7 +296,7 @@ class DB:
     def upsert_story(self, story: dict) -> None:
         cols = list(story.keys())
         vals = [_dump(story[c]) if c in JSON_COLS_STORIES else story[c] for c in cols]
-        updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in {"id", "ai", "video", "video_checked_at"})
+        updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in {"id", "ai", "video", "video_hi", "video_checked_at"})
         with self.lock:
             self.conn.execute(
                 f"INSERT INTO stories ({','.join(cols)}) VALUES ({','.join('?' * len(cols))}) "
@@ -315,8 +317,11 @@ class DB:
     def set_story_ai(self, story_id: str, ai: dict) -> None:
         self.x("UPDATE stories SET ai=?, updated_at=? WHERE id=?", (_dump(ai), iso(utcnow()), story_id))
 
-    def set_story_video(self, story_id: str, video: dict | None, checked_at: str) -> None:
-        self.x("UPDATE stories SET video=?, video_checked_at=? WHERE id=?", (_dump(video), checked_at, story_id))
+    def set_story_video(self, story_id: str, video: dict | None, checked_at: str | None,
+                        video_hi: dict | None = None) -> None:
+        """video: best English match (or a search link); video_hi: best Hindi match."""
+        self.x("UPDATE stories SET video=?, video_hi=?, video_checked_at=? WHERE id=?",
+               (_dump(video), _dump(video_hi), checked_at, story_id))
 
     # ── brief picks ──
     def save_brief(self, date_ist: str, picks: list[tuple[str, str, int]]) -> None:
@@ -333,6 +338,15 @@ class DB:
         return [dict(r) for r in self.q(
             "SELECT date_ist, story_id, kind, rank FROM brief_picks WHERE date_ist BETWEEN ? AND ? "
             "ORDER BY date_ist, kind, rank", (date_from, date_to))]
+
+    def brief_for_stories(self, ids: list[str]) -> dict[str, dict]:
+        """{story_id: {"d": day, "k": kind}}: the brief each story was picked for (a story is picked on one day)."""
+        out: dict[str, dict] = {}
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            for r in self.q(f"SELECT story_id, date_ist, kind FROM brief_picks WHERE story_id IN ({','.join('?' * len(chunk))})", chunk):
+                out[r["story_id"]] = {"d": r["date_ist"], "k": r["kind"]}
+        return out
 
     def brief_dates(self, date_from: str, date_to: str) -> set[str]:
         return {r["date_ist"] for r in self.q(

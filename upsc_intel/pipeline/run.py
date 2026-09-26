@@ -24,6 +24,7 @@ from .videos import link_brief_videos, video_row
 log = logging.getLogger("upsc_intel")
 RUN_LOCK = threading.Lock()
 MIGRATION_KINDS = "migration:kinds-v1"  # re-label stored items as news / editorial / explained once
+MIGRATION_CLASSIFY = "migration:classify-v3"  # foreign affairs → IR, routine-notice noise: re-grade once
 
 
 def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: str) -> dict | None:
@@ -40,7 +41,7 @@ def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: 
     url = raw.url
     canon = canonical_url(url)
     hint = raw.extra.get("ministry", "") if raw.extra else ""
-    a = clf.analyze(title, raw.summary or "", hint)
+    a = clf.analyze(title, raw.summary or "", hint, publisher=raw.publisher or "")
     tier = src.get("tier", "general")
     step_kind = src.get("_step_kind") or src.get("kind")
     kind = NEWS if is_library else content_kind(src, title, url, step_kind)
@@ -94,6 +95,12 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
         backfill_descriptions(settings, db, sources)
         reclassify(settings, db)
         db.mark_seen(MIGRATION_KINDS)
+        db.mark_seen(MIGRATION_CLASSIFY)
+        db.commit()
+    elif not db.seen(MIGRATION_CLASSIFY):
+        log.info("one-time: re-grading stored items (foreign affairs, routine notices)")
+        reclassify(settings, db)
+        db.mark_seen(MIGRATION_CLASSIFY)
         db.commit()
     clf = Classifier(load_topics(settings))
     states = db.all_source_states()
@@ -246,13 +253,13 @@ def reclassify(settings: Settings, db: DB) -> int:
     Items whose kind changed leave their old cluster; nothing else is re-clustered."""
     clf = Classifier(load_topics(settings))
     sources = {s["id"]: s for s in load_sources(settings)}
-    rows = db.q("SELECT id, source_id, kind, url, title, summary, tier, extra, is_library FROM items")
+    rows = db.q("SELECT id, source_id, kind, url, title, summary, tier, extra, is_library, publisher FROM items")
     for r in rows:
         extra = json.loads(r["extra"] or "{}") if r["extra"] else {}
         tier = r["tier"] or "general"
         src = sources.get(r["source_id"]) or {"tier": tier}
         kind = NEWS if r["is_library"] else content_kind(src, r["title"] or "", r["url"] or "", r["kind"])
-        a = clf.analyze(r["title"] or "", r["summary"] or "", (extra or {}).get("ministry", ""))
+        a = clf.analyze(r["title"] or "", r["summary"] or "", (extra or {}).get("ministry", ""), publisher=r["publisher"] or "")
         db.update_item(r["id"], subjects=a.subjects, tags=a.tags, watch=a.watch, score=clf.score(a, tier, kind),
                        is_editorial=int(kind == EDITORIAL), is_explained=int(kind == EXPLAINED))
     db.commit()

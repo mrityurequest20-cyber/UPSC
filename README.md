@@ -27,23 +27,39 @@ Week and Month views recap everything the daily briefs covered.
 ## What you get
 
 - **Daily Brief (the default view).**
-  - About 25 must-know stories, picked from the 400–600 reported each day.
-  - **A coverage pass first:** the best story from every syllabus subject, so no area is skipped.
-  - **Then the rest by importance,** with max 4 per subject. Importance combines grade, source weight and how many outlets covered it.
+  - About 25–35 must-know stories, picked from the 400–600 reported each day.
+  - **The rule, in order:**
+    1. **Coverage:** the best story from every syllabus subject, so no area is skipped.
+    2. **Every NOTE story** first reported that day, so a story graded NOTE is never missing from its day's brief. NOTE is kept strict (score ≥ 5.5, about 25–30 a day).
+    3. **SKIM stories** fill up to 25, with max 4 per subject.
+  - **Importance** combines the grade, the source weight and how many outlets covered it.
   - **What's left out:**
-    - foreign news with no India link
+    - another country's internal politics with no India link (e.g. Sri Lanka's constitutional amendments): it's filed under International Relations, not Polity, and makes the brief only as NOTE
     - crime and celebrity stories
     - political spats
-    - results notices and quizzes
-- **An explainer on every brief story,** in the format coaching notes use:
-  - **Why in news** · **What happened** · **Background** · **Why it matters** · **Prelims facts** · **Mains question** · **Keywords**
-  - With an Anthropic API key, Claude writes these from the fetched text, and never invents news facts.
-  - Without a key you get a shorter auto-summary built from the feed text.
-- **The most relevant YouTube video per story:**
-  1. It first matches against a library of trusted channels (Sansad TV, PIB, DD News, The Hindu, Indian Express, Drishti, StudyIQ, ClearIAS, Prep together).
-  2. Then it searches YouTube.
-  3. **What counts as a match:** words are weighted by rarity, so "AFSPA" or "Cybercrime" count far more than "minister" or "art". The video also has to be from the story's week. Travel vlogs, quiz videos and other-language uploads are rejected.
-  4. **When nothing is confident enough,** the card shows a **Find video** search button instead of a wrong link.
+    - results notices, quizzes, routine Treasury-bill auctions and coaching "daily current affairs" roundups
+  - **Everything tab:** a story appears on every day it's in the news, but joins the brief once, on the day it was first reported. Every card says **"✓ In 26 Sep brief"** or why it isn't in the brief.
+- **A write-up on every brief story,** in the format coaching notes use:
+  - **Why in news** · **What happened** · **When** · **Where** · **Who** · **Background** · **Why it matters** · **Prelims facts** · **Mains question** · **Keywords**
+  - **Without a key (the default)**, the write-up is built from what *all* the outlets covering the story published, with repeated lines dropped:
+    - When, Where and Who list only the dates, places, people and bodies that appear in that text (e.g. "Amit Shah (Home Minister), Ministry of Home Affairs"). Nothing is made up.
+    - A story that only headline-only feeds carried gets a short write-up.
+  - With an Anthropic API key, Claude writes full notes from the fetched text, and never invents news facts.
+- **Up to two YouTube videos per story, one ▶ English and one ▶ हिंदी:**
+  1. **The library comes first:** 23 channels' feeds.
+     - English: Sansad TV, PIB, DD India, The Hindu, Indian Express, WION, Drishti English, StudyIQ English, Vajiram & Ravi, NEXT IAS, PW OnlyIAS, Vision IAS, Sleepy Classes, ClearIAS, Prep together
+     - Hindi: DD News, Drishti IAS, StudyIQ IAS, NEXT IAS Hindi, UPSC Wallah, Sanskriti IAS, Dhyeya TV, Khan Global Studies
+  2. **Then YouTube search:** the story's key terms, then the same terms plus "UPSC" (accepted from UPSC channels only), then the terms plus "UPSC Hindi".
+  3. **Hindi or English only.** Anything else is rejected:
+     - other scripts (Tamil, Telugu, Malayalam, Bengali and so on)
+     - titles that say "in Malayalam" and similar
+     - channels named after another language or a state, e.g. "Mission IAS Malayalam", "News18 Bangla", "DD NEWS Telangana"
+  4. **What counts as a match:**
+     - Words are weighted by rarity, so "AFSPA" or "Cybercrime" count far more than "minister" or "art".
+     - The video has to be from the story's week.
+     - Channels outside the UPSC, official and national-news lists must match much more strongly.
+     - Shorts, vlogs, quizzes, admissions and stock-tip videos are rejected.
+  5. **When nothing is confident enough,** the card shows a **Find video** search button instead of a wrong link.
 - **Editorials of the day (about 15):**
   - **Sources:**
     - The Hindu (Editorial, Lead, Op-Ed, Columns)
@@ -176,8 +192,9 @@ config/sources.yaml ─► fetchers (rss · youtube · gnews · pib · telegram 
   The score is then pushed down by:
   - noise (crime, celebrity, cricket, market ticks, party spats, PIB ceremonies, results notices, quizzes)
   - foreign news with no India link. Global institutions, the neighbourhood, editorials and explainers are exempt.
+  - another country's internal affairs, i.e. a headline naming a foreign country with nothing linking it to India. Its polity, governance and security score counts as International Relations, and it is marked down: 2.5 for the neighbourhood, 3 elsewhere. Set in `config/topics.yaml` → `foreign_affairs`.
 
-  NOTE ≥ 5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
+  NOTE ≥ 5.5, SKIM ≥ 3.2, READ ≥ 1.6, otherwise LOW.
 - **Tuning:** edit `config/topics.yaml` (keywords, weights, noise, watchlist queries), then run `python -m upsc_intel reclassify`.
 
 ## Command line
@@ -189,7 +206,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 71 tests
+python -m pytest                        # 94 tests
 ```
 
 ## AI explainers (recommended)
@@ -213,7 +230,7 @@ Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instea
 | `UPSC_BRIEF_EDITORIALS` | 15 | editorials per day |
 | `UPSC_BRIEF_EXPLAINED` | 12 | explainers per day |
 | `UPSC_SITE_REFRESH_MIN` | 60 (20 in the Pages workflow) | minutes between static-site rebuilds, shown on the page |
-| `UPSC_VIDEO_LANG` | `en` | `hi` or `any` to allow Hindi / other-language explainer videos |
+| `UPSC_VIDEO_LANG` | `en,hi` | `en` = English only · `any` = every language |
 | `UPSC_VIDEO_SEARCH` | on | `0` = only the trusted-channel library, no YouTube search |
 | `YOUTUBE_API_KEY` | — | use the official YouTube Data API for searches |
 | `config/topics.yaml` | — | keywords, noise list, India-angle terms, watchlist queries (then `python -m upsc_intel reclassify`) |

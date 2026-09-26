@@ -19,7 +19,7 @@ from .config import Settings, load_topics
 from .db import DB, iso
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
-from .web.app import STATIC_DIR, brief_payload, build_meta, sources_out, story_out
+from .web.app import STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
 
 SUMMARY_CHARS = 420
 
@@ -75,6 +75,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
                 o["summary"] = o["summary"][:SUMMARY_CHARS].rsplit(" ", 1)[0] + "…"
             o["sources"] = o["sources"][:8]
             stories.append(o)
+        annotate(stories, db, clf)
         _write_json(out / "data" / f"stories-{m}.json", {"month": m, "stories": stories})
         written.append(m)
         total += len(stories)
