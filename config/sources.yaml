@@ -8,7 +8,11 @@
 #   url        feed / page URL (rss, pib, html, browser, telegram)
 #   query      Google News query (gnews)
 #   tier       official | examprep | quality | general | intl   (drives the importance score)
-#   editorial  true for opinion/editorial feeds (they get their own tab)
+#   editorial  true for opinion/editorial feeds (Editorials section + tab)
+#   explained  true for explainer feeds (Explained section + tab). Without either flag, items
+#              are still recognised from their headline or URL ("… | Explained", /opinion/…)
+#   describe   true when the feed ships headlines only: new items get the article's public
+#              preview text (og:description) as their summary
 #   site       domain; if set, a Google News `site:` fallback is added automatically
 #   fallbacks  extra steps tried in order when the step above fails
 #   interval   minutes between fetches for this source (default = global interval)
@@ -94,12 +98,14 @@ sources:
     kind: rss
     url: https://indianexpress.com/section/upsc-current-affairs/feed/
     tier: examprep
+    describe: true
   - id: insights
     name: Insights on India
     kind: rss
     url: https://www.insightsonindia.com/feed/
     tier: examprep
     site: insightsonindia.com
+  - {id: insights-editorials, name: Insights on India, section: Editorial Analysis, kind: rss, url: "https://www.insightsonindia.com/category/editorials/feed/", tier: examprep, editorial: true, allow_empty: true}
   - id: forumias
     name: ForumIAS
     kind: rss
@@ -172,27 +178,59 @@ sources:
   - {id: hindu-editorial, name: The Hindu, section: Editorial, kind: rss, url: "https://www.thehindu.com/opinion/editorial/feeder/default.rss", tier: quality, editorial: true}
   - {id: hindu-lead, name: The Hindu, section: Lead, kind: rss, url: "https://www.thehindu.com/opinion/lead/feeder/default.rss", tier: quality, editorial: true}
   - {id: hindu-oped, name: The Hindu, section: Op-Ed, kind: rss, url: "https://www.thehindu.com/opinion/op-ed/feeder/default.rss", tier: quality, editorial: true}
+  - {id: hindu-opinion, name: The Hindu, section: Opinion, kind: rss, url: "https://www.thehindu.com/opinion/feeder/default.rss", tier: quality, editorial: true}
+  - {id: hindu-columns, name: The Hindu, section: Columns, kind: rss, url: "https://www.thehindu.com/opinion/columns/feeder/default.rss", tier: quality, editorial: true, limit: 20}
+  # The Hindu has no explainer feed; its explainers end in "| Explained" and are recognised by that
+  - {id: hindu-explained, name: The Hindu, section: Explained, kind: gnews, query: 'site:thehindu.com "Explained" when:2d', tier: quality, interval: 30, allow_empty: true}
   - {id: frontline, name: Frontline, kind: rss, url: "https://frontline.thehindu.com/feeder/default.rss", tier: quality}
   - {id: businessline, name: BusinessLine, section: Economy, kind: rss, url: "https://www.thehindubusinessline.com/economy/feeder/default.rss", tier: quality}
+  - {id: businessline-opinion, name: BusinessLine, section: Opinion, kind: rss, url: "https://www.thehindubusinessline.com/opinion/feeder/default.rss", tier: quality, editorial: true, limit: 30}
 
   # ─────────────── Indian Express ───────────────
-  - {id: ie-india, name: Indian Express, section: India, kind: rss, url: "https://indianexpress.com/section/india/feed/", tier: quality, site: indianexpress.com, limit: 80}
-  - {id: ie-explained, name: Indian Express, section: Explained, kind: rss, url: "https://indianexpress.com/section/explained/feed/", tier: examprep, limit: 80}
-  - {id: ie-world, name: Indian Express, section: World, kind: rss, url: "https://indianexpress.com/section/world/feed/", tier: quality, limit: 60}
-  - {id: ie-economy, name: Indian Express, section: Economy, kind: rss, url: "https://indianexpress.com/section/business/economy/feed/", tier: quality, limit: 60}
-  - {id: ie-science, name: Indian Express, section: Science, kind: rss, url: "https://indianexpress.com/section/technology/science/feed/", tier: quality, limit: 60}
+  # Indian Express feeds carry headlines only, hence `describe`
+  - {id: ie-india, name: Indian Express, section: India, kind: rss, url: "https://indianexpress.com/section/india/feed/", tier: quality, site: indianexpress.com, limit: 80, describe: true}
+  - {id: ie-explained, name: Indian Express, section: Explained, kind: rss, url: "https://indianexpress.com/section/explained/feed/", tier: examprep, explained: true, limit: 80, describe: true}
+  - {id: ie-world, name: Indian Express, section: World, kind: rss, url: "https://indianexpress.com/section/world/feed/", tier: quality, limit: 60, describe: true}
+  - {id: ie-economy, name: Indian Express, section: Economy, kind: rss, url: "https://indianexpress.com/section/business/economy/feed/", tier: quality, limit: 60, describe: true}
+  - {id: ie-science, name: Indian Express, section: Science, kind: rss, url: "https://indianexpress.com/section/technology/science/feed/", tier: quality, limit: 60, describe: true}
   - {id: ie-political-pulse, name: Indian Express, section: Political Pulse, kind: rss, url: "https://indianexpress.com/section/political-pulse/feed/", tier: general, limit: 40}
-  - {id: ie-editorials, name: Indian Express, section: Editorials, kind: rss, url: "https://indianexpress.com/section/opinion/editorials/feed/", tier: quality, editorial: true, limit: 40}
-  - {id: ie-columns, name: Indian Express, section: Columns, kind: rss, url: "https://indianexpress.com/section/opinion/columns/feed/", tier: quality, editorial: true, limit: 40}
+  - {id: ie-editorials, name: Indian Express, section: Editorials, kind: rss, url: "https://indianexpress.com/section/opinion/editorials/feed/", tier: quality, editorial: true, limit: 40, describe: true}
+  - {id: ie-columns, name: Indian Express, section: Columns, kind: rss, url: "https://indianexpress.com/section/opinion/columns/feed/", tier: quality, editorial: true, limit: 40, describe: true}
+  - {id: ie-opinion, name: Indian Express, section: Opinion, kind: rss, url: "https://indianexpress.com/section/opinion/feed/", tier: quality, editorial: true, limit: 60, describe: true}
 
   # ─────────────── Business & economy ───────────────
   - {id: mint-economy, name: Mint, section: Economy, kind: rss, url: "https://www.livemint.com/rss/economy", tier: quality, site: livemint.com}
   - {id: mint-politics, name: Mint, section: Politics, kind: rss, url: "https://www.livemint.com/rss/politics", tier: general}
   - {id: mint-opinion, name: Mint, section: Opinion, kind: rss, url: "https://www.livemint.com/rss/opinion", tier: quality, editorial: true}
+  - {id: mint-explainer, name: Mint, section: Mint Explainer, kind: gnews, query: 'site:livemint.com "Mint Explainer" when:4d', tier: quality, interval: 60, allow_empty: true}
   - {id: bs-economy, name: Business Standard, section: Economy, kind: rss, url: "https://www.business-standard.com/rss/economy-102.rss", tier: quality, site: business-standard.com}
+  - {id: bs-opinion, name: Business Standard, section: Opinion, kind: rss, url: "https://www.business-standard.com/rss/opinion-105.rss", tier: quality, editorial: true, allow_empty: true}
   - {id: et-economy, name: Economic Times, section: Economy, kind: rss, url: "https://economictimes.indiatimes.com/news/economy/rssfeeds/1373380680.cms", tier: general}
   - {id: et-policy, name: Economic Times, section: Policy, kind: rss, url: "https://economictimes.indiatimes.com/news/economy/policy/rssfeeds/1106944246.cms", tier: quality}
   - {id: et-defence, name: Economic Times, section: Defence, kind: rss, url: "https://economictimes.indiatimes.com/news/defence/rssfeeds/46687796.cms", tier: quality}
+  - {id: et-editorial, name: Economic Times, section: ET Editorial, kind: rss, url: "https://economictimes.indiatimes.com/opinion/et-editorial/rssfeeds/3376910.cms", tier: quality, editorial: true, limit: 20}
+  - {id: et-opinion, name: Economic Times, section: Opinion, kind: rss, url: "https://economictimes.indiatimes.com/opinion/rssfeeds/897228639.cms", tier: quality, editorial: true, limit: 30}
+  - {id: fe-opinion, name: Financial Express, section: Opinion, kind: gnews, query: "site:financialexpress.com/opinion when:2d", tier: quality, editorial: true, interval: 60, allow_empty: true, limit: 25}
+
+  # ─────────────── More opinion pages (direct feeds where they work, Google News otherwise) ───────────────
+  # Google News queries are restricted to the opinion URL path (site:domain/path), so news
+  # articles that merely mention "editorial" stay out.
+  - {id: ht-editorials, name: Hindustan Times, section: Editorials, kind: rss, url: "https://www.hindustantimes.com/feeds/rss/editorials/rssfeed.xml", tier: quality, editorial: true}
+  - {id: ht-opinion, name: Hindustan Times, section: Opinion, kind: rss, url: "https://www.hindustantimes.com/feeds/rss/opinion/rssfeed.xml", tier: quality, editorial: true}
+  - {id: ht-insight, name: Hindustan Times, section: HT Insight, kind: rss, url: "https://www.hindustantimes.com/feeds/rss/ht-insight/rssfeed.xml", tier: quality, editorial: true}
+  - {id: dh-opinion, name: Deccan Herald, section: Opinion, kind: rss, url: "https://www.deccanherald.com/api/v1/collections/opinion.rss", tier: quality, editorial: true, limit: 30}
+  - {id: theprint-opinion, name: ThePrint, section: Opinion, kind: rss, url: "https://theprint.in/category/opinion/feed/", tier: quality, editorial: true}
+  - {id: tribune-editorials, name: The Tribune, section: Editorials, kind: gnews, query: "site:tribuneindia.com/news/editorials when:2d", tier: quality, editorial: true, interval: 60, allow_empty: true, limit: 25}
+  - {id: tribune-comment, name: The Tribune, section: Comment, kind: gnews, query: "site:tribuneindia.com/news/comment when:2d", tier: quality, editorial: true, interval: 60, allow_empty: true, limit: 25}
+  - {id: epw-editorials, name: EPW, section: Editorials, kind: gnews, query: "site:epw.in/journal editorial when:10d", tier: quality, editorial: true, interval: 360, allow_empty: true, limit: 20}
+
+  # ─────────────── Explainers ───────────────
+  # Indian Express Explained and The Hindu's "| Explained" pieces are above. The rest come from
+  # Google News (the outlets' own explainer feeds are blocked or don't exist).
+  - {id: theprint-essential, name: ThePrint, section: ThePrint Essential, kind: gnews, query: "site:theprint.in/theprint-essential when:4d", tier: quality, explained: true, interval: 60, allow_empty: true, limit: 25}
+  - {id: dh-explained, name: Deccan Herald, section: Explained, kind: gnews, query: 'site:deccanherald.com "Explained" when:3d', tier: quality, interval: 60, allow_empty: true, limit: 25}
+  - {id: news18-explainers, name: News18, section: Explainers, kind: gnews, query: "site:news18.com/explainers when:2d", tier: general, explained: true, interval: 60, allow_empty: true, limit: 25}
+  - {id: firstpost-explainers, name: Firstpost, section: Explainers, kind: gnews, query: "site:firstpost.com/explainers when:2d", tier: general, explained: true, interval: 60, allow_empty: true, limit: 25}
 
   # ─────────────── Environment, law, policy research ───────────────
   - id: downtoearth

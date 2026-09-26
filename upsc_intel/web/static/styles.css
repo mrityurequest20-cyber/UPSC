@@ -167,6 +167,20 @@ button { cursor: pointer; }
 }
 .newbanner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--critical); }
 
+/* ───────── Refresh feedback ───────── */
+.btn:disabled { opacity: .75; cursor: progress; }
+.btn.busy svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .btn.busy svg { animation: none; } }
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 70;
+  width: max-content; max-width: min(560px, calc(100vw - 32px));
+  background: var(--ink); color: var(--page); border-radius: 12px; padding: 10px 14px;
+  font-size: 13.5px; line-height: 1.45; box-shadow: 0 8px 28px rgba(0,0,0,.25); border-left: 4px solid var(--accent);
+}
+.toast.ok { border-left-color: var(--good); }
+.toast.warn { border-left-color: var(--warning); }
+
 /* ───────── Layout ───────── */
 .wrap { max-width: 1480px; margin: 0 auto; padding: 16px; }
 .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
@@ -253,6 +267,7 @@ button { cursor: pointer; }
 .pill.tag { color: var(--accent-soft-ink); background: var(--accent-soft); font-weight: 600; }
 .pill.new { background: var(--critical); color: #fff; }
 .pill.ed { background: var(--surface-2); color: var(--ink); }
+.pill.ex { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good-text); }
 .actions { display: flex; gap: 2px; flex: none; }
 .actions button {
   border: 0; background: transparent; width: 30px; height: 30px; border-radius: 7px; color: var(--muted);

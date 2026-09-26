@@ -64,7 +64,8 @@ class Settings:
     imap_since_days: int = field(default_factory=lambda: _env_int("IMAP_SINCE_DAYS", 3))
     # daily brief & videos
     brief_size: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_SIZE", 25))
-    brief_editorials: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EDITORIALS", 8))
+    brief_editorials: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EDITORIALS", 15))
+    brief_explained: int = field(default_factory=lambda: _env_int("UPSC_BRIEF_EXPLAINED", 12))
     youtube_api_key: str | None = field(default_factory=lambda: _env("YOUTUBE_API_KEY"))
     video_search: bool = field(default_factory=lambda: _env_bool("UPSC_VIDEO_SEARCH", True))
     video_lang: str = field(default_factory=lambda: _env("UPSC_VIDEO_LANG", "en"))
@@ -72,6 +73,8 @@ class Settings:
     anthropic_api_key: str | None = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     ai_model: str = field(default_factory=lambda: _env("UPSC_AI_MODEL", "claude-opus-5"))
     ai_max_per_run: int = field(default_factory=lambda: _env_int("UPSC_AI_MAX_PER_RUN", 40))
+    # static site: minutes between scheduled rebuilds (shown on the page, used by Refresh)
+    site_refresh_min: int = field(default_factory=lambda: _env_int("UPSC_SITE_REFRESH_MIN", 60))
 
     @property
     def db_path(self) -> Path:
@@ -157,6 +160,7 @@ def load_sources(settings: Settings | None = None, public_only: bool = False) ->
         src.setdefault("tier", "general")
         src.setdefault("section", "")
         src.setdefault("editorial", False)
+        src.setdefault("explained", False)
         src["chain"] = build_chain(src)
         out.append(src)
     return out

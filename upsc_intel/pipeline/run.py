@@ -11,16 +11,19 @@ from datetime import datetime, timedelta, timezone
 from ..config import Settings, load_sources, load_topics
 from ..db import DB, iso, utcnow
 from ..fetchers import FetchContext, SourceResult, is_due, run_source
+from ..fetchers.describe import describe_new, page_description
 from ..fetchers.http import Http
 from ..models import RawItem
 from .brief import build_day, update_recent
 from .classify import Classifier
-from .cluster import Clusterer, aggregate_story
+from .cluster import Clusterer, aggregate_story, split_mixed_stories
+from .kinds import EDITORIAL, EXPLAINED, NEWS, content_kind, item_kind
 from .normalize import IST, canonical_url, clean_title, ist_date, make_id, title_tokens
 from .videos import link_brief_videos, video_row
 
 log = logging.getLogger("upsc_intel")
 RUN_LOCK = threading.Lock()
+MIGRATION_KINDS = "migration:kinds-v1"  # re-label stored items as news / editorial / explained once
 
 
 def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: str) -> dict | None:
@@ -39,13 +42,15 @@ def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: 
     hint = raw.extra.get("ministry", "") if raw.extra else ""
     a = clf.analyze(title, raw.summary or "", hint)
     tier = src.get("tier", "general")
+    step_kind = src.get("_step_kind") or src.get("kind")
+    kind = NEWS if is_library else content_kind(src, title, url, step_kind)
     return {
         "id": make_id(canon or raw.guid or title),
         "source_id": src["id"],
         "source_name": src.get("name"),
         "section": src.get("section") or (raw.extra or {}).get("ministry") or "",
         "publisher": raw.publisher or src.get("name"),
-        "kind": src.get("_step_kind") or src.get("kind"),
+        "kind": step_kind,
         "tier": tier,
         "url": url,
         "title": title,
@@ -53,14 +58,15 @@ def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: 
         "published_at": iso(published),
         "fetched_at": iso(now),
         "date_ist": date_ist,
-        "is_editorial": int(bool(src.get("editorial"))),
+        "is_editorial": int(kind == EDITORIAL),
+        "is_explained": int(kind == EXPLAINED),
         "is_library": int(is_library),
         "is_private": int(bool(src.get("private"))),
         "tokens": title_tokens(title),
         "subjects": a.subjects,
         "tags": a.tags,
         "watch": a.watch,
-        "score": clf.score(a, tier),
+        "score": clf.score(a, tier, kind),
         "extra": raw.extra or {},
         "_content": raw.content or "",
     }
@@ -83,6 +89,12 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     if only:
         sources = [s for s in sources if any(s["id"] == o or s["id"].startswith(o) for o in only)]
         force = True
+    if not db.seen(MIGRATION_KINDS):
+        log.info("one-time: labelling stored items as news / editorial / explained")
+        backfill_descriptions(settings, db, sources)
+        reclassify(settings, db)
+        db.mark_seen(MIGRATION_KINDS)
+        db.commit()
     clf = Classifier(load_topics(settings))
     states = db.all_source_states()
     due = [s for s in sources if force or is_due(s, states.get(s["id"], {}), settings.fetch_interval_min, now)]
@@ -104,6 +116,7 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
                     log.exception("source %s crashed", src["id"])
                     results.append((SourceResult(src, [], False, None, []),
                                     {**db.get_source_state(src["id"]), "last_error": str(exc)}))
+        n_described = describe_new(ctx, results)
     finally:
         http.close()
 
@@ -137,10 +150,10 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
                 continue
             existing.add(item["id"])
             toks = set(item["tokens"])
-            editorial = bool(item["is_editorial"])
+            kind = item_kind(item)
             sid = None
             if not item["is_library"]:
-                sid = clusterer.find(toks, editorial)
+                sid = clusterer.find(toks, kind)
             if sid is None:
                 sid = "s" + item["id"]
                 new_stories.add(sid)
@@ -149,7 +162,7 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
                 src_new += 1
                 touched.add(sid)
                 if not item["is_library"]:
-                    clusterer.add(sid, toks, editorial)
+                    clusterer.add(sid, toks, kind)
         n_new += src_new
         st["total_items"] = int(st.get("total_items") or 0) + src_new
         db.save_source_state(st)
@@ -187,8 +200,37 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     }
     db.save_run(summary)
     summary.update({"failed": failed, "pruned": pruned, "warnings": ctx.warnings, "new_videos": n_videos,
+                    "described": n_described,
                     "videos": video_stats, "duration_s": round(time.monotonic() - t0, 1)})
     return summary
+
+
+def backfill_descriptions(settings: Settings, db: DB, sources: list[dict], days: int = 4, limit: int = 300) -> int:
+    """One-time: give recent items of `describe` sources the preview text they were stored without."""
+    ids = [s["id"] for s in sources if s.get("describe")]
+    if not ids:
+        return 0
+    since = (datetime.now(IST).date() - timedelta(days=days)).isoformat()
+    rows = db.q(f"SELECT id, url FROM items WHERE source_id IN ({','.join('?' * len(ids))}) AND date_ist >= ? "
+                f"AND COALESCE(summary,'') = '' AND kind != 'gnews' ORDER BY date_ist DESC LIMIT ?", [*ids, since, limit])
+    http = Http(timeout=settings.http_timeout)
+
+    def work(row):
+        try:
+            return row["id"], page_description(http, row["url"])
+        except Exception:
+            return row["id"], ""
+
+    try:
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            found = [(i, d) for i, d in ex.map(work, rows) if d]
+    finally:
+        http.close()
+    for item_id, text in found:
+        db.x("UPDATE items SET summary=? WHERE id=?", (text, item_id))
+        db.x("UPDATE items_fts SET body=? WHERE item_id=?", (text, item_id))
+    db.commit()
+    return len(found)
 
 
 def prune(settings: Settings, db: DB, clf: Classifier) -> int:
@@ -200,14 +242,21 @@ def prune(settings: Settings, db: DB, clf: Classifier) -> int:
 
 
 def reclassify(settings: Settings, db: DB) -> int:
-    """Re-tag every stored item after editing topics.yaml (does not re-cluster)."""
+    """Re-tag every stored item after editing topics.yaml or sources.yaml (kinds included).
+    Items whose kind changed leave their old cluster; nothing else is re-clustered."""
     clf = Classifier(load_topics(settings))
-    rows = db.q("SELECT id, title, summary, tier, extra FROM items")
+    sources = {s["id"]: s for s in load_sources(settings)}
+    rows = db.q("SELECT id, source_id, kind, url, title, summary, tier, extra, is_library FROM items")
     for r in rows:
         extra = json.loads(r["extra"] or "{}") if r["extra"] else {}
+        tier = r["tier"] or "general"
+        src = sources.get(r["source_id"]) or {"tier": tier}
+        kind = NEWS if r["is_library"] else content_kind(src, r["title"] or "", r["url"] or "", r["kind"])
         a = clf.analyze(r["title"] or "", r["summary"] or "", (extra or {}).get("ministry", ""))
-        db.update_item(r["id"], subjects=a.subjects, tags=a.tags, watch=a.watch, score=clf.score(a, r["tier"] or "general"))
+        db.update_item(r["id"], subjects=a.subjects, tags=a.tags, watch=a.watch, score=clf.score(a, tier, kind),
+                       is_editorial=int(kind == EDITORIAL), is_explained=int(kind == EXPLAINED))
     db.commit()
+    split_mixed_stories(db)
     sids = [r["story_id"] for r in db.q("SELECT DISTINCT story_id FROM items WHERE story_id IS NOT NULL")]
     for sid in sids:
         aggregate_story(db, clf, sid)

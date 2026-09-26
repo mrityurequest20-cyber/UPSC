@@ -172,6 +172,8 @@ JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "
 MIGRATIONS = [  # (table, column, type): added when missing, so old databases keep working
     ("stories", "video", "TEXT"),
     ("stories", "video_checked_at", "TEXT"),
+    ("items", "is_explained", "INTEGER DEFAULT 0"),
+    ("stories", "is_explained", "INTEGER DEFAULT 0"),
 ]
 
 

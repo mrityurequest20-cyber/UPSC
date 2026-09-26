@@ -150,14 +150,16 @@ class Classifier:
             a.india = bool(a.watch or self.india_terms.find(full) or self.india_exempt.find(full))
         return a
 
-    def score(self, a: Analysis, tier: str) -> float:
+    def score(self, a: Analysis, tier: str, kind: str = "news") -> float:
+        """kind: news / editorial / explained. Opinion and explainers on world affairs are
+        GS2 material in their own right, so the India-angle penalty only applies to news."""
         s = self.tier_weight.get(tier, 1.0)
         s += min(a.signal, 4.0)
         best = max(a.subject_scores.values()) if a.subject_scores else 0.0
         s += min(best / 4.0, 2.0) if a.subjects else -self.no_subject_penalty
         s += min(0.5 * len(a.tags), 1.5)
         s -= a.noise
-        if not a.india and tier in self.india_tiers:
+        if not a.india and tier in self.india_tiers and kind == "news":
             s -= self.india_penalty
         return round(s, 2)
 

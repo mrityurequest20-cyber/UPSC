@@ -4,7 +4,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from upsc_intel.pipeline.brief import select_day
+from upsc_intel.pipeline.cluster import split_mixed_stories
 from upsc_intel.pipeline.enrich import _sentences, auto_explain, has_ai_explainer
+from upsc_intel.pipeline.kinds import content_kind
 from upsc_intel.pipeline.normalize import title_tokens
 from upsc_intel.pipeline.videos import _relative_time, queries, score_video
 
@@ -27,12 +29,13 @@ def test_india_angle(clf, title, tier, india):
 
 
 # ── brief selection ──
-def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The Hindu", summary=""):
+def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The Hindu", summary="", explained=False):
     db.upsert_story({
         "id": sid, "title": sid, "url": "https://x/" + sid, "date_ist": day, "dates": [day],
         "first_seen": NOW.isoformat(), "last_seen": NOW.isoformat(), "updated_at": NOW.isoformat(),
         "n_items": 1, "n_publishers": 1, "publishers": [publisher], "subjects": subjects, "gs": [],
         "tags": [], "watch": [], "score": score, "grade": grade, "is_editorial": int(editorial),
+        "is_explained": int(explained),
         "is_library": 0, "is_private": 0, "tier": "quality", "summary": summary, "tokens": [],
     })
 
@@ -56,6 +59,55 @@ def test_select_day_covers_syllabus_and_caps_subjects(db, clf):
     assert not {"low", "read", "nosubj"} & set(news)
     assert eds == ["ed0", "ed1", "ed2"]                         # max 3 per publisher, ed_size respected
     assert [p[2] for p in picks if p[1] == "news"] == list(range(1, len(news) + 1))
+
+
+def test_editorials_and_explainers_get_their_own_quota(db, clf):
+    day = "2026-09-26"
+    for i in range(6):  # one paper publishes a lot of opinion
+        _story(db, f"hin{i}", day, 4 - i * 0.1, "SKIM", ["polity"], editorial=True)
+    _story(db, "trib", day, 2.0, "READ", ["economy"], editorial=True, publisher="The Tribune")
+    _story(db, "opaque", day, 1.0, "LOW", ["society"], editorial=True, publisher="Mint")  # LOW but on-syllabus
+    _story(db, "essay", day, 1.0, "LOW", [], editorial=True, publisher="Mint")  # personal essay: no subject
+    for i in range(3):
+        _story(db, f"ie{i}", day, 5 - i * 0.1, "NOTE", ["ir"], explained=True, publisher="Indian Express")
+    _story(db, "hexp", day, 3.0, "SKIM", ["environment"], explained=True)
+    _story(db, "news", day, 6.0, "NOTE", ["ir"])
+    db.commit()
+    picks = select_day(db, clf, day, size=5, ed_size=6, ex_size=3)
+    kinds = {k: [p[0] for p in picks if p[1] == k] for k in ("news", "editorial", "explained")}
+    assert kinds["news"] == ["news"]  # explainers never take news slots
+    eds = kinds["editorial"]
+    assert len(eds) == 6 and {"trib", "opaque"} <= set(eds) and "essay" not in eds
+    assert sum(1 for e in eds if e.startswith("hin")) == 4  # capped first, then the leftover slot is filled
+    assert kinds["explained"] == ["ie0", "ie1", "ie2"]  # best first; the quota is respected
+
+
+@pytest.mark.parametrize("src,title,url,kind", [
+    ({"tier": "quality"}, "What is analogue paneer, and why is FSSAI cracking down on it? | Explained",
+     "https://www.thehindu.com/news/national/analogue-paneer/article1.ece", "explained"),
+    ({"tier": "examprep"}, "UPSC Editorial Analysis: Counterfeit Medicines", "https://www.insightsonindia.com/2026/09/26/x/", "editorial"),
+    ({"tier": "quality"}, "Overweight and weak: On the UN", "https://www.thehindu.com/opinion/editorial/overweight/article2.ece", "editorial"),
+    ({"tier": "quality"}, "Mint Explainer | What 20-year environmental clearances mean for ports", "", "explained"),
+    ({"tier": "examprep"}, "Knowledge Nugget | How does the Election Commission allocate symbols?", "https://indianexpress.com/article/upsc/x/", "explained"),
+    ({"tier": "quality"}, "Why did a U.S. court stay Trump's ban on media outlets?", "https://www.thehindu.com/news/international/x/article3.ece", "explained"),
+    ({"tier": "general"}, "Why did Rahul Gandhi skip the meeting today?", "https://www.ndtv.com/india-news/x", "news"),
+    ({"tier": "quality"}, "Supreme Court upholds sub-classification of Scheduled Castes", "https://www.thehindu.com/news/national/x/article4.ece", "news"),
+    ({"tier": "watch"}, "Centre notifies new rules", "https://news.google.com/rss/articles/opinion/abc", "news"),  # redirect path means nothing
+    ({"tier": "quality", "explained": True}, "The takeaways from the summit", "", "explained"),
+    ({"tier": "quality", "editorial": True}, "What does the IIT-Bombay suicide tell us?", "", "editorial"),
+])
+def test_content_kind(src, title, url, kind):
+    assert content_kind(src, title, url, "gnews" if "news.google" in url else "rss") == kind
+
+
+def test_split_mixed_stories(db):
+    now = NOW.isoformat()
+    for iid, ed, ex in (("a", 0, 0), ("b", 0, 0), ("c", 0, 1)):  # an explainer that had joined a news story
+        db.insert_item({"id": iid, "source_id": "x", "title": iid, "url": "https://x/" + iid, "date_ist": "2026-09-26",
+                        "published_at": now, "is_editorial": ed, "is_explained": ex, "is_library": 0, "story_id": "sa"})
+    db.commit()
+    assert split_mixed_stories(db) == 1
+    assert {r["id"]: r["story_id"] for r in db.q("SELECT id, story_id FROM items")} == {"a": "sa", "b": "sa", "c": "sc"}
 
 
 def test_brief_prefers_stories_with_text(db, clf):
@@ -90,6 +142,17 @@ def test_auto_explain_uses_lead_sentence_and_tags(clf):
     assert any("Prelims angle" in x for x in e["significance"])
     assert e["prelims"] == ["The Ramsar Convention was signed in 1971."]
     assert not has_ai_explainer(e) or e.get("what")
+
+
+def test_auto_explain_skips_page_furniture(clf):
+    e = auto_explain({"title": "UPSC Editorial Analysis: Counterfeit Medicines", "summary":
+                      "General Studies-2; Topic: Issues relating to Health. Introduction The seizure of counterfeit "
+                      "medicines in Bengaluru reveals weak drug regulation. Source: The post is based on an article.",
+                      "subjects": [], "gs": [], "tags": [], "watch": [], "publishers": ["Insights"]}, clf.labels())
+    assert e["why_in_news"] == "The seizure of counterfeit medicines in Bengaluru reveals weak drug regulation."
+    bare = {"title": "x", "date_ist": "2026-09-26", "summary": "", "subjects": [], "gs": [], "tags": [], "watch": []}
+    assert auto_explain({**bare, "is_explained": 1, "publishers": ["The Hindu"]}, {})["why_in_news"].startswith("Explainer by The Hindu")
+    assert auto_explain({**bare, "is_editorial": 1, "publishers": ["The Tribune"]}, {})["why_in_news"].startswith("Opinion piece in The Tribune")
 
 
 def test_auto_explain_without_text(clf):
