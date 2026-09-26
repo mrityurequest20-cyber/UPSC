@@ -1,0 +1,83 @@
+# Hourly: fetch every public source, rebuild the static dashboard, publish to GitHub Pages.
+#
+# One-time setup (repo Settings):
+#   1. Merge this to the default branch (scheduled workflows only run there).
+#   2. Settings → Pages → Build and deployment → Source: "GitHub Actions".
+#   3. (Optional) Settings → Secrets → Actions → ANTHROPIC_API_KEY to add AI notes.
+# The site is PUBLIC: only public sources are exported. Email / PDFs / private feeds stay local.
+name: Live dashboard (GitHub Pages)
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths: ["upsc_intel/**", "config/**", ".github/workflows/pages.yml", "requirements.txt"]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: data/upsc.db
+          key: upsc-db-${{ github.run_id }}
+          restore-keys: upsc-db-
+
+      - name: Fetch all public sources
+        env:
+          UPSC_BROWSER_FALLBACK: "0"
+        run: python -m upsc_intel fetch --public-only --force
+
+      - name: AI notes (only if the secret is set)
+        if: env.ANTHROPIC_API_KEY != ''
+        run: python -m upsc_intel enrich
+
+      - name: Save database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/upsc.db
+          key: upsc-db-${{ github.run_id }}
+
+      - name: Build static site
+        run: python -m upsc_intel export-static --out site --days 62
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

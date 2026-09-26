@@ -1,0 +1,50 @@
+# Premium & private sources. Copy this file to config/sources.local.yaml (it is gitignored)
+# and uncomment/edit what you use. Same fields as config/sources.yaml; tier defaults to "premium".
+# These never go to the public GitHub Pages site. They only show in your local/Docker dashboard.
+#
+# Other premium routes need no entry here:
+#   • Newsletters & e-paper emails → set IMAP_* in .env (see .env.example)
+#   • PDFs you download (Vision IAS / Drishti / ForumIAS magazines, e-paper PDFs) → drop into ./inbox
+
+sources:
+  # ── Telegram: any PUBLIC channel (the web preview t.me/s/<name> must load in a browser) ──
+  # - id: tg-my-coaching
+  #   name: My coaching channel
+  #   kind: telegram
+  #   channel: channel_username          # the part after t.me/
+  #   interval: 30
+
+  # ── YouTube: any channel. Find the id: open the channel → View page source → search "channelId" ──
+  # - id: yt-my-channel
+  #   name: My current-affairs channel
+  #   kind: youtube
+  #   url: https://www.youtube.com/feeds/videos.xml?channel_id=UCxxxxxxxxxxxxxxxxxxxxxx
+  #   tier: examprep
+
+  # ── Private / tokenised RSS: Substack paid posts, Inoreader or Feedly "output" feeds, Kill the Newsletter ──
+  # Paid Substack: Settings → "Private RSS feed". Inoreader: a folder → "Export as RSS".
+  # kill-the-newsletter.com turns any newsletter subscription into a private feed (no IMAP needed).
+  # - id: substack-paid
+  #   name: My paid newsletter
+  #   kind: rss
+  #   url: https://yourpub.substack.com/feed?token=YOUR_PRIVATE_TOKEN
+  #
+  # - id: inoreader-upsc
+  #   name: Inoreader UPSC folder
+  #   kind: rss
+  #   url: https://www.inoreader.com/stream/user/XXXX/tag/UPSC
+
+  # ── Self-hosted RSSHub (docker compose --profile rsshub up -d) for sites without feeds ──
+  # - id: rsshub-example
+  #   name: Example via RSSHub
+  #   kind: rss
+  #   url: http://rsshub:1200/<route>
+
+  # ── Any public page without a feed: link scraping, with the headless browser as a fallback ──
+  # - id: some-listing
+  #   name: Some institute daily page
+  #   kind: html
+  #   url: https://example.com/current-affairs/
+  #   link_pattern: "/current-affairs/20"   # only keep links whose URL matches this regex
+  #   fallbacks:
+  #     - {kind: browser, url: "https://example.com/current-affairs/", link_pattern: "/current-affairs/20"}

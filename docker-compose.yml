@@ -1,0 +1,26 @@
+services:
+  upsc-intel:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data                 # database (history, stars, notes)
+      - ./inbox:/app/inbox               # drop PDFs here → Library tab
+      - ./config:/app/config             # edit sources / topics without rebuilding
+
+  # Optional: self-hosted RSSHub, for turning other sites / channels into feeds.
+  # Start with: docker compose --profile rsshub up -d
+  # Then use URLs like http://rsshub:1200/<route> in config/sources.local.yaml
+  rsshub:
+    image: diygod/rsshub:latest
+    restart: unless-stopped
+    profiles: ["rsshub"]
+    ports:
+      - "1200:1200"
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory

@@ -1,0 +1,264 @@
+# UPSC Intel: public source registry
+#
+# Fields
+#   id         unique slug
+#   name       publisher shown on cards
+#   section    optional sub-feed label
+#   kind       rss | gnews | pib | telegram | html | browser
+#   url        feed / page URL (rss, pib, html, browser, telegram)
+#   query      Google News query (gnews)
+#   tier       official | examprep | quality | general | intl   (drives the importance score)
+#   editorial  true for opinion/editorial feeds (they get their own tab)
+#   site       domain; if set, a Google News `site:` fallback is added automatically
+#   fallbacks  extra steps tried in order when the step above fails
+#   interval   minutes between fetches for this source (default = global interval)
+#   limit      max items kept per fetch
+#   allow_empty  an empty result is not treated as a failure
+#
+# Tested live on 2026-09-26. Sources whose direct feed is blocked or dead start on
+# their Google News `site:` query, with HTML/browser steps behind it.
+
+sources:
+  # ─────────────── Official / primary record ───────────────
+  - id: pib
+    name: PIB
+    kind: pib
+    url: https://www.pib.gov.in/allRel.aspx?reg=3&lang=1
+    tier: official
+    site: pib.gov.in
+    allow_empty: true
+  - id: rbi-press
+    name: RBI
+    section: Press releases
+    kind: rss
+    url: https://www.rbi.org.in/pressreleases_rss.xml
+    tier: official
+    site: rbi.org.in
+  - id: rbi-notifications
+    name: RBI
+    section: Notifications
+    kind: rss
+    url: https://www.rbi.org.in/notifications_rss.xml
+    tier: official
+  - id: sebi
+    name: SEBI
+    kind: rss
+    url: https://www.sebi.gov.in/sebirss.xml
+    tier: official
+    site: sebi.gov.in
+  - id: prs
+    name: PRS Legislative Research
+    kind: gnews
+    query: "site:prsindia.org when:7d"
+    tier: official
+    interval: 60
+    allow_empty: true
+  - id: mea
+    name: Ministry of External Affairs
+    kind: gnews
+    query: "site:mea.gov.in when:3d"
+    tier: official
+    interval: 60
+    allow_empty: true
+  - id: isro
+    name: ISRO
+    kind: gnews
+    query: "site:isro.gov.in when:7d"
+    tier: official
+    interval: 120
+    allow_empty: true
+  - id: niti
+    name: NITI Aayog
+    kind: gnews
+    query: "site:niti.gov.in when:7d"
+    tier: official
+    interval: 120
+    allow_empty: true
+  - id: newsonair
+    name: All India Radio (NewsOnAir)
+    kind: rss
+    url: https://www.newsonair.gov.in/feed/
+    tier: official
+    site: newsonair.gov.in
+  - id: ddnews
+    name: DD News
+    kind: rss
+    url: https://ddnews.gov.in/en/feed/
+    tier: general
+    site: ddnews.gov.in
+
+  # ─────────────── Exam-prep desks ───────────────
+  - id: ie-upsc
+    name: Indian Express
+    section: UPSC Current Affairs
+    kind: rss
+    url: https://indianexpress.com/section/upsc-current-affairs/feed/
+    tier: examprep
+  - id: insights
+    name: Insights on India
+    kind: rss
+    url: https://www.insightsonindia.com/feed/
+    tier: examprep
+    site: insightsonindia.com
+  - id: forumias
+    name: ForumIAS
+    kind: rss
+    url: https://forumias.com/blog/feed/
+    tier: examprep
+    site: forumias.com
+  - id: iasbaba
+    name: IASbaba
+    kind: rss
+    url: https://iasbaba.com/feed/
+    tier: examprep
+    site: iasbaba.com
+  - id: vajiram
+    name: Vajiram & Ravi
+    kind: rss
+    url: https://vajiramandravi.com/current-affairs/feed/
+    tier: examprep
+    site: vajiramandravi.com
+  - id: drishti
+    name: Drishti IAS
+    kind: gnews
+    query: "site:drishtiias.com when:2d"
+    tier: examprep
+    interval: 30
+    fallbacks:
+      - kind: html
+        url: https://www.drishtiias.com/current-affairs-news-analysis-editorials
+        link_pattern: "/daily-updates/"
+      - kind: browser
+        url: https://www.drishtiias.com/current-affairs-news-analysis-editorials
+        link_pattern: "/daily-updates/"
+  - id: nextias
+    name: NEXT IAS
+    kind: gnews
+    query: "site:nextias.com when:3d"
+    tier: examprep
+    interval: 60
+    allow_empty: true
+    fallbacks:
+      - kind: html
+        url: https://www.nextias.com/ca/headlines-of-the-day
+        link_pattern: "/ca/"
+      - kind: browser
+        url: https://www.nextias.com/ca/headlines-of-the-day
+        link_pattern: "/ca/"
+  - id: civilsdaily
+    name: Civilsdaily
+    kind: rss
+    url: https://www.civilsdaily.com/feed/
+    tier: examprep
+    site: civilsdaily.com
+  - id: gktoday
+    name: GKToday
+    kind: gnews
+    query: "site:gktoday.in when:2d"
+    tier: general
+    interval: 60
+    allow_empty: true
+
+  # ─────────────── The Hindu ───────────────
+  - {id: hindu-national, name: The Hindu, section: National, kind: rss, url: "https://www.thehindu.com/news/national/feeder/default.rss", tier: quality, site: thehindu.com}
+  - {id: hindu-international, name: The Hindu, section: International, kind: rss, url: "https://www.thehindu.com/news/international/feeder/default.rss", tier: quality}
+  - {id: hindu-economy, name: The Hindu, section: Economy, kind: rss, url: "https://www.thehindu.com/business/Economy/feeder/default.rss", tier: quality}
+  - {id: hindu-scitech, name: The Hindu, section: Sci-Tech, kind: rss, url: "https://www.thehindu.com/sci-tech/feeder/default.rss", tier: quality}
+  - {id: hindu-environment, name: The Hindu, section: Energy & Environment, kind: rss, url: "https://www.thehindu.com/sci-tech/energy-and-environment/feeder/default.rss", tier: quality}
+  - {id: hindu-science, name: The Hindu, section: Science, kind: rss, url: "https://www.thehindu.com/sci-tech/science/feeder/default.rss", tier: quality}
+  - {id: hindu-health, name: The Hindu, section: Health, kind: rss, url: "https://www.thehindu.com/sci-tech/health/feeder/default.rss", tier: quality}
+  - {id: hindu-agriculture, name: The Hindu, section: Agriculture, kind: rss, url: "https://www.thehindu.com/sci-tech/agriculture/feeder/default.rss", tier: quality}
+  - {id: hindu-education, name: The Hindu, section: Education, kind: rss, url: "https://www.thehindu.com/education/feeder/default.rss", tier: quality}
+  - {id: hindu-editorial, name: The Hindu, section: Editorial, kind: rss, url: "https://www.thehindu.com/opinion/editorial/feeder/default.rss", tier: quality, editorial: true}
+  - {id: hindu-lead, name: The Hindu, section: Lead, kind: rss, url: "https://www.thehindu.com/opinion/lead/feeder/default.rss", tier: quality, editorial: true}
+  - {id: hindu-oped, name: The Hindu, section: Op-Ed, kind: rss, url: "https://www.thehindu.com/opinion/op-ed/feeder/default.rss", tier: quality, editorial: true}
+  - {id: frontline, name: Frontline, kind: rss, url: "https://frontline.thehindu.com/feeder/default.rss", tier: quality}
+  - {id: businessline, name: BusinessLine, section: Economy, kind: rss, url: "https://www.thehindubusinessline.com/economy/feeder/default.rss", tier: quality}
+
+  # ─────────────── Indian Express ───────────────
+  - {id: ie-india, name: Indian Express, section: India, kind: rss, url: "https://indianexpress.com/section/india/feed/", tier: quality, site: indianexpress.com, limit: 80}
+  - {id: ie-explained, name: Indian Express, section: Explained, kind: rss, url: "https://indianexpress.com/section/explained/feed/", tier: examprep, limit: 80}
+  - {id: ie-world, name: Indian Express, section: World, kind: rss, url: "https://indianexpress.com/section/world/feed/", tier: quality, limit: 60}
+  - {id: ie-economy, name: Indian Express, section: Economy, kind: rss, url: "https://indianexpress.com/section/business/economy/feed/", tier: quality, limit: 60}
+  - {id: ie-science, name: Indian Express, section: Science, kind: rss, url: "https://indianexpress.com/section/technology/science/feed/", tier: quality, limit: 60}
+  - {id: ie-political-pulse, name: Indian Express, section: Political Pulse, kind: rss, url: "https://indianexpress.com/section/political-pulse/feed/", tier: general, limit: 40}
+  - {id: ie-editorials, name: Indian Express, section: Editorials, kind: rss, url: "https://indianexpress.com/section/opinion/editorials/feed/", tier: quality, editorial: true, limit: 40}
+  - {id: ie-columns, name: Indian Express, section: Columns, kind: rss, url: "https://indianexpress.com/section/opinion/columns/feed/", tier: quality, editorial: true, limit: 40}
+
+  # ─────────────── Business & economy ───────────────
+  - {id: mint-economy, name: Mint, section: Economy, kind: rss, url: "https://www.livemint.com/rss/economy", tier: quality, site: livemint.com}
+  - {id: mint-politics, name: Mint, section: Politics, kind: rss, url: "https://www.livemint.com/rss/politics", tier: general}
+  - {id: mint-opinion, name: Mint, section: Opinion, kind: rss, url: "https://www.livemint.com/rss/opinion", tier: quality, editorial: true}
+  - {id: bs-economy, name: Business Standard, section: Economy, kind: rss, url: "https://www.business-standard.com/rss/economy-102.rss", tier: quality, site: business-standard.com}
+  - {id: et-economy, name: Economic Times, section: Economy, kind: rss, url: "https://economictimes.indiatimes.com/news/economy/rssfeeds/1373380680.cms", tier: general}
+  - {id: et-policy, name: Economic Times, section: Policy, kind: rss, url: "https://economictimes.indiatimes.com/news/economy/policy/rssfeeds/1106944246.cms", tier: quality}
+  - {id: et-defence, name: Economic Times, section: Defence, kind: rss, url: "https://economictimes.indiatimes.com/news/defence/rssfeeds/46687796.cms", tier: quality}
+
+  # ─────────────── Environment, law, policy research ───────────────
+  - id: downtoearth
+    name: Down To Earth
+    kind: gnews
+    query: "site:downtoearth.org.in when:2d"
+    tier: quality
+    interval: 30
+  - {id: mongabay, name: Mongabay India, kind: rss, url: "https://india.mongabay.com/feed/", tier: quality, site: india.mongabay.com}
+  - id: livelaw
+    name: LiveLaw
+    kind: rss
+    url: https://www.livelaw.in/feed
+    tier: quality
+    site: livelaw.in
+    limit: 50
+  - {id: barandbench, name: Bar & Bench, kind: rss, url: "https://www.barandbench.com/feed", tier: quality}
+  - id: orf
+    name: Observer Research Foundation
+    kind: gnews
+    query: "site:orfonline.org when:3d"
+    tier: quality
+    interval: 120
+    allow_empty: true
+  - id: idsa
+    name: MP-IDSA
+    kind: gnews
+    query: "site:idsa.in when:7d"
+    tier: quality
+    interval: 180
+    allow_empty: true
+
+  # ─────────────── General national news ───────────────
+  - {id: ht-india, name: Hindustan Times, section: India, kind: rss, url: "https://www.hindustantimes.com/feeds/rss/india-news/rssfeed.xml", tier: general, limit: 60}
+  - {id: ht-world, name: Hindustan Times, section: World, kind: rss, url: "https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml", tier: general, limit: 40}
+  - {id: ndtv-india, name: NDTV, kind: rss, url: "https://feeds.feedburner.com/ndtvnews-india-news", tier: general}
+  - {id: toi-india, name: Times of India, kind: rss, url: "https://timesofindia.indiatimes.com/rssfeeds/-2128936835.cms", tier: general}
+  - id: theprint
+    name: ThePrint
+    kind: rss
+    url: https://theprint.in/feed/
+    tier: general
+    site: theprint.in
+    limit: 40
+  - id: scroll
+    name: Scroll
+    kind: rss
+    url: https://scroll.in/feed
+    tier: general
+    site: scroll.in
+    limit: 30
+  - id: thewire
+    name: The Wire
+    kind: rss
+    url: https://thewire.in/rss
+    tier: general
+    site: thewire.in
+    limit: 30
+
+  # ─────────────── International ───────────────
+  - {id: un-news, name: UN News, kind: rss, url: "https://news.un.org/feed/subscribe/en/news/all/rss.xml", tier: intl}
+  - {id: diplomat, name: The Diplomat, kind: rss, url: "https://thediplomat.com/feed/", tier: intl, limit: 40}
+  - {id: bbc-asia, name: BBC News, section: Asia, kind: rss, url: "https://feeds.bbci.co.uk/news/world/asia/rss.xml", tier: intl}
+  - {id: aljazeera, name: Al Jazeera, kind: rss, url: "https://www.aljazeera.com/xml/rss/all.xml", tier: intl}
+
+  # ─────────────── Video explainers (YouTube channel RSS) ───────────────
+  - {id: yt-sansadtv, name: Sansad TV, section: YouTube, kind: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCISgnSNwqQ2i8lhCun3KtQg", tier: official, interval: 60}
+  - {id: yt-pib, name: PIB India, section: YouTube, kind: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCGn6a5SI8SNlj7WylmPD6GQ", tier: official, interval: 60}
+  - {id: yt-drishti, name: Drishti IAS, section: YouTube, kind: youtube, url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCkrtAaoos4rxt2cw2CIBjuA", tier: examprep, interval: 60}

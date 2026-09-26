@@ -1,0 +1,21 @@
+# Core
+feedparser>=6.0.11
+httpx[http2]>=0.27
+fastapi>=0.110
+uvicorn[standard]>=0.29
+apscheduler>=3.10,<4
+pyyaml>=6.0
+beautifulsoup4>=4.12
+pypdf>=4.0
+python-dateutil>=2.9
+python-dotenv>=1.0
+
+# Optional: AI notes (only used when ANTHROPIC_API_KEY is set)
+anthropic>=0.40
+
+# Optional: headless-browser fallback for JS-heavy listing pages.
+# After installing, run `playwright install chromium` once (or set UPSC_BROWSER_EXECUTABLE).
+playwright>=1.44
+
+# Dev
+pytest>=8.0

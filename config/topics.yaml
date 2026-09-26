@@ -1,0 +1,1248 @@
+# UPSC Intel: syllabus map, scoring rules, watch areas and the Google News watchlist.
+#
+# Keyword matching rules
+#   * whole-word matching
+#   * a single word containing a capital letter (RBI, ISRO, Act, Bill, Quad) matches case-sensitively,
+#     so "Act" ≠ "act" and "Bill" ≠ "electricity bill"; everything else is case-insensitive
+#   * lowercase terms also match their plural (tiger reserve → tiger reserves)
+#   * `term: weight`: title hits count double, summary hits count once
+# Edit freely, then run `python -m upsc_intel reclassify` to re-tag everything already stored.
+
+scoring:
+  tier_weight: {official: 3.0, examprep: 2.5, premium: 2.5, quality: 1.5, library: 2.0, watch: 1.25, general: 1.0, intl: 1.0}
+  subject_threshold: 2        # min keyword score for a subject to stick
+  max_subjects: 3
+  no_subject_penalty: 1.5     # item matched no syllabus subject at all
+  grades: {NOTE: 5.0, SKIM: 3.2, READ: 1.6}   # below READ → LOW (hidden by default, never deleted)
+
+gs_papers:
+  GS1: "History, Culture, Geography, Society"
+  GS2: "Polity, Governance, IR, Social Justice"
+  GS3: "Economy, Environment, S&T, Security, Disaster"
+  GS4: "Ethics"
+
+subjects:
+  polity:
+    label: Polity & Constitution
+    gs: GS2
+    kw:
+      constitution: 2
+      constitutional: 2
+      supreme court: 2
+      high court: 1.5
+      "SC": 1
+      "HC": 1
+      CJI: 2
+      constitution bench: 3
+      collegium: 2
+      judicial review: 2
+      fundamental right: 3
+      directive principles: 3
+      article 14: 2
+      article 19: 2
+      article 21: 2
+      article 32: 2
+      article 356: 2
+      article 370: 2
+      parliament: 2
+      lok sabha: 2
+      rajya sabha: 2
+      parliamentary committee: 2
+      standing committee: 1.5
+      joint parliamentary committee: 2
+      "JPC": 1.5
+      speaker: 1
+      "Bill": 1.5
+      "Act": 1.5
+      ordinance: 2
+      amendment: 1.5
+      anti-defection: 3
+      tenth schedule: 3
+      governor: 1.5
+      president's rule: 3
+      election commission: 2.5
+      "ECI": 2
+      chief election commissioner: 3
+      delimitation: 3
+      electoral roll: 2
+      special intensive revision: 3
+      "SIR": 1
+      "EVM": 2
+      "VVPAT": 2
+      model code of conduct: 2
+      electoral bond: 2
+      simultaneous elections: 3
+      one nation one election: 3
+      federalism: 3
+      centre-state: 2
+      panchayat: 1.5
+      local body: 1
+      municipal: 1
+      73rd amendment: 3
+      74th amendment: 3
+      reservation: 1.5
+      creamy layer: 2
+      sub-classification: 2
+      "UAPA": 1.5
+      sedition: 2
+      contempt of court: 2
+      judgment: 1.5
+      verdict: 1.5
+      "PIL": 1.5
+      habeas corpus: 3
+      tribunal: 1.5
+      lokpal: 3
+      uniform civil code: 3
+      "UCC": 2
+      vice-president: 1
+      president murmu: 1
+      rajya sabha chairman: 1.5
+      assembly: 0.5
+      legislature: 1.5
+      "CAG": 2
+      attorney general: 2
+      solicitor general: 1.5
+      "RTI": 2
+      right to information: 2
+      privacy: 1
+      basic structure: 3
+      preamble: 3
+      citizenship: 2
+      "CAA": 2
+      "NRC": 2
+  governance:
+    label: Governance & Policy
+    gs: GS2
+    kw:
+      scheme: 1.5
+      yojana: 2
+      abhiyan: 2
+      mission: 1
+      policy: 1
+      guidelines: 1.5
+      framework: 1
+      cabinet approves: 3
+      union cabinet: 2.5
+      cabinet: 1
+      ministry: 1
+      niti aayog: 2.5
+      "NITI": 1.5
+      e-governance: 2
+      digital india: 2
+      transparency: 1.5
+      accountability: 1.5
+      civil services: 2
+      "IAS": 1
+      lateral entry: 3
+      "DoPT": 2
+      citizen charter: 2
+      good governance: 2
+      aspirational district: 3
+      aspirational block: 3
+      direct benefit transfer: 3
+      "DBT": 2
+      public distribution system: 3
+      "PDS": 2
+      ration card: 1.5
+      e-office: 1.5
+      regulatory: 1
+      regulator: 1
+      statutory body: 2
+      commission: 1
+      committee report: 2
+      finance commission: 2.5
+      cooperative federalism: 3
+      cooperative: 1
+      self-help group: 2
+      "SHG": 1.5
+      public private partnership: 2
+      "PPP": 1
+      grievance: 1
+      "CPGRAMS": 3
+      mission karmayogi: 3
+      pm gati shakti: 3
+      smart cities: 2
+      urban: 1
+      urban development: 2
+      viksit bharat: 1.5
+      census: 2.5
+  ir:
+    label: International Relations
+    gs: GS2
+    kw:
+      bilateral: 2
+      multilateral: 2
+      diplomatic: 1.5
+      diplomacy: 1.5
+      foreign minister: 1.5
+      external affairs minister: 2
+      jaishankar: 1.5
+      "MEA": 2
+      summit: 1.5
+      joint statement: 2.5
+      "MoU": 0.75
+      treaty: 2
+      "CBAM": 2
+      carbon border: 2.5
+      "UN": 1
+      united nations: 2
+      "UNGA": 2
+      security council: 2
+      "UNSC": 2
+      "G20": 2
+      "G7": 1.5
+      "BRICS": 2.5
+      "SCO": 2
+      "QUAD": 2.5
+      Quad: 2
+      "ASEAN": 2.5
+      "BIMSTEC": 3
+      "SAARC": 2.5
+      "IORA": 3
+      "IPEF": 3
+      "WTO": 2
+      "IMF": 1.5
+      world bank: 1.5
+      "NATO": 1.5
+      "OPEC": 1.5
+      indo-pacific: 2
+      free trade agreement: 2.5
+      "FTA": 2
+      "CEPA": 2.5
+      tariff: 1
+      sanctions: 1.5
+      ceasefire: 1
+      "LAC": 1.5
+      china: 1
+      pakistan: 1
+      bangladesh: 1.5
+      nepal: 1.5
+      sri lanka: 1.5
+      maldives: 1.5
+      bhutan: 1.5
+      myanmar: 1.5
+      afghanistan: 1.5
+      taliban: 1
+      russia: 1
+      ukraine: 1
+      united states: 0.5
+      "US": 0.5
+      gaza: 1
+      israel: 1
+      iran: 1
+      middle east: 1
+      gulf: 0.5
+      african union: 2
+      european union: 1.5
+      "EU": 1
+      embassy: 1
+      ambassador: 1
+      high commissioner: 1.5
+      diaspora: 1.5
+      visa: 0.5
+      extradition: 2
+      chabahar: 3
+      "IMEC": 3
+      "INSTC": 3
+      belt and road: 2
+      "BRI": 1
+      "CPEC": 2.5
+      neighbourhood first: 3
+      act east: 3
+      global south: 2.5
+      netherlands: 1
+      france: 1
+      germany: 1
+      japan: 1
+      australia: 1
+      united kingdom: 1
+      britain: 1
+      canada: 1
+      brazil: 1
+      south africa: 1
+      egypt: 1
+      saudi arabia: 1
+      uae: 1
+      united arab emirates: 1
+      qatar: 1
+      oman: 1
+      indonesia: 1
+      vietnam: 1
+      singapore: 1
+      philippines: 1
+      malaysia: 1
+      thailand: 1
+      south korea: 1
+      mongolia: 1
+      kazakhstan: 1
+      uzbekistan: 1
+      tajikistan: 1
+      kyrgyzstan: 1
+      turkmenistan: 1
+      armenia: 1
+      greece: 1
+      italy: 1
+      spain: 1
+      poland: 1
+      argentina: 1
+      chile: 1
+      mexico: 1
+      nigeria: 1
+      kenya: 1
+      ethiopia: 1
+      new zealand: 1
+      fiji: 1
+      mauritius: 1
+      seychelles: 1
+      madagascar: 1
+      mozambique: 1
+      tanzania: 1
+      cyprus: 1
+      turkey: 1
+      syria: 1
+      yemen: 1
+      iraq: 1
+      denmark: 1
+      norway: 1
+      sweden: 1
+      finland: 1
+      voice of global south: 3
+  social_justice:
+    label: Social Justice & Welfare
+    gs: GS2
+    kw:
+      scheduled caste: 2.5
+      scheduled tribe: 2.5
+      "SC/ST": 2.5
+      "OBC": 2
+      dalit: 2
+      tribal: 2
+      adivasi: 2
+      particularly vulnerable tribal: 3
+      "PVTG": 3
+      forest rights act: 3
+      minority: 1.5
+      minorities: 1.5
+      disability: 2
+      divyang: 2
+      transgender: 2
+      women: 1
+      gender: 1.5
+      women empowerment: 2
+      child marriage: 2.5
+      child labour: 2.5
+      "POCSO": 2
+      anganwadi: 2.5
+      malnutrition: 2
+      stunting: 2
+      poverty: 2
+      multidimensional poverty: 3
+      inequality: 1.5
+      welfare: 1.5
+      social security: 2
+      pension: 1
+      elderly: 1.5
+      senior citizens: 1.5
+      manual scavenging: 3
+      bonded labour: 3
+      "MGNREGA": 2.5
+      "MGNREGS": 2.5
+      labour code: 2.5
+      gig workers: 2.5
+      migrant workers: 2
+      "NCW": 2
+      "NCSC": 2.5
+      "NCST": 2.5
+      "NHRC": 2
+      human rights: 1.5
+      beti bachao: 3
+      "ICDS": 3
+      poshan: 3
+      ujjwala: 2.5
+      housing for all: 2
+      "PMAY": 2.5
+      food security: 2
+      children: 1
+      sanitation: 1
+      swachh bharat: 2.5
+      "NFSA": 2.5
+  health:
+    label: Health
+    gs: GS2
+    kw:
+      health: 1
+      public health: 2
+      "WHO": 1.5
+      "ICMR": 2
+      disease: 1
+      outbreak: 1.5
+      epidemic: 1.5
+      pandemic: 1.5
+      vaccine: 1.5
+      vaccination: 1.5
+      immunisation: 2
+      tuberculosis: 2
+      "TB": 1
+      malaria: 2
+      dengue: 1.5
+      nipah: 2
+      mpox: 2
+      antimicrobial resistance: 3
+      "AMR": 2
+      ayushman bharat: 3
+      "PM-JAY": 3
+      "ABDM": 3
+      "NFHS": 3
+      maternal mortality: 3
+      infant mortality: 3
+      "IMR": 2
+      "MMR": 1.5
+      anaemia: 2
+      mental health: 2
+      non-communicable: 2.5
+      obesity: 1.5
+      drug regulator: 2
+      "CDSCO": 3
+      generic medicines: 2
+      jan aushadhi: 3
+      ayush: 2
+      hospital: 0.5
+      "NMC": 2
+      medical education: 1.5
+      organ donation: 2
+      zoonotic: 2.5
+      one health: 3
+      medicine: 1
+      medicines: 1
+      pharmaceutical: 1.5
+      counterfeit drugs: 2
+      sanitation: 1.5
+      drinking water: 1.5
+  education:
+    label: Education
+    gs: GS2
+    kw:
+      education: 1
+      national education policy: 3
+      "NEP": 2
+      "UGC": 2
+      "NCERT": 2
+      "NTA": 1.5
+      "NEET": 1.5
+      "CUET": 1.5
+      "AICTE": 2
+      higher education: 1.5
+      school education: 2
+      literacy: 2
+      "ASER": 3
+      "UDISE": 3
+      "PARAKH": 3
+      "NIRF": 3
+      university: 0.5
+      "IIT": 0.5
+      mother tongue: 2
+      three-language: 3
+      samagra shiksha: 3
+      pm shri: 3
+      mid-day meal: 2.5
+      pm poshan: 3
+  economy:
+    label: Economy
+    gs: GS3
+    kw:
+      economy: 1.5
+      economic: 1
+      "GDP": 2
+      "GVA": 2
+      growth rate: 1.5
+      inflation: 2
+      "CPI": 2
+      "WPI": 2
+      "IIP": 2
+      repo rate: 3
+      monetary policy: 3
+      "MPC": 2
+      "RBI": 2
+      "SEBI": 2
+      "IRDAI": 2
+      "PFRDA": 2
+      fiscal deficit: 3
+      current account: 2.5
+      balance of payments: 3
+      forex reserves: 2.5
+      rupee: 1
+      exchange rate: 1.5
+      budget: 1.5
+      "GST": 2
+      "GST Council": 3
+      tax: 1
+      income tax: 1.5
+      direct tax: 2
+      disinvestment: 2.5
+      privatisation: 2
+      public sector: 1
+      "PSU": 1.5
+      bank: 0.5
+      banking: 1.5
+      "NPA": 2
+      bad loans: 2
+      "NBFC": 2
+      credit: 0.5
+      "UPI": 1.5
+      digital payments: 2
+      "CBDC": 2.5
+      "FDI": 2
+      "FPI": 2
+      investment: 0.5
+      exports: 1.5
+      imports: 1
+      trade deficit: 2.5
+      "MSME": 2
+      startup: 1
+      "PLI": 2.5
+      production linked incentive: 3
+      make in india: 2
+      manufacturing: 1
+      "PMI": 1.5
+      unemployment: 2
+      employment: 1.5
+      "PLFS": 3
+      labour force: 2
+      "EPFO": 2
+      bond: 0.5
+      government securities: 2
+      borrowing: 1
+      insolvency: 2
+      "IBC": 2
+      bankruptcy: 1.5
+      "NCLT": 2
+      competition commission: 2.5
+      "CCI": 2
+      capital expenditure: 2
+      capex: 1.5
+      "SEZ": 2
+      logistics: 1
+      economic survey: 3
+      statistics: 1
+      "MoSPI": 3
+      "NSO": 2
+      financial inclusion: 2.5
+      "IFSC": 2
+      "GIFT City": 2
+      cryptocurrency: 1.5
+      stock market: 0.5
+  agriculture:
+    label: Agriculture & Allied
+    gs: GS3
+    kw:
+      agriculture: 2
+      agricultural: 2
+      farmer: 1.5
+      farm: 1
+      crop: 1.5
+      kharif: 3
+      rabi: 3
+      "MSP": 2.5
+      minimum support price: 3
+      procurement: 1.5
+      food grain: 2
+      foodgrain: 2
+      wheat: 1.5
+      rice: 1
+      paddy: 1.5
+      pulses: 2
+      oilseeds: 2
+      millets: 2
+      horticulture: 2
+      fertiliser: 2
+      fertilizer: 2
+      urea: 2
+      "DAP": 1.5
+      irrigation: 2
+      micro irrigation: 3
+      soil health: 3
+      organic farming: 2.5
+      natural farming: 3
+      "FPO": 2.5
+      "PM-KISAN": 3
+      crop insurance: 3
+      "PMFBY": 3
+      "e-NAM": 3
+      "ICAR": 2
+      seeds: 1.5
+      "GM crop": 3
+      genetically modified: 2.5
+      fisheries: 2
+      aquaculture: 2
+      dairy: 1.5
+      animal husbandry: 2.5
+      livestock: 2
+      poultry: 1
+      food processing: 2
+      cold storage: 1.5
+      agmarknet: 2
+      stubble burning: 2.5
+      monsoon: 1
+  infrastructure:
+    label: Infrastructure & Energy
+    gs: GS3
+    kw:
+      infrastructure: 1.5
+      railway: 1.5
+      vande bharat: 1.5
+      high-speed rail: 2
+      highway: 1.5
+      expressway: 1
+      "NHAI": 2
+      port: 1
+      sagarmala: 3
+      airport: 1
+      "UDAN": 2.5
+      metro: 0.5
+      power: 0.5
+      electricity: 1.5
+      power grid: 2
+      renewable energy: 2.5
+      solar: 2
+      wind energy: 2
+      green hydrogen: 3
+      nuclear power: 2.5
+      nuclear energy: 2.5
+      small modular reactor: 3
+      coal: 1.5
+      crude oil: 1.5
+      natural gas: 1.5
+      petroleum: 1
+      ethanol: 2
+      biofuel: 2
+      energy security: 2.5
+      energy transition: 2.5
+      battery storage: 2
+      electric vehicle: 1.5
+      "EV": 1
+      critical minerals: 3
+      rare earth: 2.5
+      lithium: 2
+      mining: 1
+      "PM Gati Shakti": 3
+      logistics policy: 2.5
+      telecom: 1.5
+      "5G": 1
+      "BharatNet": 3
+      inland waterways: 3
+      water resources: 2
+      jal jeevan mission: 3
+      jal shakti: 2.5
+      dam: 1
+      river linking: 3
+  environment:
+    label: Environment & Ecology
+    gs: GS3
+    kw:
+      environment: 1.5
+      environmental: 1.5
+      climate change: 2.5
+      climate: 1.5
+      global warming: 2.5
+      emission: 2
+      carbon: 1.5
+      net zero: 2.5
+      net-zero: 2.5
+      "NDC": 2.5
+      "UNFCCC": 3
+      "COP30": 3
+      "COP31": 3
+      "COP": 1.5
+      paris agreement: 3
+      biodiversity: 2.5
+      wildlife: 2
+      tiger reserve: 3
+      tiger: 1.5
+      leopard: 1.5
+      elephant: 1.5
+      national park: 2.5
+      wildlife sanctuary: 3
+      sanctuary: 1.5
+      biosphere reserve: 3
+      ramsar: 3
+      wetland: 2.5
+      mangrove: 2.5
+      coral: 2
+      forest: 1.5
+      forest cover: 2.5
+      afforestation: 2
+      deforestation: 2
+      "IUCN": 3
+      red list: 3
+      endangered: 2
+      critically endangered: 3
+      species: 1.5
+      invasive species: 3
+      pollution: 2
+      air quality: 2
+      "AQI": 2
+      "PM2.5": 2
+      "CPCB": 2.5
+      "NGT": 2.5
+      green tribunal: 3
+      plastic: 1.5
+      waste management: 2
+      e-waste: 2
+      ozone: 2.5
+      heatwave: 1.5
+      glacier: 1.5
+      sea level: 2
+      ocean: 1
+      desertification: 3
+      land degradation: 3
+      environment impact assessment: 3
+      "EIA": 2
+      eco-sensitive zone: 3
+      compensatory afforestation: 3
+      carbon credit: 3
+      carbon market: 3
+      "CBAM": 2
+      green credit: 3
+      mission life: 3
+      "LiFE": 2
+      cheetah: 2
+      project tiger: 3
+      great indian bustard: 3
+      vulture: 2
+      bird: 1
+      migratory: 2
+      "CITES": 3
+      "CBD": 1.5
+      pollinators: 2
+  science_tech:
+    label: Science & Technology
+    gs: GS3
+    kw:
+      "ISRO": 2.5
+      space: 1
+      satellite: 2
+      launch vehicle: 2.5
+      "PSLV": 3
+      "GSLV": 3
+      "LVM3": 3
+      gaganyaan: 3
+      chandrayaan: 3
+      aditya-l1: 3
+      "NISAR": 3
+      "NASA": 1.5
+      orbit: 1.5
+      moon: 1
+      mars: 1
+      asteroid: 1.5
+      telescope: 1.5
+      artificial intelligence: 2
+      "AI": 1
+      machine learning: 1.5
+      quantum: 2
+      semiconductor: 2.5
+      chip: 1
+      supercomputer: 2.5
+      biotechnology: 2
+      gene: 1.5
+      genome: 2
+      "CRISPR": 2.5
+      stem cell: 2
+      nanotechnology: 2
+      "DRDO": 1.5
+      "CSIR": 2
+      "DST": 1.5
+      research: 0.5
+      scientists: 1
+      discovery: 1
+      physics: 1.5
+      chemistry: 1.5
+      nobel prize: 2
+      nuclear fusion: 2.5
+      particle: 1
+      cybersecurity: 2
+      cyber security: 2
+      data centre: 1.5
+      "IndiaAI": 3
+      large language model: 2
+      robotics: 1.5
+      "6G": 2
+      patent: 1.5
+      intellectual property: 2
+      deep tech: 2
+      "ANRF": 3
+      national quantum mission: 3
+  internal_security:
+    label: Internal Security
+    gs: GS3
+    kw:
+      internal security: 3
+      terror: 2
+      terrorism: 2.5
+      terrorist: 2
+      militant: 1.5
+      insurgency: 2.5
+      maoist: 2
+      naxal: 2
+      left wing extremism: 3
+      "LWE": 2.5
+      "NIA": 2
+      "UAPA": 2
+      "AFSPA": 3
+      border security: 2
+      "BSF": 1.5
+      "CRPF": 1.5
+      "ITBP": 1.5
+      "Assam Rifles": 2
+      infiltration: 2
+      cross-border: 1.5
+      drone: 1
+      narcotics: 2
+      drug trafficking: 2
+      money laundering: 1.5
+      "PMLA": 2
+      "ED": 0.5
+      cyber attack: 2
+      cyber fraud: 1.5
+      "CERT-In": 3
+      radicalisation: 2
+      suicide bombing: 2
+      "IED": 2
+      manipur: 1
+      jammu and kashmir: 1
+      ladakh: 1
+      north east: 1
+      coastal security: 3
+      "NATGRID": 3
+      "NCB": 1.5
+  defence:
+    label: Defence
+    gs: GS3
+    kw:
+      defence: 1.5
+      defense: 1
+      army: 1
+      navy: 1
+      indian navy: 1.5
+      air force: 1
+      "IAF": 1.5
+      military exercise: 3
+      joint exercise: 3
+      exercise: 0.5
+      "Exercise": 1.5
+      troops: 1
+      drills: 1
+      military: 1
+      missile: 2
+      "BrahMos": 2.5
+      "Agni": 2
+      "DRDO": 2
+      warship: 2
+      submarine: 2
+      aircraft carrier: 2
+      fighter jet: 2
+      "Tejas": 2
+      "HAL": 1.5
+      defence acquisition: 3
+      "DAC": 2
+      defence exports: 3
+      indigenisation: 2.5
+      atmanirbhar: 1.5
+      "iDEX": 3
+      chief of defence staff: 3
+      "CDS": 1.5
+      theatre command: 3
+      agnipath: 3
+      agniveer: 2.5
+      nuclear triad: 3
+      hypersonic: 2.5
+      "S-400": 2.5
+      "Rafale": 2
+  disaster:
+    label: Disaster Management
+    gs: GS3
+    kw:
+      disaster: 2
+      disaster management: 3
+      "NDMA": 3
+      "NDRF": 2.5
+      "SDRF": 2
+      cyclone: 2.5
+      earthquake: 2
+      flood: 1.5
+      flash flood: 2
+      landslide: 2
+      cloudburst: 2.5
+      drought: 2
+      tsunami: 2.5
+      heatwave: 2
+      heat action plan: 3
+      lightning: 1.5
+      avalanche: 2
+      glacial lake: 2.5
+      "GLOF": 3
+      early warning: 2
+      "IMD": 1.5
+      red alert: 1
+      relief: 0.5
+      rehabilitation: 1
+      sendai framework: 3
+      "CDRI": 3
+  history_culture:
+    label: History, Art & Culture
+    gs: GS1
+    kw:
+      heritage: 2
+      "UNESCO": 2.5
+      world heritage: 3
+      intangible cultural heritage: 3
+      archaeological: 2.5
+      "ASI": 2
+      excavation: 2.5
+      inscription: 2.5
+      temple: 1
+      monument: 2
+      manuscript: 2.5
+      ancient: 1.5
+      medieval: 2
+      dynasty: 2
+      harappan: 3
+      indus valley: 3
+      buddhist: 1.5
+      jain: 1.5
+      sufi: 2
+      bhakti: 2.5
+      classical dance: 3
+      folk dance: 2.5
+      folk art: 2.5
+      painting: 1
+      handloom: 2
+      handicraft: 2
+      "GI tag": 3
+      geographical indication: 3
+      festival: 1
+      freedom fighter: 2.5
+      freedom struggle: 2.5
+      national movement: 2.5
+      jayanti: 1.5
+      birth anniversary: 1
+      tribal art: 2.5
+      language: 1
+      classical language: 3
+      sangam: 2
+      museum: 1.5
+      culture: 1
+      cultural: 1
+      martial art: 2
+      puppetry: 3
+      rock art: 3
+  geography:
+    label: Geography
+    gs: GS1
+    kw:
+      geography: 2
+      monsoon: 2
+      southwest monsoon: 3
+      northeast monsoon: 3
+      el nino: 3
+      la nina: 3
+      "IOD": 2.5
+      indian ocean dipole: 3
+      rainfall: 1.5
+      river: 1
+      tributary: 2
+      glacier: 1.5
+      himalaya: 1.5
+      himalayan: 1.5
+      western ghats: 2.5
+      eastern ghats: 2.5
+      plateau: 2
+      volcano: 2
+      volcanic: 2
+      tectonic: 2.5
+      strait: 2
+      island: 1
+      archipelago: 2
+      "EEZ": 2.5
+      mineral: 1
+      groundwater: 2
+      aquifer: 2.5
+      urbanisation: 2
+      urban heat island: 3
+      cyclone: 1
+      ocean current: 3
+      jet stream: 3
+      solstice: 2
+      equinox: 2
+      lake: 1
+  society:
+    label: Society
+    gs: GS1
+    kw:
+      society: 1
+      social: 0.5
+      population: 1.5
+      demographic: 2
+      fertility rate: 3
+      "TFR": 2.5
+      sex ratio: 3
+      ageing: 2
+      urbanisation: 1.5
+      migration: 1.5
+      caste census: 3
+      caste: 1.5
+      communalism: 2.5
+      regionalism: 2.5
+      secularism: 2.5
+      family: 0.5
+      women's safety: 2
+      domestic violence: 2
+      dowry: 2
+      honour killing: 2
+      youth: 1
+      digital divide: 2.5
+      social media: 1
+      globalisation: 2
+      diversity: 1
+  ethics:
+    label: Ethics & Integrity
+    gs: GS4
+    kw:
+      ethics: 2.5
+      ethical: 2
+      integrity: 2
+      probity: 3
+      corruption: 1.5
+      conflict of interest: 2.5
+      whistleblower: 2.5
+      code of conduct: 1.5
+      accountability: 1
+      compassion: 1.5
+      civil servant: 2
+      moral: 1.5
+      values: 0.5
+      empathy: 1.5
+      emotional intelligence: 3
+
+# High-yield words: an item is more examinable when it carries a structure,
+# not just an event.
+signals:
+  notified: 1.5
+  notification: 1.5
+  gazette: 1.5
+  launches: 1
+  launched: 1
+  approves: 1.5
+  approved: 1
+  cabinet approves: 2
+  "Bill": 1.5
+  "Act": 1.5
+  ordinance: 1.5
+  amendment: 1
+  judgment: 1.5
+  verdict: 1.5
+  constitution bench: 2
+  scheme: 1.5
+  yojana: 1.5
+  mission: 1
+  policy: 1
+  framework: 1
+  guidelines: 1
+  index: 1.5
+  report: 1
+  survey: 1.2
+  ranking: 1.2
+  "MoU": 1.5
+  agreement: 1.2
+  treaty: 1.5
+  pact: 1
+  appointed: 1.5
+  appoints: 1.5
+  "GI tag": 2
+  ramsar: 2
+  "UNESCO": 1.5
+  "IUCN": 1.5
+  first-ever: 1
+  for the first time: 1
+  census: 1.5
+  committee: 0.8
+  commission: 0.8
+  summit: 1
+  declaration: 1
+  resolution: 0.8
+  regulations: 1
+  rules: 0.6
+  tribunal: 1
+  data: 0.5
+  new species: 2
+  discovered: 1
+  explained: 1
+  upsc: 1
+
+# Not examinable: pushed down (not deleted).
+noise:
+  murder: 3
+  murdered: 3
+  rape: 2.5
+  raped: 2.5
+  stabbed: 3
+  robbery: 3
+  dacoity: 3
+  molested: 2.5
+  body found: 3
+  suicide: 1
+  killed in accident: 3
+  road accident: 3
+  arrested: 1.5
+  held for: 1.5
+  booked for: 2
+  "IPL": 3
+  cricket: 2.5
+  "T20": 2.5
+  "ODI": 2.5
+  test match: 2.5
+  wicket: 3
+  football: 2
+  box office: 3
+  bollywood: 3
+  actor: 2
+  actress: 2.5
+  celebrity: 2.5
+  trailer: 2.5
+  web series: 3
+  "OTT": 1.5
+  bigg boss: 3
+  horoscope: 4
+  zodiac: 4
+  "Sensex": 2
+  "Nifty": 2
+  stocks to buy: 4
+  share price: 2.5
+  stock market today: 3
+  gold rate: 3
+  gold price: 2
+  petrol price: 1.5
+  weather today: 3
+  viral video: 3
+  recipe: 3
+  fashion: 2.5
+  wedding: 2
+  lottery: 3
+  slams: 2
+  hits out: 2
+  jibe: 2.5
+  takes a dig: 2.5
+  war of words: 2
+  "BJP": 0.5
+  "Congress": 0.5
+  pays tributes: 2.5
+  pays tribute: 2.5
+  pays homage: 2.5
+  greets: 2.5
+  greetings: 2
+  condoles: 3
+  condolence: 3
+  to visit: 1.5
+  calls on: 1.5
+  graces: 2
+  swachhata: 1
+  live updates: 1.5
+  "LIVE": 1.5
+  quiz: 1
+  "VRRR": 2.5
+  "VRR": 2
+  variable rate repo: 2.5
+  variable rate reverse repo: 2.5
+  money market operations: 3
+  auction result: 2
+  result of: 1
+  treasury bills: 1.5
+  state government securities: 1.5
+  auction of: 1
+
+# Prelims-style tags (regex, case-insensitive unless (?-i) used).
+tags:
+  Scheme: '\b(yojanas?|abhiyan|schemes?|missions?|pradhan mantri|pm-[a-z]+)\b'
+  Report/Index: '\b(index|indices|reports?|rankings?|surveys?|atlas|outlook|census|NFHS|PLFS|ASER|NIRF)\b'
+  Judgment: '\b(verdict|judgment|judgement|constitution bench|quash(es|ed)?|upholds?|strikes? down|high court|supreme court)\b'
+  Act/Bill/Rules: '(?-i:\b(Act|Bill|Rules|Ordinance|Code|Regulations)\b)|\b(notified|notification|amendment|gazette)\b'
+  Appointment: '\b(appointed|appoints|appointment|takes charge|sworn in|assumes (office|charge)|elected (as|president)|new chief|named (as )?(chief|head|chair))\b'
+  Agreement/MoU: '\b(mous?|memorand(um|a)|agreements?|treaty|treaties|pacts?|accords?|joint statement|signed)\b'
+  Species: '\b(species|iucn|endangered|tiger|leopard|elephant|cheetah|vulture|bustard|frog|orchid|dolphin|turtle|whale|butterfly|spider|snake|lizard)\b'
+  Place in news: '\b(national park|wildlife sanctuary|tiger reserve|ramsar|wetland|biosphere|strait|island|lake|glacier|volcano|pass|plateau|gulf of|sea of)\b'
+  Award: '\b(awards?|prizes?|honoured|honored|padma|nobel|booker|bharat ratna|laureates?|medals?)\b'
+  Day/Observance: '\b((world|international|national) [a-z ]{2,30} day|diwas|jayanti|anniversary)\b'
+  Exercise: '\b((joint|military|naval|air|bilateral|trilateral) exercise)\b|(?-i:\b(Exercise|Ex) [A-Z][A-Za-z]+)'
+  Data/Stats: '\b(gdp|inflation|cpi|wpi|iip|forex reserves?|per cent|percent|crore|lakh tonnes)\b'
+
+# Five areas that are easy to miss. Each is `all:` (every group must hit) or `any:`.
+watch_areas:
+  marine:
+    label: Marine & coastal (EEZ, UNCLOS, Blue Economy, deep sea)
+    any: [EEZ, UNCLOS, blue economy, deep sea, deep-sea, deep ocean mission, maritime, coastal, fisheries, fishermen, marine, coral, seabed, high seas, BBNJ, Indian Ocean, sea level, ocean]
+  dpi:
+    label: Digital Public Infrastructure & data governance
+    any: [digital public infrastructure, DPI, UPI, Aadhaar, DigiLocker, ONDC, DPDP, data protection, data governance, account aggregator, India Stack, digital rupee, e-RUPI, CoWIN, ABDM, UIDAI, NPCI]
+  neighbourhood:
+    label: Political change in the neighbourhood
+    all:
+      - [Bangladesh, Nepal, Sri Lanka, Myanmar, Maldives, Pakistan, Afghanistan, Bhutan]
+      - [president, prime minister, election, elections, government, coup, parliament, sworn, protest, junta, taliban, cabinet, resigns, interim, poll]
+  appointments:
+    label: Appointments to constitutional / statutory / regulatory bodies
+    all:
+      - [appointed, appoints, appointment, takes charge, sworn in, assumes office, named, elevated, reappointed, extension]
+      - [RBI, Election Commission, CAG, UPSC, NHRC, SEBI, TRAI, Finance Commission, Chief Justice, judge, judges, Governor, Lokpal, CVC, CIC, NITI, chairman, chairperson, Chief Election Commissioner, Attorney General, Solicitor General, commission, authority, board, secretary]
+  defence_tech:
+    label: Defence-technology cooperation agreements
+    all:
+      - [defence, defense, military, DRDO, armed forces, navy, army, air force, jet engine, submarine]
+      - [agreement, MoU, co-development, co-production, technology transfer, iCET, TRUST, INDUS-X, joint development, deal, partnership, pact, roadmap]
+
+# Google News watchlist: each query becomes its own source (tier "watch").
+# `when:1d` keeps it to the last day. Keep it UPSC-shaped: structures, not events.
+watchlist:
+  interval: 60   # minutes
+  limit: 30
+  queries:
+    - '"cabinet approves" India when:1d'
+    - '"Supreme Court" judgment India when:1d'
+    - '"constitution bench" when:2d'
+    - 'Bill passed Parliament India when:1d'
+    - 'ordinance promulgated India when:3d'
+    - 'rules notified ministry India when:1d'
+    - 'scheme launched ministry India when:1d'
+    - 'report released India index rank when:1d'
+    - '"India ranks" index when:2d'
+    - 'MoU signed India when:1d'
+    - 'India joint statement bilateral when:1d'
+    - 'appointed chairman commission India when:1d'
+    - 'Ramsar site India when:7d'
+    - 'tiger reserve India when:2d'
+    - '"GI tag" when:3d'
+    - 'IUCN red list when:3d'
+    - 'new species discovered India when:3d'
+    - 'UNESCO heritage India when:3d'
+    - 'ISRO launch satellite when:2d'
+    - 'DRDO test missile when:2d'
+    - 'India military exercise joint when:2d'
+    - 'RBI monetary policy repo rate when:2d'
+    - 'GDP inflation data India MoSPI when:2d'
+    - 'NITI Aayog report when:3d'
+    - 'CAG report when:3d'
+    - 'Election Commission of India when:1d'
+    - 'Finance Commission when:3d'
+    - 'NHRC notice when:2d'
+    - 'NGT order when:2d'
+    - 'cyclone IMD warning when:1d'
+    - 'BRICS OR QUAD OR SCO OR BIMSTEC India when:1d'
+    - 'G20 OR UNGA OR "UN Security Council" India when:1d'
+    - 'WTO OR IMF OR "World Bank" India when:2d'
+    - 'climate COP UNFCCC India when:2d'
+    - 'Bangladesh OR Nepal OR "Sri Lanka" OR Maldives government election when:1d'
+    - 'Myanmar OR Afghanistan OR Bhutan OR Pakistan government when:1d'
+    - 'EEZ OR UNCLOS OR "blue economy" OR "deep sea mission" when:3d'
+    - '"digital public infrastructure" OR DPDP OR "data protection" India when:3d'
+    - 'defence technology agreement India co-production when:3d'
+    - 'tribal affairs ministry scheme when:3d'
+    - 'agriculture ministry MSP kharif rabi when:3d'
+    - 'Sansad TV OR "PIB explainer" OR "PIB backgrounder" when:3d'
