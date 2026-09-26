@@ -137,11 +137,10 @@ The site will be at `https://<user>.github.io/<repo>/` (the path is case-sensiti
 - **What each run fetches:** only the sources that are due. Most are every 15 minutes; Google News queries are hourly. The database, with each source's last-fetch time, is carried between runs in the Actions cache, and older caches are deleted.
 - **Minutes:** each run takes about 2–4 Actions minutes. That's free for public repos. On a private repo on the free plan (2,000 min/month), change the cron to every 2–3 hours and set `UPSC_SITE_REFRESH_MIN` to match.
 - **Inactivity:** GitHub pauses scheduled workflows in a public repo after 60 days without a commit. If that happens, re-enable the workflow in the **Actions** tab.
-- **The update timer (`keepalive.yml`):** GitHub's cron is best-effort. On a new repository it can take hours to start, and later it can skip runs. So a second workflow, **Update timer**, keeps the 20-minute rhythm:
-  1. It starts a site update.
-  2. It waits about 18 minutes on a free runner.
-  3. It starts its next run. Only one timer runs at a time.
-  - It switches itself off once GitHub's own schedule is seen running, and every build restarts it if the schedule stops again.
+- **The update timer (`keepalive.yml`):** GitHub's cron is best-effort. On this repository it took hours to start, it can skip or delay runs, and GitHub switches it off after 60 days without a commit. So a watchdog workflow, **Update timer**, makes sure updates keep coming:
+  - Every 5 minutes it looks at the latest site build. If none started in the last ~21 minutes and none is running, it starts one.
+  - While GitHub's schedule works, it starts nothing.
+  - One watchdog run lasts about 5 hours, then hands over to the next. Every build restarts it if it isn't running.
   - To stop it: **Actions → Update timer → ⋯ → Disable workflow**.
 
 ## Plugging in your premium accounts
