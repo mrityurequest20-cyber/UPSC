@@ -77,11 +77,11 @@ def story_out(s: dict, labels: dict | None = None, explain: bool = False, text: 
     return out
 
 
-def cluster_texts(db: DB, story_ids: list[str], include_private: bool, per_story: int = 4,
-                  max_chars: int = 2400) -> dict[str, str]:
-    """{story_id: the story's summary followed by other outlets' different summaries}. A headline-only
-    item (Google News, IE on the Pages build) then borrows what the other outlets wrote."""
-    out: dict[str, list[str]] = {}
+def outlet_texts(db: DB, story_ids: list[str], include_private: bool, per_story: int = 4,
+                 max_chars: int = 2400) -> dict[str, list[dict]]:
+    """{story_id: [{"p": publisher, "x": summary}]}: the story's different summaries, one per outlet,
+    official sources and the longest first. A private item never reaches a public export."""
+    out: dict[str, list[dict]] = {}
     for i in range(0, len(story_ids), 500):
         chunk = story_ids[i:i + 500]
         where = "" if include_private else " AND is_private=0"
@@ -90,9 +90,9 @@ def cluster_texts(db: DB, story_ids: list[str], include_private: bool, per_story
         for r in rows:
             parts = out.setdefault(r["story_id"], [])
             text = clean_summary(r["summary"] or "")
-            if len(parts) < per_story and len(text) >= 60 and not any(text[:60].lower() == p[:60].lower() for p in parts):
-                parts.append(text)
-    return {sid: " ".join(parts)[:max_chars] for sid, parts in out.items()}
+            if len(parts) < per_story and len(text) >= 60 and not any(text[:60].lower() == p["x"][:60].lower() for p in parts):
+                parts.append({"p": r["publisher"] or "", "x": text[:max_chars]})
+    return out
 
 
 def annotate(outs: list[dict], db: DB, clf: Classifier) -> list[dict]:
@@ -159,6 +159,7 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
 
 
 LIGHT_SUMMARY = 320  # the "Also in the news" list and folded reports carry a short summary, no write-up
+OUTLET_TEXT = 700    # each outlet's text on a day's full cards, for the Ask bot
 
 
 def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, date_to: str,
@@ -188,13 +189,17 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
         else:
             day[BRIEF_KEYS.get(p["kind"], "news")].append(sid)
             heavy.add(sid)
-    texts = cluster_texts(db, [i for i in ids if i in heavy], include_private)
+    by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
     out_stories = []
     for i in ids:
         if i not in stories:
             continue
         if i in heavy:
-            out_stories.append(story_out(stories[i], labels, explain=True, text=texts.get(i), clf=clf))
+            parts = by_outlet.get(i) or []
+            o = story_out(stories[i], labels, explain=True, text=" ".join(p["x"] for p in parts)[:2400] or None, clf=clf)
+            if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
+                o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
+            out_stories.append(o)
         else:
             o = story_out(stories[i], labels)
             if len(o["summary"]) > LIGHT_SUMMARY:

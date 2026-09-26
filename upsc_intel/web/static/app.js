@@ -90,6 +90,7 @@
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
     ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
     chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>',
+    ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M9 10h6M9 14h4"/></svg>',
   };
 
   const TIER_GROUPS = [
@@ -388,6 +389,7 @@
       <div class="bactions">
         ${videoChip(s)}
         <a class="vchip ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${ICON.ext}<span>${esc(firstSrc)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></a>
+        <button class="vchip ask" data-act="ask" title="Ask for a summary, the 5 Ws, Prelims facts or background">${ICON.ask}<span>Ask</span></button>
         <span class="spacer"></span>
         <button class="icon" data-act="star" aria-pressed="${mk.starred}" title="Star for revision" aria-label="Star">${mk.starred ? ICON.starOn : ICON.star}</button>
         <button class="icon" data-act="note" aria-pressed="${!!mk.note}" title="Add a note" aria-label="Note">${ICON.note}</button>
@@ -404,7 +406,7 @@
       <button class="mhead" data-act="toggle" aria-expanded="${open}"><span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span><span class="mtitle">${esc(s.title)}</span><span class="msrc">${esc(pub)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></button>
       ${open ? `<div class="mbody">${s.summary ? `<p>${esc(s.summary)}</p>` : ""}
         <p class="srcs">${(s.sources || []).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}</a>`).join("")}</p>
-        <div class="bactions">${videoChip(s)}<span class="spacer"></span>
+        <div class="bactions">${videoChip(s)}<button class="vchip ask" data-act="ask" title="Ask for a summary, the 5 Ws or background">${ICON.ask}<span>Ask</span></button><span class="spacer"></span>
           <button class="icon" data-act="star" aria-pressed="${mk.starred}" title="Star for revision" aria-label="Star">${mk.starred ? ICON.starOn : ICON.star}</button>
           <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button></div></div>` : ""}
     </li>`;
@@ -1098,6 +1100,7 @@
       const c = $(`.bcard[data-id="${t.dataset.openCard}"]`); if (c) c.scrollIntoView({ block: "center" });
       return;
     }
+    if (t.dataset.bot) { onBotClick(t); return; }
     if (t.dataset.f) { onFilterClick(t); return; }
     if (t.dataset.expand) { S.expanded.add(t.dataset.expand); return renderAll(); }
     if (t.dataset.act === "clearsearch") { S.search = null; $("#q").value = ""; S.f.q = ""; return renderAll(); }
@@ -1111,6 +1114,7 @@
     if (t.dataset.act === "toggle" || t.dataset.act === "expand") { toggleSet(S.openCards, id); rerenderCard(cardEl); }
     else if (t.dataset.act === "star") { await api.setMark(id, { starred: !mark({ id }).starred }); renderTabs(); rerenderCard(cardEl); }
     else if (t.dataset.act === "read") { await api.setMark(id, { read: !mark({ id }).read }); rerenderCard(cardEl); }
+    else if (t.dataset.act === "ask") botOpen(id);
     else if (t.dataset.act === "note") {
       toggleSet(S.noteOpen, id); S.openCards.add(id); rerenderCard(cardEl);
       const ta = $(`[data-id="${id}"] textarea`); if (ta) ta.focus();
@@ -1140,6 +1144,7 @@
   });
   $("#scrim").addEventListener("click", closeDrawer);
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("#bot") && !$("#bot").hidden) { e.preventDefault(); botClose(); return; }
     if (!$("#calendar").hidden) {
       if (e.key === "Escape") { e.preventDefault(); closeCalendar(true); return; }
       const day = e.target.dataset && e.target.dataset.day;
@@ -1164,12 +1169,284 @@
   });
   window.addEventListener("hashchange", () => { readHash(); go(); });
 
+  // ─────────────────────────── Ask bot ───────────────────────────
+  // Answers questions about one story, or the whole day, from what the brief already holds: the write-up,
+  // every outlet's text, same-event reports and related stories, plus background from Wikipedia.
+  // It runs in the browser: no key and no server. Nothing leaves the page except the Wikipedia lookups.
+  const BOT = { id: null, log: [], busy: false };
+  const STOPW = new Set(("a an the of in on at to for and or is are was were be been by with from as that this it its into about what " +
+    "which who whom whose when where why how do does did can could should would will shall may might me my we our you your tell give " +
+    "show explain please more some any all story news article say says said there their them they he she his her has have had not").split(" "));
+  const stem = (w) => (w.length > 5 ? w.slice(0, 5) : w);
+  const words = (t) => [...new Set((String(t || "").toLowerCase().match(/[a-z0-9ऀ-ॿ]+/g) || [])
+    .filter((w) => w.length > 1 && !STOPW.has(w)).map(stem))];
+  const sentencesOf = (t) => (String(t || "").replace(/\s+/g, " ").match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [])
+    .map((x) => x.trim()).filter((x) => x.length > 30);
+  const MONTH_RX = /\b(jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(t|tember)?|oct(ober)?|nov(ember)?|dec(ember)?|monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|yesterday|tomorrow|20\d\d)\b/i;
+  const srcName = (s) => (s.sources && s.sources[0] && s.sources[0].p) || "the outlet";
+  const para = (t) => (t ? `<p>${esc(t)}</p>` : "");
+  const bullets = (arr) => (arr.length ? `<ul>${arr.map((x) => `<li>${x}</li>`).join("")}</ul>` : "");
+
+  // feed furniture that isn't reporting: "Source: The post … has been created based on …", "UPSC Syllabus: GS-3 …"
+  const FURNITURE = /^(source\s*:|upsc syllabus|syllabus\s*:|the post\b.*\b(appeared first|has been created)|read more|also read|click here|subscribe)|has been created based on|appeared first on/i;
+  function botCorpus(s) {  // every sentence we hold about the story, with where it came from
+    const e = s.explain || {}; const out = []; const seen = new Set();
+    const add = (text, src, head = false) => {
+      for (const x of head ? [String(text || "").trim()].filter(Boolean) : sentencesOf(text)) {
+        if (FURNITURE.test(x)) continue;
+        const k = x.slice(0, 70).toLowerCase(); if (seen.has(k)) continue; seen.add(k); out.push({ text: x, src, head });
+      }
+    };
+    add(e.why_in_news, "Why in news"); add(e.what, "What happened"); add(e.background, "Background");
+    for (const t of s.texts || []) add(t.x, t.p || "An outlet");
+    add(s.summary, srcName(s));
+    for (const f of foldedOf(s.id)) add(f.summary, srcName(f));
+    for (const x of s.sources || []) if (x.t) add(x.t, `${x.p || "An outlet"} (headline)`, true);
+    return out;
+  }
+  function botRank(corpus, q) {
+    const qw = words(q); if (!qw.length) return [];
+    const df = {}; for (const o of corpus) for (const w of words(o.text)) df[w] = (df[w] || 0) + 1;
+    const n = corpus.length || 1;
+    return corpus.map((o) => {
+      const ws = new Set(words(o.text)); let sc = 0; let hits = 0;
+      for (const w of qw) if (ws.has(w)) { sc += Math.log(1 + n / (df[w] || 1)); hits += 1; }
+      return { ...o, sc: sc * (o.head ? 0.7 : 1), hits };
+    }).filter((o) => o.hits > 0).sort((a, b) => b.sc - a.sc);
+  }
+  const cite = (o) => `<li>${esc(o.text)} <span class="bot-src">— ${esc(o.src)}</span></li>`;
+
+  // the story's key term, for background: an acronym or a named thing in the headline
+  function termOf(s) {
+    const e = s.explain || {};
+    if (e.keywords && e.keywords.length) return e.keywords[0];
+    const skip = new Set(["UPSC", "PM", "CM", "SC", "HC", "US", "UK", "EU", "UN", "LIVE", "IST", "GS", "NEW", "MP", "MLA", "CJI"]);
+    const acr = (s.title.match(/\b[A-Z][A-Z0-9&-]{2,}\b/g) || []).find((x) => !skip.has(x) && !/^\d/.test(x));
+    if (acr) return acr;
+    const quoted = s.title.match(/[‘'"“]([^’'"”]{4,60})[’'"”]/); if (quoted) return quoted[1];
+    const runs = s.title.replace(/^[^:|]{0,40}[:|]\s*/, "").match(/\b[A-Z][\w-]*(?:\s+(?:of|and|for|the|de|on)?\s*[A-Z][\w-]*){1,4}/g) || [];
+    if (runs.length) return runs.sort((a, b) => b.length - a.length)[0];
+    // no named thing: the headline's content words, which Wikipedia's search turns into the closest topic
+    return (s.title.match(/[\p{L}\d'-]+/gu) || []).filter((w) => !STOPW.has(w.toLowerCase()) && !/^(signs?|says?|launch\w*|to|new|over|amid|after)$/i.test(w)).slice(0, 6).join(" ");
+  }
+  function termFrom(q) {
+    const m = q.match(/(?:what(?:'s| is| are| was| were| does)|who(?:'s| is| was| are)|explain|meaning of|define|tell me about|background (?:of|on|to)|history of)\s+(?:the\s+|a\s+|an\s+)?(.+?)\s*(?:mean)?[?.!]*$/i);
+    return m ? m[1].replace(/\b(in|from) (this|the) (story|news|article)\b/i, "").trim() : "";
+  }
+
+  const wikiCache = new Map();
+  function wiki(term) {  // Wikipedia's REST API answers any page (CORS) with no key
+    const key = term.toLowerCase();
+    if (!wikiCache.has(key)) {
+      wikiCache.set(key, (async () => {
+        const r = await fetch(`https://en.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(term)}&limit=4`);
+        if (!r.ok) throw new Error(`Wikipedia search: ${r.status}`);
+        const hits = ((await r.json()).pages || []);
+        for (const hit of hits.slice(0, 2)) {
+          const r2 = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(hit.key)}`);
+          if (!r2.ok) continue;
+          const j = await r2.json();
+          if (j.type === "disambiguation" || !j.extract) continue;
+          return {
+            title: j.title, desc: j.description || "", extract: j.extract,
+            url: (j.content_urls && j.content_urls.desktop && j.content_urls.desktop.page) || `https://en.wikipedia.org/wiki/${hit.key}`,
+            others: hits.filter((h) => h.key !== hit.key).slice(0, 3).map((h) => h.title),
+          };
+        }
+        return null;
+      })().catch((e) => { wikiCache.delete(key); throw e; }));
+    }
+    return wikiCache.get(key);
+  }
+  async function botWiki(term) {
+    const search = `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(term)}`;
+    try {
+      const w = await wiki(term);
+      if (!w) return `<p>Wikipedia has no page that matches <b>${esc(term)}</b>. <a href="${esc(search)}" target="_blank" rel="noopener">Search Wikipedia yourself</a>.</p>`;
+      return `<p class="bot-lead">Background: <b>${esc(w.title)}</b>${w.desc ? ` <span class="bot-src">(${esc(w.desc)})</span>` : ""}</p>${para(w.extract)}
+        <p class="bot-src">From Wikipedia, which may not cover the latest development. <a href="${esc(w.url)}" target="_blank" rel="noopener">Read the full article</a>${w.others.length ? ` · also: ${w.others.map((o) => `<button class="linkbtn" data-bot="wiki" data-term="${esc(o)}">${esc(o)}</button>`).join(", ")}` : ""}</p>`;
+    } catch (e) {
+      return `<p>Couldn't reach Wikipedia just now. <a href="${esc(search)}" target="_blank" rel="noopener">Open the search on Wikipedia</a>.</p>`;
+    }
+  }
+
+  function related(s, n = 5) {
+    const pool = new Map();
+    for (const x of (S.brief ? S.brief.stories : []).concat(S.stories || [])) if (x.id !== s.id) pool.set(x.id, x);
+    const folded = new Set(foldedOf(s.id).map((x) => x.id));
+    const mine = new Set(words(s.title + " " + ((s.explain || {}).keywords || []).join(" ")));
+    const df = {}; for (const x of pool.values()) for (const w of words(x.title)) df[w] = (df[w] || 0) + 1;
+    const N = pool.size || 1; const rare = Math.max(3, N * 0.02);
+    return [...pool.values()].filter((x) => !folded.has(x.id)).map((x) => {  // share two words, one of them rare
+      let sc = 0; let shared = 0; let specific = false;
+      for (const w of words(x.title)) if (mine.has(w)) { sc += Math.log(1 + N / df[w]); shared += 1; specific = specific || df[w] <= rare; }
+      return { x, sc: shared >= 2 && specific ? sc : 0 };
+    }).filter((r) => r.sc > 5).sort((a, b) => b.sc - a.sc).slice(0, n).map((r) => r.x);
+  }
+  const storyLine = (x) => `<li><span class="pill g-${x.grade}">${x.grade}</span> ${esc(x.title)} <span class="bot-src">${esc(dayShort(x.date))} · ${esc(srcName(x))}</span>
+    <button class="linkbtn" data-bot="story" data-id="${x.id}">Ask about this</button></li>`;
+
+  async function botAnswer(q) {
+    const s = BOT.id ? findStory(BOT.id) : null;
+    return s ? storyAnswer(s, q) : dayAnswer(q);
+  }
+  async function storyAnswer(s, q) {
+    const e = s.explain || {}; const ql = q.toLowerCase().trim();
+    const labels = S.meta.labels.subjects; const corpus = botCorpus(s);
+    if (/summar|^(tl;?dr|in short|gist|overview|brief)\b/.test(ql)) {
+      const lead = [...new Set([e.why_in_news, e.what].filter(Boolean))];
+      const facts = [e.when && `<b>When:</b> ${esc(e.when)}`, e.where && `<b>Where:</b> ${esc(e.where)}`, e.who && `<b>Who:</b> ${esc(e.who)}`].filter(Boolean);
+      const extra = corpus.filter((o) => !o.head && !lead.some((l) => l.includes(o.text.slice(0, 40)))).slice(0, lead.length ? 2 : 4);
+      return `<p class="bot-lead">${esc(s.title)}</p>${lead.map(para).join("")}${bullets(facts)}${extra.length ? `<p class="bot-sub">What the reports add</p><ul>${extra.map(cite).join("")}</ul>` : ""}
+        ${!lead.length && !extra.length ? "<p>The outlets carried only the headline. Try <b>Background</b> for context, or open the original.</p>" : ""}`;
+    }
+    if (/^why (is it |is this )?in (the )?news/.test(ql)) return e.why_in_news ? para(e.why_in_news) : `<p>No “why in news” line; the reports say:</p><ul>${corpus.slice(0, 2).map(cite).join("")}</ul>`;
+    const five = /^5 ?w|five w/.test(ql);
+    const one = ql.match(/^(who|what|when|where|why)(?: (?:happened|is it|was it|did it|is involved|matters?|did this happen))?\s*\??$/);
+    if (five || one) {
+      const rows = [["What", e.what || e.why_in_news], ["Why in news", e.why_in_news !== e.what ? e.why_in_news : ""], ["When", e.when], ["Where", e.where], ["Who", e.who],
+        ["Why it matters", (e.significance || []).join("; ")]].filter(([, v]) => v);
+      const want = one ? one[1] : null;
+      const pick = want ? rows.filter(([k]) => k.toLowerCase().startsWith(want)) : rows;
+      if (pick.length) return `<dl class="bot-dl">${pick.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>`;
+      const cue = want === "when" ? corpus.filter((o) => MONTH_RX.test(o.text)) : botRank(corpus, s.title);
+      return cue.length ? `<p>The write-up has no “${esc(want || "5W")}” line, but the reports say:</p><ul>${cue.slice(0, 3).map(cite).join("")}</ul>`
+        : `<p>The reports on this story don't say. <button class="linkbtn" data-bot="wiki" data-term="${esc(termOf(s))}">Look up ${esc(termOf(s))} on Wikipedia</button></p>`;
+    }
+    if (/prelims|facts?\b|mcq|remember|key points/.test(ql)) {
+      const items = [...(e.prelims || []).map(esc), ...(e.keywords || []).map((k) => `Keyword: <b>${esc(k)}</b>`), ...s.tags.map((t) => `Tag: ${esc(t)}`)];
+      const nums = corpus.filter((o) => /\d/.test(o.text) && !o.head).slice(0, 3);
+      return `${items.length ? `<p class="bot-sub">Prelims pointers</p>${bullets(items)}` : ""}${nums.length ? `<p class="bot-sub">Facts and figures in the reports</p><ul>${nums.map(cite).join("")}</ul>` : ""}
+        <p>Look up on Wikipedia: <button class="linkbtn" data-bot="wiki" data-term="${esc(termOf(s))}">${esc(termOf(s))}</button></p>`;
+    }
+    if (/mains|answer writing|essay|question/.test(ql)) {
+      if (e.mains) return `<p class="bot-sub">Mains question</p><p class="mq">${esc(e.mains)}</p>`;
+      const subj = s.subjects.map((x) => labels[x] || x).join(" / ");
+      return `<p class="bot-sub">Practice question (auto, from the syllabus mapping)</p><p class="mq">${esc(`With reference to "${s.title}", discuss its significance for ${subj || "India"}${s.gs.length ? ` (${s.gs.join(", ")})` : ""}. (150 words)`)}</p>
+        <p class="bot-src">A full AI write-up has a sharper question. Add an AI key on your own server to get those.</p>`;
+    }
+    if (/\bgs\b|paper|syllabus|important|matters?\b|significan|relevan/.test(ql)) {
+      const sg = S.meta.labels.subject_gs || {};
+      const subj = s.subjects.map((x) => `${esc(labels[x] || x)}${sg[x] ? ` (${esc(sg[x])})` : ""}`);
+      return `<p class="bot-sub">Why it matters for UPSC</p>${bullets([...(e.significance || []).map(esc), subj.length && !(e.significance || []).length ? `Syllabus: ${subj.join(", ")}` : "",
+        `Graded <b>${s.grade}</b>${s.n_pub > 1 ? `, reported by ${s.n_pub} outlets` : ""}${s.dates.length > 1 ? `, in the news since ${esc(dayShort(s.dates[0]))}` : ""}`].filter(Boolean))}`;
+    }
+    if (/other (outlets|papers|sources|reports)|sources|coverage|who reported|outlets/.test(ql)) {
+      const t = (s.texts || []).map((x) => `<li><b>${esc(x.p || "An outlet")}:</b> ${esc(x.x)}</li>`);
+      const heads = (s.sources || []).map((x) => `<li><a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener">${esc(x.p || "Source")}</a>${x.t ? `: ${esc(x.t)}` : ""}</li>`);
+      const fold = foldedOf(s.id).map((x) => `<li><a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">${esc(srcName(x))}</a>: ${esc(x.title)}</li>`);
+      return `${t.length ? `<p class="bot-sub">What each outlet wrote</p><ul>${t.join("")}</ul>` : ""}<p class="bot-sub">Headlines</p><ul>${heads.concat(fold).join("")}</ul>`;
+    }
+    if (/related|similar|previous|earlier|timeline|follow[- ]?up|more on/.test(ql)) {
+      const rel = related(s);
+      return rel.length ? `<p class="bot-sub">Related stories</p><ul class="bot-stories">${rel.map(storyLine).join("")}</ul>` : "<p>No related story in the brief or Everything for this period.</p>";
+    }
+    if (/video|watch|youtube|hindi/.test(ql)) {
+      const v = storyVideos(s);
+      return v.length ? bullets(v.map(([x, lang]) => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a> <span class="bot-src">${lang} · ${esc(x.channel || "")}</span>`))
+        : `<p>No confident video match yet.</p><div class="bactions">${videoChip(s)}</div>`;
+    }
+    let term = termFrom(q);
+    if (/^(it|this|that|the (background|context|history|story|issue|matter)|background|context|history)$/i.test(term)) term = "";
+    if (term) {  // a definition: Wikipedia, plus where the story mentions it
+      const inStory = botRank(corpus, term).filter((o) => o.hits >= words(term).length).slice(0, 1);
+      return `${await botWiki(term)}${inStory.length ? `<p class="bot-sub">In this story</p><ul>${inStory.map(cite).join("")}</ul>` : ""}`;
+    }
+    if (/^(background|context|history|explain)\b/.test(ql)) return botWiki(termOf(s));
+    const hits = botRank(corpus, q).slice(0, 3).filter((o) => o.hits >= Math.min(2, words(q).length));
+    if (hits.length) return `<p>From the reports:</p><ul>${hits.map(cite).join("")}</ul>`;
+    return `<p>The reports on this story don't answer that.</p>${await botWiki(term || termOf(s))}
+      <p class="bot-src"><a href="https://news.google.com/search?q=${encodeURIComponent(q + " " + s.title)}" target="_blank" rel="noopener">Search the news for it</a></p>`;
+  }
+
+  function dayAnswer(q) {
+    const ql = q.toLowerCase(); const labels = S.meta.labels.subjects;
+    if (!S.brief) return "<p>Open the Daily Brief first, then ask about the day.</p>";
+    const cards = briefList("news"); const more = briefList("more");
+    const all = cards.concat(more, briefList("editorials"), briefList("explained"));
+    if (/top|summar|highlight|today|what happened|must.?know|overview/.test(ql)) {
+      return `<p class="bot-sub">${esc(periodLabel(S.view, S.anchor))}: the must-know stories</p><ol class="bot-stories">${cards.slice(0, 10).map((x) => `<li>${esc(x.title)} <span class="bot-src">${esc(labels[x.subjects[0]] || "")}</span> <button class="linkbtn" data-bot="story" data-id="${x.id}">Ask</button></li>`).join("")}</ol>
+        ${cards.length > 10 || more.length ? `<p class="bot-src">${Math.max(0, cards.length - 10)} more cards and ${more.length} one-liners in the brief.</p>` : ""}`;
+    }
+    const paper = ql.match(/\bgs ?([1-4])\b|\bprelims\b/);
+    const subj = Object.entries(labels).find(([, v]) => ql.includes(v.toLowerCase().split(/[ &]/)[0]));
+    if (paper || subj) {
+      const want = paper ? (paper[1] ? `GS${paper[1]}` : "Prelims") : null;
+      const list = all.filter((x) => (want ? (x.gs || []).includes(want) || (want === "Prelims" && (x.tags || []).length) : x.subjects.includes(subj[0])));
+      const name = want || labels[subj[0]];
+      return list.length ? `<p class="bot-sub">${esc(name)} in this brief: ${list.length}</p><ul class="bot-stories">${list.slice(0, 12).map(storyLine).join("")}</ul>` : `<p>Nothing for ${esc(name)} in this brief.</p>`;
+    }
+    const corpus = all.map((x) => ({ x, text: `${x.title}. ${(x.explain && (x.explain.why_in_news || x.explain.what)) || x.summary || ""}` }));
+    const qw = words(q); const df = {};
+    for (const o of corpus) for (const w of words(o.text)) df[w] = (df[w] || 0) + 1;
+    const hits = corpus.map((o) => { const ws = new Set(words(o.text)); let sc = 0; for (const w of qw) if (ws.has(w)) sc += Math.log(1 + corpus.length / df[w]); return { ...o, sc }; })
+      .filter((o) => o.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 6);
+    return hits.length ? `<p class="bot-sub">In this brief</p><ul class="bot-stories">${hits.map((o) => storyLine(o.x)).join("")}</ul>`
+      : `<p>Nothing in this brief matches “${esc(q)}”. Try the search box at the top, which covers Everything.</p>`;
+  }
+
+  const STORY_CHIPS = ["Summary", "5W", "Why it matters", "Prelims facts", "Mains question", "Background", "Other outlets", "Related stories", "Videos"];
+  const DAY_CHIPS = ["Top stories", "GS1", "GS2", "GS3", "GS4", "Prelims"];
+  function botEnsure() {
+    if ($("#bot")) return;
+    document.body.insertAdjacentHTML("beforeend", `
+      <button id="botFab" class="bot-fab" data-bot="open" aria-label="Ask about the news" title="Ask about a story or the day">${ICON.ask}<span>Ask</span></button>
+      <section id="bot" class="bot" hidden role="dialog" aria-labelledby="botTitle">
+        <header class="bot-h"><div class="bot-t"><b id="botTitle">Ask</b><small id="botCtx"></small></div>
+          <button class="bot-x" data-bot="day" title="Ask about the whole day instead">Whole day</button>
+          <button class="bot-x" data-bot="close" aria-label="Close">✕</button></header>
+        <div id="botLog" class="bot-log" aria-live="polite"></div>
+        <div id="botChips" class="bot-chips"></div>
+        <form id="botForm" class="bot-in"><input id="botQ" autocomplete="off" aria-label="Your question"><button type="submit">Ask</button></form>
+        <p class="bot-foot">Answers come from the reports in this brief, and background from Wikipedia. Nothing is made up; check the original before quoting.</p>
+      </section>`);
+    $("#botForm").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#botQ").value.trim(); if (q) { $("#botQ").value = ""; botAsk(q); } });
+  }
+  function botRender() {
+    const s = BOT.id ? findStory(BOT.id) : null;
+    $("#botCtx").textContent = s ? s.title : `The ${S.view === "day" ? "day's" : S.view + "'s"} brief · ${periodLabel(S.view, S.anchor)}`;
+    $("#botQ").placeholder = s ? "Ask about this story…" : "Ask about the day, e.g. “GS2” or “RBI”…";
+    $("#bot").querySelector('[data-bot="day"]').hidden = !s;
+    $("#botChips").innerHTML = (s ? STORY_CHIPS : DAY_CHIPS).map((c) => `<button class="chip" data-bot="chip" data-q="${esc(c)}">${esc(c)}</button>`).join("");
+    $("#botLog").innerHTML = BOT.log.map((m) => `<div class="bot-msg ${m.who}">${m.html}</div>`).join("") + (BOT.busy ? '<div class="bot-msg from-bot typing" aria-label="Thinking">…</div>' : "");
+    $("#botLog").scrollTop = $("#botLog").scrollHeight;
+  }
+  function botOpen(id) {
+    botEnsure();
+    const s = id ? findStory(id) : null;
+    const next = s ? s.id : null;
+    if (next !== BOT.id || !BOT.log.length) {
+      BOT.id = next;
+      BOT.log.push({ who: "from-bot", html: s ? `<p>Ask me about <b>${esc(s.title)}</b>: a summary, the 5 Ws, why it matters, Prelims facts, background, or anything in the reports.</p>`
+        : "<p>Ask me about the day: the top stories, one GS paper or subject, or a topic like “RBI” or “Manipur”.</p>" });
+    }
+    $("#bot").hidden = false; $("#botFab").hidden = true;
+    botRender(); $("#botQ").focus();
+  }
+  function botClose() { $("#bot").hidden = true; $("#botFab").hidden = false; $("#botFab").focus(); }
+  async function botAsk(q) {
+    BOT.log.push({ who: "from-me", html: `<p>${esc(q)}</p>` }); BOT.busy = true; botRender();
+    let html;
+    try { html = await botAnswer(q); } catch (e) { html = `<p>Something went wrong: ${esc(e.message)}</p>`; }
+    BOT.busy = false; BOT.log.push({ who: "from-bot", html }); BOT.log = BOT.log.slice(-40); botRender();
+  }
+  function onBotClick(t) {
+    const a = t.dataset.bot;
+    if (a === "open") botOpen(BOT.id);
+    else if (a === "close") botClose();
+    else if (a === "day") botOpen(null);
+    else if (a === "chip") botAsk(t.dataset.q);
+    else if (a === "story") botOpen(t.dataset.id);
+    else if (a === "wiki") botAsk(`What is ${t.dataset.term}?`);
+  }
+
   // ─────────────────────────── boot ───────────────────────────
   async function boot() {
     readHash();
     S.view = "day"; S.anchor = todayIST();  // opening the site always lands on today (IST); the tab is kept
     if (STATIC) $("#refreshBtn").title = "Check for the latest update";
     if (SNAPSHOT) { $("#refreshBtn").hidden = true; $("#exportBtn").hidden = true; }
+    botEnsure();
     try { [S.meta, S.marks] = await Promise.all([api.meta(), api.marks()]); }
     catch (e) { $("#content").innerHTML = `<div class="empty">Could not reach the data (${esc(e.message)}). Is the server running?</div>`; return; }
     S.lastRunSeen = STATIC ? S.meta.built_at : (S.meta.last_run && S.meta.last_run.finished_at) || "none";

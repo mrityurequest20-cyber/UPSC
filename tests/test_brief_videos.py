@@ -149,6 +149,14 @@ def test_brief_prefers_stories_with_text(db, clf):
 
 
 # ── explainers ──
+def test_auto_explain_drops_a_cut_off_feed_fragment(clf):
+    story = {"title": "Mines and Minerals Amendment Act, 2026 and States' Opposition", "date_ist": "2026-09-26",
+             "summary": "UPSC Syllabus: GS-3- Economy Context: Mining is an important source of...", "publishers": ["ForumIAS"],
+             "subjects": ["economy"], "tags": [], "gs": ["GS3"]}
+    e = auto_explain(story, clf.labels(), clf=clf)
+    assert "important source of" not in e["why_in_news"] and e["why_in_news"].startswith("Reported on")
+
+
 def test_sentence_split_keeps_initials():
     assert _sentences("External Affairs Minister S. Jaishankar signed the UN Convention against Cybercrime. "
                       "It deals with Rs. 500 crore of funds.") == [

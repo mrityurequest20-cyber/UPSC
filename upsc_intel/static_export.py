@@ -72,7 +72,7 @@ def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: st
         for s in day["stories"]:
             if s["id"] in keep and s["id"] not in seen:
                 seen.add(s["id"])
-                month["stories"].append(s)
+                month["stories"].append({k: v for k, v in s.items() if k != "texts"})  # the reviews stay light
     month.setdefault("generated_at", iso(datetime.now(timezone.utc)))
     return month
 
