@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local data & secrets (never commit these)
+.env
+data/*
+!data/.gitkeep
+inbox/*
+!inbox/.gitkeep
+config/sources.local.yaml
+
+# Build output
+site/

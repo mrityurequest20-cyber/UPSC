@@ -1,0 +1,929 @@
+/* UPSC Intel dashboard: vanilla JS, no build step. Works against the live API or a static export.
+   Tabs: Brief (curated, explained) · Editorials · Videos · Everything (firehose) · Starred · Library · Sources */
+(() => {
+  "use strict";
+
+  const STATIC = !!window.UPSC_STATIC;
+  const SNAPSHOT = !!window.UPSC_SNAPSHOT; // frozen export: no polling, no downloads
+  const POLL_MS = STATIC ? 300000 : 60000;
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+  // ─────────────────────────── helpers ───────────────────────────
+  const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
+  const safeUrl = (u) => {
+    if (!u) return "#";
+    if (u.startsWith("/files/")) return STATIC ? "#" : u.slice(1);
+    return /^https?:\/\//i.test(u) ? u : "#";
+  };
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+  };
+
+  const IST_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" });
+  const todayIST = () => IST_FMT.format(new Date());
+  const D = (s) => new Date(s + "T00:00:00Z");
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const addDays = (s, n) => { const d = D(s); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const MONTHS_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const WD_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  function periodRange(view, anchor) {
+    if (view === "day") return [anchor, anchor];
+    if (view === "week") {
+      const d = D(anchor); const dow = (d.getUTCDay() + 6) % 7; // Monday = 0
+      const from = addDays(anchor, -dow); return [from, addDays(from, 6)];
+    }
+    const d = D(anchor);
+    return [iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))), iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)))];
+  }
+  function stepAnchor(view, anchor, dir) {
+    if (view === "day") return addDays(anchor, dir);
+    if (view === "week") return addDays(anchor, 7 * dir);
+    const d = D(anchor); return iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + dir, 1)));
+  }
+  function isoWeek(s) {
+    const d = D(s); const day = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - day + 3);
+    const first = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+    return 1 + Math.round(((d - first) / 86400000 - 3 + ((first.getUTCDay() + 6) % 7)) / 7);
+  }
+  function periodLabel(view, anchor) {
+    const [a, b] = periodRange(view, anchor); const da = D(a), db = D(b);
+    if (view === "day") return `${WD[da.getUTCDay()]}, ${da.getUTCDate()} ${MONTHS[da.getUTCMonth()]} ${da.getUTCFullYear()}`;
+    if (view === "week") {
+      const left = da.getUTCMonth() === db.getUTCMonth() ? `${da.getUTCDate()}` : `${da.getUTCDate()} ${MONTHS[da.getUTCMonth()]}`;
+      return `${left}–${db.getUTCDate()} ${MONTHS[db.getUTCMonth()]} ${db.getUTCFullYear()} · W${isoWeek(a)}`;
+    }
+    return `${MONTHS_LONG[da.getUTCMonth()]} ${da.getUTCFullYear()}`;
+  }
+  const dayShort = (s) => { const d = D(s); return `${WD[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`; };
+  function ago(isoStr) {
+    if (!isoStr) return "never";
+    const s = Math.max(0, (Date.now() - new Date(isoStr).getTime()) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.round(s / 60)} min ago`;
+    if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+    return `${Math.round(s / 86400)} d ago`;
+  }
+  function until(isoStr) {
+    if (!isoStr) return "";
+    const s = (new Date(isoStr).getTime() - Date.now()) / 1000;
+    if (s <= 30) return "any moment";
+    return s < 3600 ? `in ${Math.round(s / 60)} min` : `in ${Math.round(s / 3600)} h`;
+  }
+  const shortTime = (isoStr) => isoStr ? new Date(isoStr).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  const plural = (n, one, many) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : (many || one + "s")}`;
+
+  const ICON = {
+    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
+    starOn: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 5 5 9-10"/></svg>',
+    note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>',
+  };
+
+  const TIER_GROUPS = [
+    ["official", "Official (PIB, RBI, SEBI…)", ["official"]],
+    ["examprep", "Exam-prep desks", ["examprep"]],
+    ["news", "Newspapers", ["quality", "general"]],
+    ["intl", "International", ["intl"]],
+    ["watch", "Google News watchlist", ["watch"]],
+    ["premium", "Premium & private", ["premium", "library"]],
+  ];
+  const tierGroup = (t) => (TIER_GROUPS.find((g) => g[2].includes(t)) || ["news"])[0];
+  const GRADES = ["NOTE", "SKIM", "READ"];
+  const GRADE_HELP = { NOTE: "High yield: make notes", SKIM: "Worth knowing", READ: "Background only", LOW: "Probably not examinable" };
+  const PAPERS = ["GS1", "GS2", "GS3", "GS4", "Prelims"];
+  const BRIEF_TABS = new Set(["brief", "editorials", "videos"]);
+
+  // ─────────────────────────── state ───────────────────────────
+  const S = {
+    meta: null,
+    view: "day",
+    anchor: todayIST(),
+    tab: "brief",
+    stories: [], loadedKey: "", loadedAt: null,
+    brief: null, briefKey: "", briefById: new Map(), pendingBrief: null,
+    lastRunSeen: null,
+    marks: {},
+    library: null, sources: null, search: null,
+    pending: [], freshIds: new Set(),
+    expanded: new Set(), openCards: new Set(), noteOpen: new Set(), autoOpened: new Set(),
+    groupBy: store.get("upsc-groupby", "subject"),
+    sort: store.get("upsc-sort", "score"),
+    f: { gs: new Set(), subjects: new Set(), grades: new Set(GRADES), low: false, tiers: new Set(), starred: false, unread: false, watch: null, q: "" },
+  };
+
+  // ─────────────────────────── data provider ───────────────────────────
+  const monthCache = new Map();
+  const monthsIn = (from, to) => { const m = new Set(); for (let d = from; d <= to; d = addDays(d, 1)) m.add(d.slice(0, 7)); return [...m]; };
+  const api = {
+    async json(url, opts) {
+      const r = await fetch(url, opts);
+      if (!r.ok) throw new Error(`${r.status} ${url}`);
+      return r.json();
+    },
+    meta() { return STATIC ? this.json(`data/meta.json?t=${Date.now()}`) : this.json("api/meta"); },
+    async month(kind, m, fresh) {
+      const key = `${kind}-${m}`;
+      if (!(S.meta.months || []).includes(m)) return null;
+      if (!monthCache.has(key) || fresh) monthCache.set(key, await this.json(`data/${kind}-${m}.json?v=${encodeURIComponent(S.meta.built_at || "")}`));
+      return monthCache.get(key);
+    },
+    async stories(from, to, low, since) {
+      if (!STATIC) {
+        const q = new URLSearchParams({ from, to, include_low: low ? "true" : "false" });
+        if (since) q.set("since", since);
+        const res = await this.json(`api/stories?${q}`);
+        S.serverStamp = res.generated_at;
+        return res.stories;
+      }
+      const all = new Map();
+      for (const m of monthsIn(from, to)) {
+        const data = await this.month("stories", m, !!since);
+        if (data) for (const s of data.stories) all.set(s.id, s);
+      }
+      return [...all.values()].filter((s) => s.dates.some((d) => d >= from && d <= to));
+    },
+    async brief(from, to, fresh) {
+      if (!STATIC) return this.json(`api/brief?${new URLSearchParams({ from, to })}`);
+      const out = { from, to, days: {}, stories: [], videos: {} };
+      const seen = new Set();
+      for (const m of monthsIn(from, to)) {
+        const data = await this.month("brief", m, fresh);
+        if (!data) continue;
+        for (const [d, v] of Object.entries(data.days || {})) if (d >= from && d <= to) out.days[d] = v;
+        for (const [d, v] of Object.entries(data.videos || {})) if (d >= from && d <= to) out.videos[d] = v;
+        for (const s of data.stories || []) if (!seen.has(s.id)) { seen.add(s.id); out.stories.push(s); }
+      }
+      return out;
+    },
+    async sources() { return STATIC ? (S.meta.sources || []) : (await this.json("api/sources")).sources; },
+    async library() { return STATIC ? [] : (await this.json("api/library")).stories; },
+    async search(q) {
+      if (!STATIC) return (await this.json(`api/search?q=${encodeURIComponent(q)}`)).stories;
+      const needle = q.toLowerCase(); const hits = [];
+      for (const m of S.meta.months || []) {
+        const data = await this.month("stories", m);
+        if (data) for (const s of data.stories) if (matchQ(s, needle)) hits.push(s);
+      }
+      return hits.sort((a, b) => b.score - a.score).slice(0, 300);
+    },
+    async marks() { return STATIC ? store.get("upsc-marks", {}) : this.json("api/marks"); },
+    async setMark(id, patch) {
+      const cur = { starred: false, read: false, note: "", ...(S.marks[id] || {}), ...patch };
+      S.marks[id] = cur;
+      if (STATIC) { store.set("upsc-marks", S.marks); return cur; }
+      return this.json("api/marks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ story_id: id, ...patch }) });
+    },
+    refresh() { return this.json("api/refresh", { method: "POST" }); },
+  };
+
+  // ─────────────────────────── filtering (Everything tab) ───────────────────────────
+  const mark = (s) => S.marks[s.id] || { starred: false, read: false, note: "" };
+  function matchQ(s, needle) {
+    if (!needle) return true;
+    const ex = s.explain || {};
+    const hay = `${s.title} ${s.summary} ${ex.what || ""} ${ex.why_in_news || ""} ${(s.sources || []).map((x) => x.p + " " + (x.t || "")).join(" ")} ${s.tags.join(" ")}`.toLowerCase();
+    return needle.split(/\s+/).every((w) => hay.includes(w));
+  }
+  function passes(s, skip = "") {
+    const f = S.f;
+    if (s.grade === "LOW" ? !f.low : !f.grades.has(s.grade)) return false;
+    if (skip !== "gs" && f.gs.size && !s.gs.some((g) => f.gs.has(g))) return false;
+    if (skip !== "subjects" && f.subjects.size && !s.subjects.some((x) => f.subjects.has(x))) return false;
+    if (skip !== "tiers" && f.tiers.size && !f.tiers.has(tierGroup(s.tier))) return false;
+    if (skip !== "watch" && f.watch && !s.watch.includes(f.watch)) return false;
+    if (f.starred && !mark(s).starred) return false;
+    if (f.unread && mark(s).read) return false;
+    if (f.q && !matchQ(s, f.q.toLowerCase())) return false;
+    return true;
+  }
+  const briefPasses = (s) => (!S.f.gs.size || s.gs.some((g) => S.f.gs.has(g))) && (!S.f.q || matchQ(s, S.f.q.toLowerCase()));
+  const briefingPool = () => S.stories.filter((s) => !s.editorial);
+  const editorialPool = () => S.stories.filter((s) => s.editorial);
+  const activeFilterCount = () => S.f.gs.size + S.f.subjects.size + S.f.tiers.size + (S.f.watch ? 1 : 0) +
+    (S.f.starred ? 1 : 0) + (S.f.unread ? 1 : 0) + (S.f.low ? 1 : 0) + (GRADES.length - S.f.grades.size);
+  function sortStories(list) {
+    const by = S.sort === "latest"
+      ? (a, b) => (b.last_seen || "").localeCompare(a.last_seen || "") || b.score - a.score
+      : (a, b) => b.score - a.score || b.n_pub - a.n_pub;
+    return list.sort(by);
+  }
+
+  // ─────────────────────────── brief data ───────────────────────────
+  const briefDays = () => (S.brief ? Object.keys(S.brief.days).sort() : []);
+  function briefList(kind) {
+    // Day: rank order. Week/month: every day's picks, best first.
+    const out = [];
+    for (const d of briefDays()) for (const id of (S.brief.days[d][kind === "news" ? "news" : "editorials"] || [])) {
+      const s = S.briefById.get(id); if (s) out.push({ ...s, _day: d });
+    }
+    if (S.view !== "day") out.sort((a, b) => (b.score + 0.4 * b.n_pub) - (a.score + 0.4 * a.n_pub));
+    return out;
+  }
+  function briefVideos() {
+    if (!S.brief) return [];
+    return Object.keys(S.brief.videos || {}).sort().reverse().flatMap((d) => (S.brief.videos[d] || []).map((v) => ({ ...v, _day: d })));
+  }
+
+  // ─────────────────────────── header ───────────────────────────
+  function renderLive() {
+    const m = S.meta; const el = $("#live"); if (!m) return;
+    const dot = el.querySelector(".live-dot"); const txt = el.querySelector(".txt");
+    const last = m.last_run && m.last_run.finished_at;
+    if (SNAPSHOT) { dot.className = "live-dot idle"; txt.textContent = `Snapshot · data from ${shortTime(m.built_at)} IST`; }
+    else if (STATIC) { dot.className = "live-dot"; txt.textContent = `Auto-updates hourly · built ${ago(m.built_at)}`; }
+    else if (m.running) { dot.className = "live-dot busy"; txt.textContent = "Fetching all sources…"; }
+    else {
+      dot.className = last ? "live-dot" : "live-dot idle";
+      txt.textContent = last ? `Live · updated ${ago(last)}${m.next_run_at ? " · next " + until(m.next_run_at) : ""}` : "Waiting for first fetch…";
+    }
+  }
+  function renderPeriod() {
+    $$(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === S.view)));
+    $("#periodLabel").textContent = periodLabel(S.view, S.anchor);
+    const [, to] = periodRange(S.view, S.anchor);
+    $("#next").disabled = to >= todayIST();
+    $("#todayBtn").disabled = S.anchor === todayIST() && S.view === "day";
+  }
+  function renderTabs() {
+    const has = !!S.brief;
+    const nNews = has ? briefList("news").length : "";
+    const nEd = has ? briefList("editorials").length : "";
+    const nVid = has ? briefVideos().length + briefList("news").filter((s) => s.video && s.video.id).length : "";
+    const tabs = [
+      ["brief", S.view === "day" ? "Daily Brief" : S.view === "week" ? "Week in review" : "Month in review", nNews],
+      ["editorials", "Editorials", nEd],
+      ["videos", "Videos", nVid],
+      ["everything", "Everything", S.tab === "everything" ? briefingPool().filter((s) => passes(s)).length : ""],
+      ["starred", "Starred", Object.values(S.marks).filter((x) => x.starred).length],
+      ...(STATIC ? [] : [["library", "Library", S.meta.counts.library || 0]]),
+      ["sources", "Sources", ""],
+    ];
+    $("#tabs").innerHTML = tabs.map(([k, l, c]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${esc(l)}${c !== "" ? `<span class="count">${c}</span>` : ""}</button>`).join("");
+  }
+  function setLayout() {
+    const brief = BRIEF_TABS.has(S.tab) && !S.search;
+    const everything = S.tab === "everything" && !S.search;
+    $("#layout").className = `layout ${brief ? "mode-brief" : everything ? "mode-all" : "mode-plain"}`;
+    $("#kpis").hidden = !everything;
+    $("#rail").hidden = !everything;
+    $("#side").hidden = !(brief || everything);
+    $("#filtersBtn").hidden = !everything;
+  }
+
+  // ─────────────────────────── brief rendering ───────────────────────────
+  function progress(list) {
+    const done = list.filter((s) => mark(s).read).length;
+    const pct = list.length ? Math.round((100 * done) / list.length) : 0;
+    return `<div class="progress" title="Tick “Mark done” on a story when you've read it"><div class="bar"><span style="width:${pct}%"></span></div><span>${done} of ${list.length} done</span></div>`;
+  }
+  function gsChips() {
+    return `<div class="chips gs-chips" role="group" aria-label="Filter by paper">${PAPERS.map((g) => `<button class="chip" data-f="gs" data-v="${g}" aria-pressed="${S.f.gs.has(g)}" title="${esc(S.meta.gs_papers[g] || "Prelims facts")}">${g}</button>`).join("")}</div>`;
+  }
+  function videoChip(s) {
+    const v = s.video;
+    if (v && v.id) return `<a class="vchip" href="${esc(v.url)}" target="_blank" rel="noopener" title="${esc(v.title)} · ${esc(v.channel)}">${ICON.play}<span>Watch: ${esc(v.channel || "video")}</span></a>`;
+    const kw = s.explain && s.explain.keywords && s.explain.keywords.length ? s.explain.keywords.slice(0, 5).join(" ") : null;
+    const url = v && v.search_url ? v.search_url : `https://www.youtube.com/results?search_query=${encodeURIComponent((kw || s.title) + " UPSC")}`;
+    return `<a class="vchip ghost" href="${esc(url)}" target="_blank" rel="noopener" title="No exact match yet: opens a YouTube search">${ICON.search}<span>Find video</span></a>`;
+  }
+  function videoBlock(s) {
+    const v = s.video;
+    if (!v || !v.id) return "";
+    return `<a class="vblock" href="${esc(v.url)}" target="_blank" rel="noopener">
+      <span class="thumb"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><span class="playbadge">${ICON.play}</span></span>
+      <span class="vmeta"><b>${esc(v.title)}</b><small>${esc(v.channel || "")}${v.published ? " · " + esc(shortTime(v.published)) : ""}</small></span></a>`;
+  }
+  function explainBody(s) {
+    const e = s.explain || {};
+    const labels = S.meta.labels.subjects;
+    const li = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    const rows = [];
+    if (e.what) rows.push([s.editorial ? "Core argument" : "What happened", `<p>${esc(e.what)}</p>`]);
+    if (e.background) rows.push(["Background", `<p>${esc(e.background)}</p>`]);
+    if (e.significance && e.significance.length) rows.push([s.editorial ? "Key points" : "Why it matters", li(e.significance)]);
+    if (e.prelims && e.prelims.length) rows.push(["Prelims facts", li(e.prelims)]);
+    if (e.mains) rows.push(["Mains question", `<p class="mq">${esc(e.mains)}</p>`]);
+    if (e.keywords && e.keywords.length) rows.push(["Keywords", `<p class="kw">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</p>`]);
+    const srcs = (s.sources || []).slice(0, 6).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}${x.s ? ` · ${esc(x.s)}` : ""}</a>`).join("");
+    rows.push(["Read the original", `<p class="srcs">${srcs}${s.n_src > 6 ? `<span>+${s.n_src - 6} more</span>` : ""}</p>`]);
+    const subj = s.subjects.map((x) => labels[x] || x).join(" · ");
+    return `<div class="bbody">
+      <dl class="explain">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+      ${videoBlock(s)}
+      ${e.auto ? `<p class="autonote">Quick auto-summary from the feed text. ${S.meta.ai_enabled ? "Full AI notes are on the way for this story." : "Add an AI key to get full notes: background, Mains question and keywords."}</p>` : ""}
+      <p class="meta-line">${esc(subj)}${s.n_pub > 1 ? ` · reported by ${s.n_pub} outlets` : ""}${s.dates.length > 1 ? ` · in the news since ${esc(dayShort(s.dates[0]))}` : ""}</p>
+      ${S.noteOpen.has(s.id) || mark(s).note ? `<div class="note"><textarea data-act="notetext" placeholder="Your notes for revision…" aria-label="Note">${esc(mark(s).note)}</textarea></div>` : ""}
+    </div>`;
+  }
+  function bcard(s, opts = {}) {
+    const mk = mark(s); const e = s.explain || {};
+    const open = S.openCards.has(s.id);
+    const headline = e.headline || s.title;
+    const why = e.why_in_news || e.what || s.summary || "";
+    const labels = S.meta.labels.subjects;
+    const firstSrc = (s.sources[0] && s.sources[0].p) || "Source";
+    return `<article class="bcard ${open ? "open" : ""} ${mk.read ? "read" : ""} ${opts.compact ? "compact" : ""}" data-id="${s.id}"${opts.rank ? ` data-rank="${opts.rank}"` : ""}${opts.day ? ` data-day="${opts.day}"` : ""}${opts.showSubject ? " data-subj=\"1\"" : ""}>
+      <button class="btoggle" data-act="toggle" aria-expanded="${open}">
+        <span class="pills">
+          ${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}
+          ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
+          ${opts.day ? `<span class="pill daychip">${esc(dayShort(opts.day))}</span>` : ""}
+          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span>
+          ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
+          ${opts.showSubject && s.subjects[0] ? `<span class="pill subj">${esc(labels[s.subjects[0]] || s.subjects[0])}</span>` : ""}
+          ${s.tags.filter((t) => t !== "Data/Stats").slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
+          ${s.editorial ? '<span class="pill ed">Editorial</span>' : ""}
+        </span>
+        <span class="btitle">${esc(headline)}</span>
+        ${why ? `<span class="why"><b>${s.editorial ? "Argument:" : "Why in news:"}</b> ${esc(why)}</span>` : ""}
+        <span class="chev" aria-hidden="true">${ICON.chev}</span>
+      </button>
+      <div class="bactions">
+        ${videoChip(s)}
+        <a class="vchip ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${ICON.ext}<span>${esc(firstSrc)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></a>
+        <span class="spacer"></span>
+        <button class="icon" data-act="star" aria-pressed="${mk.starred}" title="Star for revision" aria-label="Star">${mk.starred ? ICON.starOn : ICON.star}</button>
+        <button class="icon" data-act="note" aria-pressed="${!!mk.note}" title="Add a note" aria-label="Note">${ICON.note}</button>
+        <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button>
+      </div>
+      ${open ? explainBody(s) : ""}
+    </article>`;
+  }
+  function contentsNav(sections, title) {
+    return `<nav class="contents" aria-label="Contents"><h3>${esc(title)}</h3><ol>${sections.map((x) => `<li><button data-jump="${x.id}"><span>${esc(x.label)}</span><span class="n">${x.n}</span></button></li>`).join("")}</ol></nav>`;
+  }
+  const section = (id, title, sub, body) =>
+    `<section class="bsection" id="${id}"><div class="bsec-h"><h2>${esc(title)}</h2>${sub ? `<span class="meta">${esc(sub)}</span>` : ""}</div>${body}</section>`;
+  function coverageChips(list) {
+    const labels = S.meta.labels.subjects; const counts = {};
+    for (const s of list) counts[s.subjects[0]] = (counts[s.subjects[0]] || 0) + 1;
+    const all = Object.keys(labels);
+    const missing = all.filter((k) => !counts[k]);
+    return `<div class="covchips"><span class="covlabel">What we covered</span>${all.filter((k) => counts[k]).map((k) => `<button class="cchip" data-jump="sec-${k}">${esc(labels[k])} <b>${counts[k]}</b></button>`).join("")}
+      ${missing.length ? `<span class="cmiss" title="No brief story in these areas for this period">⚠ Nothing in: ${esc(missing.map((k) => labels[k]).join(", "))}</span>` : ""}</div>`;
+  }
+  function briefHero(news, eds, totalReported) {
+    const all = news.concat(eds);
+    const areas = new Set(news.map((s) => s.subjects[0])).size;
+    const minutes = Math.max(5, Math.round(news.length * 1.5 + eds.length * 2));
+    const [from, to] = periodRange(S.view, S.anchor);
+    const d = D(from);
+    const eyebrow = S.view === "day" ? `Daily Brief · ${WD_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+      : S.view === "week" ? `Week ${isoWeek(from)} in review · ${periodLabel("week", S.anchor).split(" · ")[0]}` : `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()} in review`;
+    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")} · ${plural(eds.length, "editorial")}`
+      : `${plural(news.length, "story", "stories")} covered · ${plural(eds.length, "editorial")}`;
+    const sub = S.view === "day"
+      ? `Covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min · picked from ${plural(totalReported, "story", "stories")} reported`
+      : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported`;
+    return `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
+      <div class="bhero-side">${progress(all)}${gsChips()}</div></header>`;
+  }
+  function briefVolume() {
+    const [from, to] = periodRange(S.view, S.anchor); const today = todayIST();
+    const counts = {}; for (const d of briefDays()) counts[d] = (S.brief.days[d].news || []).length;
+    const days = []; for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
+    const W = 1000, H = 90, top = 14, base = H - 18;
+    const max = Math.max(1, ...Object.values(counts));
+    const slot = W / days.length; const bw = Math.max(4, Math.min(48, slot - 2));
+    const bars = days.map((d, i) => {
+      const n = counts[d] || 0; const x = i * slot + (slot - bw) / 2;
+      const h = d > today ? 0 : n ? Math.max(3, ((base - top) * n) / max) : 2;
+      const y = base - h; const r = Math.min(4, bw / 2, h);
+      const path = `M${x},${base} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + bw - r},${y} Q${x + bw},${y} ${x + bw},${y + r} L${x + bw},${base} Z`;
+      const dd = D(d); const every = days.length > 10 ? 5 : 1;
+      const tick = (i % every === 0 || i === days.length - 1) ? `<text class="tick" x="${x + bw / 2}" y="${H - 3}" text-anchor="middle">${days.length > 10 ? dd.getUTCDate() : WD[dd.getUTCDay()] + " " + dd.getUTCDate()}</text>` : "";
+      return `<g>${d <= today ? `<rect class="hit" x="${i * slot}" y="0" width="${slot}" height="${base}" data-day="${d}" data-tip="${dayShort(d)}: ${n} brief ${n === 1 ? "story" : "stories"} · click to open"/>` : ""}<path class="bar ${n ? "" : "low"}" d="${path}"/>${tick}</g>`;
+    }).join("");
+    return `<section class="panel volume"><h3>Brief stories per day <span class="sub">· click a day to open its brief</span></h3>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Brief stories per day">${bars}<line class="axis" x1="0" x2="${W}" y1="${base}" y2="${base}"/></svg></section>`;
+  }
+  function videoTile(v) {
+    return `<a class="vtile" href="${esc(v.url)}" target="_blank" rel="noopener">
+      <span class="thumb"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><span class="playbadge">${ICON.play}</span></span>
+      <span class="vmeta"><b>${esc(v.title)}</b><small>${esc(v.channel || "")}${v._day && S.view !== "day" ? " · " + esc(dayShort(v._day)) : ""}</small></span></a>`;
+  }
+  const reportedTotal = () => briefDays().reduce((n, d) => n + (S.meta.date_counts[d] || 0), 0);
+
+  function renderBrief() {
+    const el = $("#content");
+    if (!S.brief) { el.innerHTML = '<div class="loading">Loading the brief…</div>'; return; }
+    const labels = S.meta.labels.subjects;
+    const news = briefList("news").filter(briefPasses);
+    const eds = briefList("editorials").filter(briefPasses);
+    const vids = briefVideos();
+    if (!news.length && !eds.length) {
+      el.innerHTML = briefHero(news, eds, reportedTotal()) + `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in this brief matches the filter." : S.meta.last_run || STATIC ? "No brief for this period yet." : "The first fetch is running: the brief appears in a minute or two."}</div>`;
+      $("#side").innerHTML = "";
+      return;
+    }
+    const topN = S.view === "day" ? 5 : S.view === "week" ? 10 : 15;
+    const top = news.slice(0, topN);
+    if (!S.autoOpened.has(S.briefKey)) { S.autoOpened.add(S.briefKey); if (S.view === "day") top.slice(0, 3).forEach((s) => S.openCards.add(s.id)); }
+    const rest = S.view === "day" ? news.slice(topN) : news;
+    const bySubject = new Map(Object.keys(labels).map((k) => [k, []]));
+    for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
+    const compact = S.view !== "day";
+    const sections = [];
+    let html = briefHero(news, eds, reportedTotal()) + (compact ? coverageChips(news) + briefVolume() : "");
+    html += section("sec-top", S.view === "day" ? "Top stories today" : S.view === "week" ? "Top 10 of the week" : "Top 15 of the month",
+      "tap any card for the full explainer", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
+    sections.push({ id: "sec-top", label: S.view === "day" ? "Top stories" : "Top " + topN, n: top.length });
+    for (const [k, arr] of bySubject) {
+      if (!arr.length) continue;
+      const key = "b:" + k; const lim = S.expanded.has(key) || S.view === "day" ? arr.length : 6;
+      html += section(`sec-${k}`, labels[k], `${S.meta.labels.subject_gs[k] || ""} · ${plural(arr.length, "story", "stories")}`,
+        `<div class="bcards">${arr.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null })).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${arr.length}</button>` : ""}`);
+      sections.push({ id: `sec-${k}`, label: labels[k], n: arr.length });
+    }
+    if (eds.length) {
+      const key = "b:eds"; const lim = S.expanded.has(key) || S.view === "day" ? eds.length : 10;
+      html += section("sec-editorials", S.view === "day" ? "Editorials of the day" : "Editorials", "core argument, GS paper and Mains angle",
+        `<div class="bcards">${eds.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null, showSubject: true })).join("")}</div>${eds.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${eds.length}</button>` : ""}`);
+      sections.push({ id: "sec-editorials", label: "Editorials", n: eds.length });
+    }
+    if (vids.length) {
+      const lim = S.view === "day" ? 9 : 12;
+      html += section("sec-videos", S.view === "day" ? "Watch: today's analysis" : "Analysis videos", "Sansad TV, PIB, DD News, Indian Express, Drishti, StudyIQ and more",
+        `<div class="vgrid">${vids.slice(0, lim).map(videoTile).join("")}</div>${vids.length > lim ? `<button class="btn showmore" data-tab-go="videos">All ${vids.length} videos</button>` : ""}`);
+      sections.push({ id: "sec-videos", label: "Videos", n: vids.length });
+    }
+    el.innerHTML = html;
+    $("#side").innerHTML = contentsNav(sections, S.view === "day" ? "In today's brief" : "In this " + S.view) +
+      `<div class="side-note">Picked from ${plural(reportedTotal(), "story", "stories")} reported. The full list is under <button class="linkbtn" data-tab-go="everything">Everything</button>.</div>`;
+  }
+
+  function renderEditorialsTab() {
+    const el = $("#content");
+    if (!S.brief) { el.innerHTML = '<div class="loading">Loading…</div>'; return; }
+    const eds = briefList("editorials").filter(briefPasses);
+    const byPub = {}; for (const s of eds) { const p = (s.sources[0] && s.sources[0].p) || "Other"; byPub[p] = (byPub[p] || 0) + 1; }
+    el.innerHTML = `<header class="bhero"><div class="bhero-text"><div class="eyebrow">Editorials · ${esc(periodLabel(S.view, S.anchor))}</div>
+        <h1>${plural(eds.length, "editorial")} worth your time</h1><p>${esc(Object.entries(byPub).map(([p, n]) => `${p} ${n}`).join(" · ") || "The Hindu, Indian Express, Mint")}</p></div>
+        <div class="bhero-side">${progress(eds)}${gsChips()}</div></header>` +
+      (eds.length ? `<div class="bcards">${eds.map((s) => bcard(s, { day: S.view !== "day" ? s._day : null, showSubject: true, compact: S.view !== "day" })).join("")}</div>`
+        : '<div class="empty">No editorials picked for this period yet.</div>');
+    $("#side").innerHTML = `<div class="side-note">Picked from The Hindu (Editorial, Lead, Op-Ed), Indian Express (Editorials, Columns) and Mint Opinion, ranked by syllabus relevance. Every opinion piece is under <button class="linkbtn" data-tab-go="everything">Everything</button>.</div>`;
+  }
+
+  function renderVideosTab() {
+    const el = $("#content");
+    if (!S.brief) { el.innerHTML = '<div class="loading">Loading…</div>'; return; }
+    const vids = briefVideos();
+    const matched = briefList("news").concat(briefList("editorials")).filter((s) => s.video && s.video.id);
+    el.innerHTML = `<header class="bhero"><div class="bhero-text"><div class="eyebrow">Videos · ${esc(periodLabel(S.view, S.anchor))}</div>
+        <h1>${plural(matched.length, "story explainer")} · ${plural(vids.length, "analysis video")}</h1>
+        <p>A video is attached to a story only when its topic, key terms and date line up. Otherwise the story card offers a YouTube search instead of a wrong video.</p></div></header>` +
+      (matched.length ? section("sec-matched", "Explainers for brief stories", "matched by topic and date", `<div class="vlist">${matched.map((s) => `<div class="vrow">${videoBlock(s)}<div class="vfor">For: <button class="linkbtn" data-open-card="${s.id}">${esc((s.explain && s.explain.headline) || s.title)}</button></div></div>`).join("")}</div>`) : "") +
+      (vids.length ? section("sec-daily", "Daily analysis videos", "news analysis, PIB summaries, Sansad TV programmes", `<div class="vgrid">${vids.map(videoTile).join("")}</div>`) : "") +
+      (!matched.length && !vids.length ? '<div class="empty">No videos for this period yet. They are collected every hour from the channels\' feeds.</div>' : "");
+    $("#side").innerHTML = `<div class="side-note">Channels watched: Sansad TV, PIB India, DD News, The Indian Express, Drishti IAS (English & Hindi), StudyIQ IAS, ClearIAS, Prep together. Add your own in <code>config/sources.local.yaml</code>.</div>`;
+  }
+
+  // ─────────────────────────── Everything tab (firehose) ───────────────────────────
+  function coverage() {
+    const labels = S.meta.labels.subjects;
+    const pool = briefingPool().filter((s) => passes(s, "subjects"));
+    const counts = Object.fromEntries(Object.keys(labels).map((k) => [k, 0]));
+    for (const s of pool) for (const x of s.subjects) if (x in counts) counts[x] += 1;
+    return { pool, counts };
+  }
+  function renderKpis() {
+    const pool = briefingPool().filter((s) => s.grade !== "LOW");
+    const note = pool.filter((s) => s.grade === "NOTE").length;
+    const outlets = new Set(); for (const s of S.stories) for (const x of s.sources || []) outlets.add(x.p);
+    const { counts } = coverage();
+    const blind = Object.values(counts).filter((n) => n === 0).length;
+    const eds = editorialPool().filter((s) => s.grade !== "LOW").length;
+    $("#kpis").innerHTML = [
+      [pool.length, "stories in this " + S.view], [note, "NOTE-grade (make notes)"], [outlets.size, "outlets & feeds reporting"],
+      [eds, "editorials & op-eds"], [blind, blind ? "syllabus blind spots" : "no blind spots", blind ? "alert" : ""],
+    ].map(([v, l, cls]) => `<div class="kpi ${cls || ""}"><div class="v">${v.toLocaleString("en-IN")}</div><div class="l">${esc(l)}</div></div>`).join("");
+  }
+  function renderSide() {
+    const m = S.meta; const labels = m.labels.subjects; const gsOf = m.labels.subject_gs;
+    const pool = briefingPool();
+    const subjCounts = {}; for (const s of pool.filter((x) => passes(x, "subjects"))) for (const k of s.subjects) subjCounts[k] = (subjCounts[k] || 0) + 1;
+    const gsCounts = {}; for (const s of pool.filter((x) => passes(x, "gs"))) for (const g of s.gs) gsCounts[g] = (gsCounts[g] || 0) + 1;
+    const tierCounts = {}; for (const s of pool.filter((x) => passes(x, "tiers"))) { const t = tierGroup(s.tier); tierCounts[t] = (tierCounts[t] || 0) + 1; }
+    $("#side").innerHTML = `
+      <div class="fgroup"><h3>Paper</h3><div class="chips">${PAPERS.map((g) => `<button class="chip" data-f="gs" data-v="${g}" aria-pressed="${S.f.gs.has(g)}" title="${esc(m.gs_papers[g] || "Prelims facts")}">${g} <span class="n">${gsCounts[g] || 0}</span></button>`).join("")}</div></div>
+      <div class="fgroup"><h3>Revision grade</h3>
+        <div class="chips">${GRADES.map((g) => `<button class="chip" data-f="grade" data-v="${g}" aria-pressed="${S.f.grades.has(g)}" title="${GRADE_HELP[g]}">${g}</button>`).join("")}</div>
+        <label class="toggle" title="${GRADE_HELP.LOW}. Nothing is ever deleted: switch this on to see everything."><input type="checkbox" data-f="low" ${S.f.low ? "checked" : ""}> Show LOW too (everything)</label></div>
+      <div class="fgroup"><h3>Subject</h3><ul class="flist">${Object.entries(labels).map(([k, l]) => `<li><button data-f="subject" data-v="${k}" aria-pressed="${S.f.subjects.has(k)}"><span>${esc(l)}<span class="gs">${esc(gsOf[k] || "")}</span></span><span class="n">${subjCounts[k] || 0}</span></button></li>`).join("")}</ul></div>
+      <div class="fgroup"><h3>Source type</h3><ul class="flist">${TIER_GROUPS.map(([k, l]) => `<li><button data-f="tier" data-v="${k}" aria-pressed="${S.f.tiers.has(k)}"><span>${esc(l)}</span><span class="n">${tierCounts[k] || 0}</span></button></li>`).join("")}</ul></div>
+      <div class="fgroup"><h3>My list</h3>
+        <label class="toggle"><input type="checkbox" data-f="starred" ${S.f.starred ? "checked" : ""}> Starred only</label>
+        <label class="toggle"><input type="checkbox" data-f="unread" ${S.f.unread ? "checked" : ""}> Unread only</label></div>
+      ${activeFilterCount() ? `<button class="linkbtn" data-f="clear">Clear all filters (${activeFilterCount()})</button>` : ""}`;
+  }
+  function renderRail() {
+    const m = S.meta; const labels = m.labels.subjects;
+    const { counts } = coverage();
+    const max = Math.max(1, ...Object.values(counts));
+    const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `
+      <button class="cov-row ${n === 0 ? "zero" : ""}" data-f="subject" data-v="${k}" data-tip="${esc(labels[k])}: ${n} ${n === 1 ? "story" : "stories"}${n === 0 ? " (blind spot)" : ""}">
+        <span class="cov-name">${n === 0 ? "⚠ " : ""}${esc(labels[k])}</span>
+        <span class="cov-track"><span class="cov-fill" style="width:${n ? Math.max(2, (100 * n) / max) : 0}%"></span></span>
+        <span class="cov-val">${n}</span></button>`).join("");
+    const watchCounts = {}; for (const s of briefingPool().filter((x) => passes(x, "watch"))) for (const w of s.watch) watchCounts[w] = (watchCounts[w] || 0) + 1;
+    const watch = Object.entries(m.labels.watch).map(([k, l]) => {
+      const n = watchCounts[k] || 0;
+      return `<div class="status ${n ? "ok" : "miss"}"><span class="ic" aria-hidden="true">${n ? "✓" : "!"}</span>
+        <button class="lbl" data-f="watch" data-v="${k}" aria-pressed="${S.f.watch === k}">${esc(l)}<small>${n ? `${n} ${n === 1 ? "story" : "stories"}${S.f.watch === k ? " · filtering" : ""}` : "Nothing found: worth a manual check"}</small></button></div>`;
+    }).join("");
+    $("#rail").innerHTML = `<section class="panel"><h3>Syllabus coverage <span class="sub">· stories per subject</span></h3><div class="cov-list">${rows}</div></section>
+      <section class="panel"><h3>Easy-miss watch</h3>${watch}</section>`;
+  }
+  function card(s) {
+    const mk = mark(s); const labels = S.meta.labels.subjects;
+    const open = S.openCards.has(s.id);
+    const srcs = s.sources || [];
+    const shown = open ? srcs : srcs.slice(0, 3);
+    const extra = (s.n_src || srcs.length) - shown.length;
+    return `<article class="card ${mk.read ? "read" : ""} ${open ? "open" : ""}" data-id="${s.id}">
+      <div class="card-top">
+        <div class="pills">
+          ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
+          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span>
+          ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
+          ${s.subjects.slice(0, 2).map((x) => `<span class="pill subj">${esc(labels[x] || x)}</span>`).join("")}
+          ${s.tags.slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
+          ${s.editorial ? '<span class="pill ed">Editorial</span>' : ""}
+        </div>
+        <div class="actions">
+          <button data-act="star" aria-pressed="${mk.starred}" aria-label="Star" title="Star for revision">${mk.starred ? ICON.starOn : ICON.star}</button>
+          <button data-act="read" aria-pressed="${mk.read}" aria-label="Mark read" title="${mk.read ? "Mark unread" : "Mark read"}">${ICON.check}</button>
+          <button data-act="note" aria-pressed="${!!mk.note}" aria-label="Note" title="Add a note">${ICON.note}</button>
+        </div>
+      </div>
+      <a class="title" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(s.title)}</a>
+      ${s.summary ? `<p class="summary">${esc(s.summary)}</p>` : ""}
+      <div class="srcline">
+        ${s.n_pub > 1 ? `<span class="cov">${s.n_pub} outlets</span>` : ""}
+        ${shown.map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}" title="${esc(x.t || "")}">${esc(x.p || "Source")}${x.s ? ` · ${esc(x.s)}` : ""}</a>`).join("")}
+        ${extra > 0 || (s.summary && s.summary.length > 160) ? `<button class="more" data-act="expand">${open ? "less" : extra > 0 ? `+${extra} more` : "more"}</button>` : ""}
+        <span>${esc(shortTime(srcs[0] && srcs[0].at ? srcs[0].at : s.last_seen))}</span>
+      </div>
+      ${S.noteOpen.has(s.id) || mk.note ? `<div class="note"><textarea data-act="notetext" placeholder="Your notes for revision…" aria-label="Note">${esc(mk.note)}</textarea></div>` : ""}
+    </article>`;
+  }
+  function renderList(list, opts = {}) {
+    if (!list.length) return `<div class="empty">${opts.empty || "Nothing matches these filters for this period."}${activeFilterCount() ? ' <br><button class="linkbtn" data-f="clear">Clear filters</button>' : ""}</div>`;
+    sortStories(list);
+    const perGroup = S.view === "day" ? 6 : 8;
+    if (S.groupBy === "none" || opts.flat) {
+      const key = "_all"; const lim = S.expanded.has(key) ? list.length : 60;
+      return `<div class="cards">${list.slice(0, lim).map(card).join("")}</div>${list.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${list.length}</button>` : ""}`;
+    }
+    const order = S.groupBy === "paper" ? [...PAPERS, "_other"] : [...Object.keys(S.meta.labels.subjects), "_other"];
+    const groups = new Map(order.map((k) => [k, []]));
+    for (const s of list) { const k = S.groupBy === "paper" ? (s.gs[0] || "_other") : (s.subjects[0] || "_other"); (groups.get(k) || groups.get("_other")).push(s); }
+    let html = "";
+    for (const [k, arr] of groups) {
+      if (!arr.length) continue;
+      const lim = S.expanded.has(k) ? arr.length : perGroup;
+      const label = k === "_other" ? "Other / unclassified" : S.groupBy === "paper" ? `${k}${S.meta.gs_papers[k] ? " · " + S.meta.gs_papers[k] : ""}` : S.meta.labels.subjects[k] || k;
+      html += `<section class="group"><div class="group-h"><h2>${esc(label)}</h2><span class="meta">${plural(arr.length, "story", "stories")}</span></div>
+        <div class="cards">${arr.slice(0, lim).map(card).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${esc(k)}">Show all ${arr.length}</button>` : ""}</section>`;
+    }
+    return html;
+  }
+  function toolbar(count) {
+    return `<div class="toolbar"><div class="left">${plural(count, "story", "stories")}</div>
+      <div class="right">
+        <label>Group <select data-ctl="group"><option value="subject" ${S.groupBy === "subject" ? "selected" : ""}>by subject</option><option value="paper" ${S.groupBy === "paper" ? "selected" : ""}>by GS paper</option><option value="none" ${S.groupBy === "none" ? "selected" : ""}>no grouping</option></select></label>
+        <label>Sort <select data-ctl="sort"><option value="score" ${S.sort === "score" ? "selected" : ""}>importance</option><option value="latest" ${S.sort === "latest" ? "selected" : ""}>latest</option></select></label>
+      </div></div>`;
+  }
+  function renderEverything() {
+    renderKpis(); renderSide(); renderRail();
+    const list = briefingPool().filter((s) => passes(s));
+    const eds = editorialPool().filter((s) => passes(s)).length;
+    $("#content").innerHTML = `<p class="legend-note">Everything reported in this period, graded and grouped (${plural(eds, "opinion piece")} included under their subjects' filters). The curated version is the <button class="linkbtn" data-tab-go="brief">Brief</button>.</p>` +
+      toolbar(list.length) + renderList(list, { empty: S.stories.length ? undefined : "No stories stored for this period yet." });
+  }
+
+  // ─────────────────────────── other tabs ───────────────────────────
+  async function renderStarred() {
+    const el = $("#content");
+    const ids = Object.entries(S.marks).filter(([, v]) => v.starred).map(([k]) => k);
+    const known = new Map(S.stories.concat(S.brief ? S.brief.stories : []).map((s) => [s.id, s]));
+    let list = ids.map((i) => known.get(i)).filter(Boolean);
+    if (!STATIC && list.length < ids.length) {
+      try { list = (await api.json("api/stories/by_ids", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) })).stories; } catch (e) { /* keep */ }
+    }
+    el.innerHTML = `<p class="legend-note">${plural(list.length, "starred story", "starred stories")} across all dates: your revision list.</p>` +
+      (list.length ? `<div class="cards">${sortStories(list).map(card).join("")}</div>` : '<div class="empty">Star (☆) any story to build your revision list. It lives here across days.</div>');
+  }
+  async function renderLibrary() {
+    const el = $("#content");
+    if (!S.library) { el.innerHTML = '<div class="loading">Loading your library…</div>'; S.library = await api.library(); }
+    if (!S.library.length) {
+      el.innerHTML = `<div class="empty"><b>Your library is empty.</b><br>Drop PDFs (Vision IAS / Drishti / ForumIAS monthly magazines, e-paper PDFs, class notes) into the <code>inbox/</code> folder. Every page gets indexed, GS-tagged and searchable here within one fetch cycle.</div>`;
+      return;
+    }
+    const list = S.library.filter((s) => !S.f.q || matchQ(s, S.f.q.toLowerCase()));
+    const byDoc = new Map();
+    for (const s of list) { const k = (s.sources[0] && s.sources[0].p) || "Document"; if (!byDoc.has(k)) byDoc.set(k, []); byDoc.get(k).push(s); }
+    el.innerHTML = `<p class="legend-note">${list.length} sections from ${byDoc.size} documents</p>` + [...byDoc].map(([doc, arr]) => {
+      const k = "lib:" + doc; const lim = S.expanded.has(k) ? arr.length : 8;
+      return `<section class="group"><div class="group-h"><h2>${esc(doc)}</h2><span class="meta">${arr.length} sections</span></div><div class="cards">${arr.slice(0, lim).map(card).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${esc(k)}">Show all ${arr.length}</button>` : ""}</section>`;
+    }).join("");
+  }
+  async function renderSources() {
+    const el = $("#content");
+    if (!S.sources) { el.innerHTML = '<div class="loading">Loading source health…</div>'; S.sources = await api.sources(); }
+    const rank = { down: 0, fallback: 1, ok: 2 };
+    const rows = S.sources.map((s) => {
+      const fallback = s.active_step > 0 || (s.using && s.chain[0] !== s.using);
+      return { ...s, state: !s.last_ok_at ? "down" : fallback ? "fallback" : "ok" };
+    }).sort((a, b) => rank[a.state] - rank[b.state] || (a.watchlist - b.watchlist) || a.name.localeCompare(b.name));
+    const n = { ok: 0, fallback: 0, down: 0 }; rows.forEach((r) => n[r.state]++);
+    el.innerHTML = `<p class="legend-note"><b>${rows.length} sources</b> · <span class="badge">${n.ok} healthy</span> · <span class="badge fallback">${n.fallback} running on a fallback</span> · <span class="badge down">${n.down} not fetched yet / down</span><br>
+      Every source has a fallback chain (direct feed → alternate URL → Google News <code>site:</code> → headless browser). When a step breaks, the next one takes over automatically and the primary is re-tried every few hours.</p>
+      <div class="panel tablewrap"><table class="srctable"><thead><tr><th>Source</th><th>Status</th><th>Chain</th><th class="num">Last</th><th class="num">Total</th><th>Last OK</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td><b>${esc(r.name)}</b>${r.section ? ` · ${esc(r.section)}` : ""}${r.private ? " 🔒" : ""}<br><small style="color:var(--muted)">${esc(r.tier)} · every ${r.interval} min</small></td>
+        <td><span class="badge ${r.state === "ok" ? "" : r.state}">${r.state === "ok" ? "OK" : r.state === "fallback" ? `Fallback: ${esc(r.using)}` : "Down"}</span>${r.last_error ? `<div class="err">${esc(r.last_error).slice(0, 120)}</div>` : ""}</td>
+        <td><small>${r.chain.map((c, i) => (i === r.active_step ? `<b>${esc(c)}</b>` : esc(c))).join(" → ")}</small></td>
+        <td class="num">${r.last_count}</td><td class="num">${r.total_items}</td><td>${esc(ago(r.last_ok_at))}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+  function renderSearch() {
+    const list = S.search.stories;
+    $("#content").innerHTML = `<div class="searchnote"><span>All-time results for “${esc(S.search.q)}”: ${list.length}</span><button class="linkbtn" data-act="clearsearch">Clear search</button></div>` +
+      (list.length ? `<div class="cards">${list.map(card).join("")}</div>` : '<div class="empty">No matches in the archive.</div>');
+  }
+
+  function renderAll() {
+    renderPeriod(); renderLive(); renderTabs(); setLayout();
+    if (S.search) return renderSearch();
+    if (S.tab === "brief") return renderBrief();
+    if (S.tab === "editorials") return renderEditorialsTab();
+    if (S.tab === "videos") return renderVideosTab();
+    if (S.tab === "everything") return renderEverything();
+    if (S.tab === "starred") return renderStarred();
+    if (S.tab === "library") return renderLibrary();
+    if (S.tab === "sources") return renderSources();
+  }
+
+  // ─────────────────────────── loading & live updates ───────────────────────────
+  function syncHash() {
+    const h = `#${S.view}/${S.anchor}${S.tab !== "brief" ? "/" + S.tab : ""}`;
+    try { if (location.hash !== h) history.replaceState(null, "", h); } catch (e) { /* sandboxed frame */ }
+  }
+  function readHash() {
+    const m = location.hash.match(/^#(day|week|month)\/(\d{4}-\d{2}-\d{2})(?:\/(\w+))?/);
+    if (m) { S.view = m[1]; S.anchor = m[2]; if (m[3]) S.tab = m[3]; }
+  }
+  async function loadBrief(force = false) {
+    const [from, to] = periodRange(S.view, S.anchor);
+    const key = `${from}|${to}`;
+    if (!force && key === S.briefKey && S.brief) return;
+    S.brief = await api.brief(from, to, force);
+    S.briefKey = key;
+    S.briefById = new Map(S.brief.stories.map((s) => [s.id, s]));
+  }
+  async function loadStories(force = false) {
+    const [from, to] = periodRange(S.view, S.anchor);
+    const key = `${from}|${to}|${S.f.low}`;
+    if (!force && key === S.loadedKey) return;
+    S.stories = await api.stories(from, to, S.f.low);
+    S.loadedKey = key; S.loadedAt = S.serverStamp || new Date().toISOString(); S.pending = [];
+  }
+  async function go(patch = {}) {
+    Object.assign(S, patch);
+    S.expanded.clear(); S.search = null;
+    syncHash(); renderPeriod();
+    if (!S.brief || S.briefKey !== periodRange(S.view, S.anchor).join("|")) $("#content").innerHTML = '<div class="loading">Loading…</div>';
+    try {
+      await loadBrief();
+      if (S.tab === "everything") await loadStories();
+    } catch (e) { $("#content").innerHTML = `<div class="empty">Could not load (${esc(e.message)}).</div>`; return; }
+    renderAll();
+    window.scrollTo({ top: 0 });
+  }
+
+  async function poll() {
+    try {
+      S.meta = await api.meta(); renderLive();
+      const stamp = STATIC ? S.meta.built_at : S.meta.last_run && S.meta.last_run.finished_at;
+      if (!stamp || stamp === S.lastRunSeen) return;
+      S.lastRunSeen = stamp; S.sources = null;
+      const [from, to] = periodRange(S.view, S.anchor);
+      if (to < addDays(todayIST(), -1)) return; // viewing the past: nothing new will land
+      const before = new Set(S.brief ? S.brief.stories.map((s) => s.id) : []);
+      const fresh = await api.brief(from, to, true);
+      const added = fresh.stories.filter((s) => !before.has(s.id));
+      S.pendingBrief = fresh;
+      if (S.tab === "everything") {
+        const more = await api.stories(from, to, S.f.low, STATIC ? "static" : S.loadedAt);
+        const have = new Map(S.stories.map((s) => [s.id, s]));
+        for (const s of more) { if (have.has(s.id)) Object.assign(have.get(s.id), s); else if (!S.pending.some((p) => p.id === s.id)) S.pending.push(s); }
+        S.loadedAt = S.serverStamp || S.loadedAt;
+      }
+      const n = added.length + S.pending.filter((s) => s.grade !== "LOW").length;
+      if (n) { const b = $("#newbanner"); b.innerHTML = `<span class="dot"></span>${plural(n, "new story", "new stories")}: show`; b.hidden = false; }
+      else applyPending(false);
+    } catch (e) { /* offline: try again next tick */ }
+  }
+  function applyPending(scroll = true) {
+    if (S.pendingBrief) {
+      const before = new Set(S.brief ? S.brief.stories.map((s) => s.id) : []);
+      S.brief = S.pendingBrief; S.pendingBrief = null;
+      S.briefById = new Map(S.brief.stories.map((s) => [s.id, s]));
+      if (before.size) for (const s of S.brief.stories) if (!before.has(s.id)) S.freshIds.add(s.id);
+    }
+    for (const s of S.pending) { S.stories.push(s); S.freshIds.add(s.id); }
+    S.pending = []; $("#newbanner").hidden = true; renderAll();
+    if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // ─────────────────────────── export ───────────────────────────
+  function exportMarkdown() {
+    const labels = S.meta.labels.subjects;
+    let md = `# UPSC Intel · ${periodLabel(S.view, S.anchor)}\n\n_exported ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST_\n`;
+    const block = (s) => {
+      const e = s.explain || {};
+      let out = `\n### ${e.headline || s.title}\n\`${s.grade}\` ${s.gs.join(" ")}${s.tags.length ? " · " + s.tags.join(", ") : ""}${S.view !== "day" && s._day ? " · " + s._day : ""}\n\n`;
+      if (e.why_in_news) out += `- **Why in news:** ${e.why_in_news}\n`;
+      if (e.what) out += `- **What happened:** ${e.what}\n`;
+      if (e.background) out += `- **Background:** ${e.background}\n`;
+      (e.significance || []).forEach((x) => { out += `- **Why it matters:** ${x}\n`; });
+      (e.prelims || []).forEach((x) => { out += `- **Prelims:** ${x}\n`; });
+      if (e.mains) out += `- **Mains:** ${e.mains}\n`;
+      if (mark(s).note) out += `- **My note:** ${mark(s).note.replace(/\n/g, " ")}\n`;
+      if (s.video && s.video.id) out += `- **Video:** [${s.video.title}](${s.video.url})\n`;
+      const src = (s.sources || []).filter((x) => /^https?:/.test(x.u || "")).slice(0, 3).map((x) => `[${x.p}](${x.u})`).join(" · ");
+      if (src) out += `- ${src}\n`;
+      return out;
+    };
+    if (BRIEF_TABS.has(S.tab) && S.brief) {
+      const news = briefList("news").filter(briefPasses);
+      const groups = new Map();
+      for (const s of news) { const k = labels[s.subjects[0]] || "Other"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); }
+      for (const [k, arr] of groups) md += `\n## ${k}\n` + arr.map(block).join("");
+      const eds = briefList("editorials").filter(briefPasses);
+      if (eds.length) md += `\n## Editorials\n` + eds.map(block).join("");
+    } else {
+      for (const s of sortStories(briefingPool().filter((x) => passes(x)))) md += `\n- **${s.title}** \`${s.grade}\` ${s.gs.join(" ")} · [${(s.sources[0] || {}).p || "source"}](${s.url})`;
+    }
+    const blob = new Blob([md], { type: "text/markdown" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `upsc-${S.view}-${periodRange(S.view, S.anchor)[0]}-${S.tab}.md`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  // ─────────────────────────── events ───────────────────────────
+  function toggleSet(set, v) { set.has(v) ? set.delete(v) : set.add(v); }
+  function closeDrawer() { $("#side").classList.remove("open"); $("#scrim").hidden = true; }
+  const findStory = (id) => S.briefById.get(id) || S.stories.find((s) => s.id === id) || (S.search && S.search.stories.find((s) => s.id === id)) || (S.library || []).find((s) => s.id === id);
+  function refreshProgress() {
+    const prog = $(".bhero .progress"); if (!prog) return;
+    const list = S.tab === "editorials" ? briefList("editorials").filter(briefPasses) : briefList("news").concat(briefList("editorials")).filter(briefPasses);
+    prog.outerHTML = progress(list);
+  }
+  function rerenderCard(el) {
+    const s = findStory(el.dataset.id); if (!s) return;
+    if (el.classList.contains("bcard")) {
+      el.outerHTML = bcard(s, { compact: el.classList.contains("compact"), rank: el.dataset.rank ? Number(el.dataset.rank) : null, day: el.dataset.day || null, showSubject: !!el.dataset.subj });
+      refreshProgress();
+    } else el.outerHTML = card(s);
+  }
+  function onFilterClick(t) {
+    const f = t.dataset.f; const v = t.dataset.v;
+    if (f === "gs") toggleSet(S.f.gs, v);
+    else if (f === "grade") { toggleSet(S.f.grades, v); if (!S.f.grades.size) S.f.grades.add(v); }
+    else if (f === "subject") toggleSet(S.f.subjects, v);
+    else if (f === "tier") toggleSet(S.f.tiers, v);
+    else if (f === "watch") S.f.watch = S.f.watch === v ? null : v;
+    else if (f === "clear") { S.f.gs.clear(); S.f.subjects.clear(); S.f.tiers.clear(); S.f.grades = new Set(GRADES); S.f.watch = null; S.f.starred = false; S.f.unread = false; if (S.f.low) { S.f.low = false; S.loadedKey = ""; return go(); } }
+    else return;
+    S.expanded.clear(); renderAll();
+  }
+  async function switchTab(tab) {
+    S.tab = tab; S.search = null; S.expanded.clear(); syncHash();
+    if (tab === "everything") { $("#content").innerHTML = '<div class="loading">Loading everything…</div>'; await loadStories(); }
+    renderAll(); window.scrollTo({ top: 0 });
+  }
+
+  document.addEventListener("click", async (e) => {
+    const t = e.target.closest("button, a, rect.hit");
+    if (!t) return;
+    if (t.matches("[data-view]")) return go({ view: t.dataset.view });
+    if (t.id === "prev") return go({ anchor: stepAnchor(S.view, S.anchor, -1) });
+    if (t.id === "next") return go({ anchor: stepAnchor(S.view, S.anchor, 1) });
+    if (t.id === "todayBtn") return go({ view: "day", anchor: todayIST() });
+    if (t.id === "themeBtn") {
+      const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
+        (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+      const next = dark ? "light" : "dark"; document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("upsc-theme", next); } catch (err) { /* ignore */ }
+      return;
+    }
+    if (t.id === "exportBtn") return exportMarkdown();
+    if (t.id === "newbanner") return applyPending();
+    if (t.id === "filtersBtn") { $("#side").classList.add("open"); $("#scrim").hidden = false; return; }
+    if (t.id === "refreshBtn") {
+      if (STATIC) { await poll(); return go(); }
+      t.disabled = true;
+      try { await api.refresh(); S.meta.running = true; renderLive(); } catch (err) { /* ignore */ }
+      const wait = setInterval(async () => {
+        await poll();
+        if (!S.meta.running) { clearInterval(wait); t.disabled = false; applyPending(false); }
+      }, 5000);
+      return;
+    }
+    if (t.matches("rect.hit[data-day]")) return go({ view: "day", anchor: t.dataset.day });
+    if (t.dataset.tab) return switchTab(t.dataset.tab);
+    if (t.dataset.tabGo) return switchTab(t.dataset.tabGo);
+    if (t.dataset.jump) { const target = document.getElementById(t.dataset.jump); if (target) target.scrollIntoView({ behavior: "smooth", block: "start" }); closeDrawer(); return; }
+    if (t.dataset.openCard) {
+      S.openCards.add(t.dataset.openCard); await switchTab("brief");
+      const c = $(`.bcard[data-id="${t.dataset.openCard}"]`); if (c) c.scrollIntoView({ block: "center" });
+      return;
+    }
+    if (t.dataset.f) { onFilterClick(t); return; }
+    if (t.dataset.expand) { S.expanded.add(t.dataset.expand); return renderAll(); }
+    if (t.dataset.act === "clearsearch") { S.search = null; $("#q").value = ""; S.f.q = ""; return renderAll(); }
+    if (t.dataset.open) {
+      const id = t.dataset.open;
+      if (!mark({ id }).read && !t.closest(".bcard")) { api.setMark(id, { read: true }); const c = t.closest(".card"); if (c) c.classList.add("read"); }
+      return; // let the link open
+    }
+    const cardEl = t.closest(".card, .bcard"); if (!cardEl) return;
+    const id = cardEl.dataset.id;
+    if (t.dataset.act === "toggle" || t.dataset.act === "expand") { toggleSet(S.openCards, id); rerenderCard(cardEl); }
+    else if (t.dataset.act === "star") { await api.setMark(id, { starred: !mark({ id }).starred }); renderTabs(); rerenderCard(cardEl); }
+    else if (t.dataset.act === "read") { await api.setMark(id, { read: !mark({ id }).read }); rerenderCard(cardEl); }
+    else if (t.dataset.act === "note") {
+      toggleSet(S.noteOpen, id); S.openCards.add(id); rerenderCard(cardEl);
+      const ta = $(`[data-id="${id}"] textarea`); if (ta) ta.focus();
+    }
+  });
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.f === "low") { S.f.low = t.checked; S.loadedKey = ""; return go(); }
+    if (t.dataset.f === "starred") { S.f.starred = t.checked; return renderAll(); }
+    if (t.dataset.f === "unread") { S.f.unread = t.checked; return renderAll(); }
+    if (t.dataset.ctl === "group") { S.groupBy = t.value; store.set("upsc-groupby", S.groupBy); S.expanded.clear(); return renderAll(); }
+    if (t.dataset.ctl === "sort") { S.sort = t.value; store.set("upsc-sort", S.sort); return renderAll(); }
+  });
+  document.addEventListener("input", debounce((e) => {
+    const t = e.target;
+    if (t.id === "q") { S.f.q = t.value.trim(); if (!S.f.q) S.search = null; renderAll(); }
+    if (t.dataset.act === "notetext") { const id = t.closest("[data-id]").dataset.id; api.setMark(id, { note: t.value }); }
+  }, 250));
+  $("#q").addEventListener("keydown", async (e) => {
+    if (e.key === "Enter" && e.target.value.trim().length >= 2) {
+      const q = e.target.value.trim();
+      $("#content").innerHTML = '<div class="loading">Searching the whole archive…</div>';
+      try { S.search = { q, stories: await api.search(q) }; } catch (err) { S.search = { q, stories: [] }; }
+      S.f.q = ""; renderAll();
+    }
+    if (e.key === "Escape") { e.target.value = ""; S.f.q = ""; S.search = null; renderAll(); e.target.blur(); }
+  });
+  $("#scrim").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+    if (e.target.matches("input, textarea, select")) return;
+    if (e.key === "/") { e.preventDefault(); $("#q").focus(); }
+    else if (e.key === "t") go({ view: "day", anchor: todayIST() });
+    else if (e.key === "[" || e.key === "ArrowLeft") go({ anchor: stepAnchor(S.view, S.anchor, -1) });
+    else if ((e.key === "]" || e.key === "ArrowRight") && !$("#next").disabled) go({ anchor: stepAnchor(S.view, S.anchor, 1) });
+    else if (e.key === "d" || e.key === "w" || e.key === "m") go({ view: { d: "day", w: "week", m: "month" }[e.key] });
+  });
+  const tip = $("#tooltip");
+  document.addEventListener("mousemove", (e) => {
+    const t = e.target.closest && e.target.closest("[data-tip]");
+    if (!t) { tip.hidden = true; return; }
+    tip.textContent = t.dataset.tip; tip.hidden = false;
+    tip.style.left = `${Math.min(e.clientX + 12, window.innerWidth - tip.offsetWidth - 8)}px`; tip.style.top = `${e.clientY + 14}px`;
+  });
+  window.addEventListener("hashchange", () => { readHash(); go(); });
+
+  // ─────────────────────────── boot ───────────────────────────
+  async function boot() {
+    readHash();
+    if (STATIC) $("#refreshBtn").title = "Reload the latest hourly build";
+    if (SNAPSHOT) { $("#refreshBtn").hidden = true; $("#exportBtn").hidden = true; }
+    try { [S.meta, S.marks] = await Promise.all([api.meta(), api.marks()]); }
+    catch (e) { $("#content").innerHTML = `<div class="empty">Could not reach the data (${esc(e.message)}). Is the server running?</div>`; return; }
+    S.lastRunSeen = STATIC ? S.meta.built_at : (S.meta.last_run && S.meta.last_run.finished_at) || "none";
+    await go();
+    if (!SNAPSHOT) setInterval(poll, POLL_MS);
+    setInterval(renderLive, 30000);
+  }
+  boot();
+})();

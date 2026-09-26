@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UPSC Intel</title>
+  <meta name="description" content="Live UPSC current-affairs dashboard: every source, tagged by GS paper, by day, week and month.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232a78d6'/%3E%3Ctext x='16' y='21' font-family='system-ui,sans-serif' font-size='13' font-weight='800' fill='white' text-anchor='middle'%3EUI%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="static/styles.css">
+  <script>
+    try { var t = localStorage.getItem("upsc-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
+  <!--STATIC_FLAG-->
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">UI</div>
+        <div>
+          <div class="brand-name">UPSC Intel</div>
+          <div class="live" id="live"><span class="live-dot idle"></span><span class="txt">Connecting…</span></div>
+        </div>
+      </div>
+
+      <div class="period">
+        <div class="seg" role="group" aria-label="Period">
+          <button data-view="day" aria-pressed="true">Day</button>
+          <button data-view="week" aria-pressed="false">Week</button>
+          <button data-view="month" aria-pressed="false">Month</button>
+        </div>
+        <div class="datenav">
+          <button class="iconbtn" id="prev" aria-label="Previous period">‹</button>
+          <div class="period-label" id="periodLabel">…</div>
+          <button class="iconbtn" id="next" aria-label="Next period">›</button>
+          <button class="iconbtn" id="todayBtn">Today</button>
+        </div>
+      </div>
+
+      <div class="tools">
+        <button class="btn only-mobile" id="filtersBtn" aria-label="Filters">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+        </button>
+        <label class="search">
+          <span class="sr-only">Search</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="Search  ( / )" autocomplete="off">
+        </label>
+        <button class="btn" id="refreshBtn" title="Fetch every source now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          <span class="txt">Refresh</span>
+        </button>
+        <button class="btn" id="exportBtn" title="Download this view as Markdown notes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg>
+          <span class="txt">Export</span>
+        </button>
+        <button class="btn" id="themeBtn" aria-label="Toggle dark mode">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+    <section class="kpis" id="kpis" aria-label="Summary"></section>
+    <div class="layout" id="layout">
+      <aside class="panel side" id="side" aria-label="Filters"></aside>
+      <section id="main" aria-live="polite">
+        <div id="content"><div class="loading">Loading today's brief…</div></div>
+      </section>
+      <aside class="rail" id="rail" aria-label="Coverage"></aside>
+    </div>
+  </main>
+
+  <button class="newbanner" id="newbanner" hidden></button>
+  <div class="tooltip" id="tooltip" role="status" hidden></div>
+  <div class="scrim" id="scrim" hidden></div>
+  <script src="static/app.js" defer></script>
+</body>
+</html>
