@@ -100,6 +100,17 @@ Week and Month views recap everything the daily briefs covered.
   - Top 10 / Top 15
   - everything the daily briefs covered, grouped by subject and dated
 - **Progress tracking:** tick **Mark done** on each card, and the bar at the top shows how much of the day's brief you've finished. Stars and notes build your revision list.
+- **Ask bot:** an **Ask** button on every brief card and list line, plus a floating **Ask** button for the whole day.
+  - **About a story:**
+    - summary, the 5 Ws, why it matters (GS paper and syllabus), Prelims pointers, a Mains practice question
+    - what each outlet wrote, related stories, videos
+    - background on any term: "What is AFSPA?" pulls the Wikipedia summary with a link
+    - free questions, answered by quoting the report sentences that match, each labelled with its outlet
+  - **About the day:** top stories, one GS paper or subject, or a topic search ("RBI", "Manipur").
+  - **Limits:**
+    - It never makes things up. When the reports don't say, it says so and offers Wikipedia or a news search.
+    - It runs in your browser with no key and no server. Only the Wikipedia lookups leave the page.
+    - It is a retrieval bot, not a chatbot. It quotes and organises what the outlets published, and doesn't write new analysis.
 - **Everything tab:** the full graded firehose, with:
   - filters (paper, subject, grade, source type)
   - the syllabus-coverage radar
@@ -244,7 +255,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 148 tests
+python -m pytest                        # 149 tests
 ```
 
 ## AI explainers (recommended)

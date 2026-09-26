@@ -181,6 +181,8 @@ def five_w(text: str, story: dict, clf=None) -> dict:
 
 
 CUT_MIN = 140
+# a short line ending on a function word is a feed excerpt cut mid-sentence ("Mining is an important source of…")
+_DANGLING = re.compile(r"\b(of|the|a|an|to|and|or|in|for|with|on|at|by|from|as|is|are|was|were|that|which|its|their|has|have)$", re.I)
 
 
 def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -> dict:
@@ -193,6 +195,7 @@ def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -
     sents = [_LABEL.sub("", _SYLLABUS.sub("", s)) for s in _sentences(summary) if not _FURNITURE.search(s)]
     sents = [s for s in sents if s and s.lower() != title.lower() and not title.lower().startswith(s.lower()[:60])]
     sents = _dedupe(sents)
+    sents = [x for x in sents if len(x) >= CUT_MIN or not _DANGLING.search(x.rstrip(" ,;:-–.…"))]
     # a long line without an end mark is a feed excerpt cut mid-sentence; a short one is a standfirst
     if sents and len(sents[-1]) >= CUT_MIN and not re.search(r"[.!?\"”’)]$", sents[-1]):
         sents[-1] += "…"
