@@ -1,6 +1,6 @@
 """End-to-end: fake sources → run_fetch → stories, fallback switching, API, static export."""
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -192,6 +192,39 @@ def test_static_export_excludes_private(settings, db, fake_env, tmp_path):
     briefs = "".join((out / "data" / f"brief-{m}.json").read_text() for m in meta["months"])
     assert "Ramsar" in briefs and "explain" in briefs and '"explained":["' in briefs
     assert "Premium explainer" not in briefs
+
+
+def test_archive_keeps_finished_months_forever(settings, db, fake_env, tmp_path):
+    """A finished month is frozen into the archive and stays on the site after the database pruned it."""
+    from upsc_intel.static_export import export_static
+
+    run_mod.run_fetch(settings, db, force=True)
+    old_day = (date.fromisoformat(NOW.date().isoformat()).replace(day=1) - timedelta(days=40)).isoformat()
+    old_month = old_day[:7]
+    db.x("UPDATE stories SET date_ist=?, first_seen=?, last_seen=? WHERE is_editorial=1", (old_day, old_day, old_day))
+    db.x("UPDATE story_dates SET date_ist=? WHERE story_id IN (SELECT id FROM stories WHERE is_editorial=1)", (old_day,))
+    db.x("UPDATE items SET date_ist=? WHERE is_editorial=1", (old_day,))
+    db.commit()
+    arch = tmp_path / "archive"
+    out = export_static(settings, db, tmp_path / "site1", days=90, archive=arch)
+    assert (arch / f"brief-{old_month}.json").is_file() and (arch / f"stories-{old_month}.json").is_file()
+    this_month = NOW.date().isoformat()[:7]
+    assert not (arch / f"brief-{this_month}.json").exists()  # the current month is still live
+    frozen = (arch / f"stories-{old_month}.json").read_text()
+    assert "sub-classification" in frozen
+
+    # the database forgets the old month; the site still has it, exactly as frozen
+    db.x("DELETE FROM items WHERE date_ist=?", (old_day,))
+    db.x("DELETE FROM stories WHERE date_ist=?", (old_day,))
+    db.commit()
+    out = export_static(settings, db, tmp_path / "site2", days=90, archive=arch)
+    meta = json.loads((out / "data" / "meta.json").read_text())
+    assert old_month in meta["months"] and this_month in meta["months"]
+    assert (out / "data" / f"stories-{old_month}.json").read_text() == frozen
+    assert old_day in meta["date_counts"]  # the calendar still marks the day
+    # private exports never write to the (public) archive
+    export_static(settings, db, tmp_path / "site3", days=90, archive=tmp_path / "arch2", include_private=True)
+    assert not (tmp_path / "arch2").exists()
 
 
 def test_export_labels_match_briefs_and_cli_checkpoints(settings, db, fake_env, tmp_path, monkeypatch):

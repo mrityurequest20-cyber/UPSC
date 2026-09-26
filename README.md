@@ -41,6 +41,7 @@ Week and Month views recap everything the daily briefs covered.
     - regulators' case-by-case paperwork (SEBI settlement orders, recovery certificates), tenders, and department housekeeping (memento e-auctions, cleanliness drives)
   - **Each piece appears once:** exam-prep sites often repost an op-ed or explainer under its original headline. Such a copy joins the original, so the brief doesn't carry the same article twice.
   - **Days follow IST (India time).** The site always opens on today. Just after midnight the new day is nearly empty and says so, with a link to yesterday's brief. The header shows the last update's time in IST.
+  - **Permanent archive:** three days after a month ends, its Briefs and stories are frozen as the site showed them and saved to the repository's `archive` branch. Every build publishes all archived months, so any past date stays one calendar tap away. The working database keeps only the last 45 days (`UPSC_KEEP_DAYS` in the workflow), so updates stay fast. Only public content is archived.
   - **Calendar:** tap the date in the header to pick any day. Days with news have a dot. Month and year menus jump anywhere at once, and the keyboard works too (arrows, Enter, Esc).
   - **Everything tab:** a story appears on every day it's in the news, but joins the brief once, on the day it was first reported. Every card says **"✓ In 26 Sep brief"** or why it isn't in the brief.
 - **A write-up on every brief story,** in the format coaching notes use:
@@ -216,7 +217,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 105 tests
+python -m pytest                        # 106 tests
 ```
 
 ## AI explainers (recommended)
