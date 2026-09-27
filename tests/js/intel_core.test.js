@@ -707,6 +707,30 @@ test("Dossiers: followed first and marked new; filter; the detail shows the stor
   assert.ok(C.dossierChips([{ k: "waqf", n: "Waqf <Act>" }]).includes('data-ds-open="waqf">Waqf &lt;Act&gt; ›'));
 });
 
+test("Intel bot on a dossier or an index: its summary is the story so far or the rank; the buttons show", async () => {
+  const tl = (id, day, title) => ({ id, day, title, url: `https://www.thehindu.com/${id}`, source: "The Hindu", grade: "NOTE", line: `${title}: more.`, card: true });
+  const d = { key: "waqf", name: "Waqf (Amendment) Act", first_day: "2026-09-17", last_day: "2026-09-27", n: 2, days: 2, fresh: true, gs: ["GS2"],
+    summary: { so_far: ["Passed on 17 Sep.", "SC reserved its verdict on 27 Sep."], upsc: ["GS2: Article 26."], watch: [], gs: ["GS2"], by: "m", day: "2026-09-27" },
+    timeline: [tl("w4", "2026-09-27", "SC reserves verdict"), tl("w1", "2026-09-17", "Lok Sabha passes the Bill")] };
+  const s = C.dossierStory(d);
+  assert.strictEqual(s.id, "ds:waqf"); assert.strictEqual(s.kind, "dossier"); assert.strictEqual(s.texts.length, 2);
+  assert.deepStrictEqual(s.digest.points, d.summary.so_far);
+  const bot = C.makeBot({});
+  const html = await bot.answer(s, "Summary");
+  assert.ok(html.includes("The story so far · 2 points") && html.includes("SC reserved its verdict on 27 Sep.") && html.includes("Written by Intel AI from the dossier"));
+  const noSum = C.dossierStory({ ...d, summary: null });
+  assert.ok(noSum.digest.points[0].includes("SC reserves verdict") && noSum.digest.note.includes("latest reports"), "no story so far yet: its headlines");
+  assert.ok(C.dossierHtml(d, { canAsk: true }).includes('data-ds-ask="waqf"') && !C.dossierHtml(d, {}).includes("data-ds-ask"));
+  const x = { key: "hunger", name: "Global Hunger Index", publisher: "Concern Worldwide", about: "Undernourishment and child mortality.", area: "society", better: "low",
+    latest: { edition: "2025", rank: 102, total: 127, previous: 105, score: "", why: ["Child wasting is high."], day: "2025-10-10", url: "https://www.ndtv.com/x", source: "NDTV" }, history: [] };
+  const r = C.rankStory(x);
+  assert.strictEqual(r.title, "India is 102nd of 127 in the Global Hunger Index (2025)");
+  assert.ok(r.digest.points.includes("What it measures: Undernourishment and child mortality.") && r.digest.points.includes("▲ Up 3 places from 105th.") && r.digest.points.includes("Child wasting is high."));
+  const rh = await bot.answer(r, "Summary");
+  assert.ok(rh.includes("Global Hunger Index · India") && rh.includes("From the report on NDTV"));
+  assert.ok(C.ranksHtml({ indices: [x] }).includes('data-rk-ask="hunger"'));
+});
+
 test("Places map: the period filters reports; India by state, the world by country", () => {
   const data = { to: "2026-09-27", stories: { a: { day: "2026-09-27" }, b: { day: "2026-09-24" }, c: { day: "2026-09-05" }, d: { day: "2026-09-26" } },
     places: [

@@ -262,7 +262,8 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("stories", "triage", "TEXT"),  # Gemini's verdict for the brief: {upsc 0-3, subject, gs, prelims, why, t}
     ("stories", "terms", "TEXT"),  # the card's glossary keys (pipeline/glossary.py); [] when it has none
     ("stories", "ranking", "TEXT"),  # read for India's rank (pipeline/rankings.py): {key, rank}, or {} when it has none
-    ("stories", "extras", "TEXT"),  # the card's places and running topics (pipeline/glossary.py): {places: [keys], topics: [keys]}
+    ("stories", "extras", "TEXT"),
+    ("topics", "seed", "INTEGER DEFAULT 0"),  # a long-running issue listed in config/dossiers.yaml (pipeline/dossiers.py)  # the card's places and running topics (pipeline/glossary.py): {places: [keys], topics: [keys]}
 ]
 
 

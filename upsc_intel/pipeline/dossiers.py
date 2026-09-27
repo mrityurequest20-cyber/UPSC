@@ -1,12 +1,13 @@
 """Dossiers: the running stories of the news (India–Canada relations, the Waqf Act, Manipur…), each with its timeline
 and a "story so far", and the places-in-news map's data.
 
-The running topics come with the cards' study extras (pipeline/glossary.py: Gemini names the ongoing issue each card
-belongs to, reusing a known topic's name, with a few search words). A topic's timeline is its tagged stories plus the
-stories whose headline carries its search words (full-text search over everything stored), from the last WINDOW_DAYS:
-never a private or library story, and a matched story only when it is worth reading (Gemini's 2-3, or the rules'
-NOTE/SKIM). A topic becomes a dossier once its timeline has MIN_STORIES stories on MIN_DAYS days; the dossiers in the
-news in the last LIVE_DAYS are shown, the latest first.
+The running topics come from two places: the long-running issues listed in config/dossiers.yaml (the seeds: no AI
+needed), and the cards' study extras (pipeline/glossary.py: Gemini names the ongoing issue each card belongs to,
+reusing a known topic's name, with a few search words). A topic's timeline is its tagged stories plus the stories whose
+headline carries all its search words (full-text search over everything stored), from the last WINDOW_DAYS: never a
+private or library story, and a matched story only when it is worth reading (Gemini's 2-3, or the rules' NOTE/SKIM).
+A topic becomes a dossier once its timeline has MIN_STORIES stories on MIN_DAYS days, the latest in the last LIVE_DAYS;
+two dossiers that share most of their reports are one (the bigger stays). The latest in the news show first.
 
 The story so far (a few points in order, the UPSC angle, what to watch) is written by Gemini from the timeline's dated
 headlines and key lines, again only when the timeline has changed (topics.sig), and at most every REWRITE_HOURS:
@@ -21,16 +22,22 @@ import re
 import time
 from datetime import date, datetime, timedelta, timezone
 
+from pathlib import Path
+
+import yaml
+
 from ..config import Settings
 from ..db import DB, iso
 from .enrich import GEMINI_PAUSE, Gemini, GeminiStop
+from .glossary import topic_key
 from .normalize import today_ist
 
 log = logging.getLogger("upsc_intel.dossiers")
 
 WINDOW_DAYS = 45   # a timeline reaches back this far
 LIVE_DAYS = 30     # a dossier in the news this recently is shown
-MAX_DOSSIERS = 40
+MAX_DOSSIERS = 50
+OVERLAP = 0.6      # two dossiers sharing this share of the smaller one's reports are the same story
 MAX_ITEMS = 25     # timeline entries kept (the latest)
 MIN_STORIES, MIN_DAYS = 2, 2
 MAX_CALLS = 2
@@ -93,8 +100,24 @@ def gist(row) -> str:
     return _clip(line, LINE_CHARS)
 
 
+def load_seeds(settings: Settings) -> list[dict]:
+    """The long-running issues of config/dossiers.yaml: [{key, name, query, gs}]."""
+    p = Path(settings.config_dir) / "dossiers.yaml"
+    items = ((yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("topics") or []) if p.is_file() else []
+    return [{"key": topic_key(x["name"]), "name": x["name"], "query": x["query"], "gs": x.get("gs") or []}
+            for x in items if x.get("name") and x.get("query")]
+
+
+def sync_seeds(db: DB, seeds: list[dict]) -> None:
+    """The seeds in the topics table (a Gemini topic of the same name becomes the seed, with the listed search words)."""
+    for x in seeds:
+        db.x("INSERT INTO topics (key, name, query, n, seed) VALUES (?,?,?,0,1) ON CONFLICT(key) DO UPDATE SET "
+             "name=excluded.name, query=excluded.query, seed=1", (x["key"], x["name"], x["query"]))
+    db.commit()
+
+
 def _words(query: str) -> list[str]:
-    return [w.lower() for w in re.findall(r"[\w'’-]+", query or "") if len(w) >= 3]
+    return [w.lower() for w in re.findall(r"[\w'’]+", query or "") if len(w) >= 2]  # "EU" counts
 
 
 def timeline(db: DB, topic: dict, today: str, ai_on: bool) -> list[dict]:
@@ -121,14 +144,19 @@ def timeline(db: DB, topic: dict, today: str, ai_on: bool) -> list[dict]:
     for r in rows:
         if r["id"] not in tagged:
             title = (r["title"] or "").lower()
-            if not any(re.search(rf"\b{re.escape(w)}", title) for w in words) or not worth(r, ai_on):
+            if not all(re.search(rf"\b{re.escape(w)}", title) for w in words) or not worth(r, ai_on):
                 continue
         pubs = _load(r["publishers"]) or []
         out.append({"id": r["id"], "day": r["date_ist"], "title": r["title"], "url": r["url"], "source": pubs[0] if pubs else "",
                     "grade": grade_of(r, ai_on),
                     "line": gist(r), "tagged": r["id"] in tagged, "card": r["id"] in cards})
     out.sort(key=lambda x: (x["day"], x["tagged"]), reverse=True)
-    return out[:MAX_ITEMS]
+    seen, uniq = set(), []
+    for x in out:  # a report republished under the same headline counts once
+        k = re.sub(r"\W+", " ", (x["title"] or "").lower()).strip()[:90]
+        if k not in seen:
+            seen.add(k); uniq.append(x)
+    return uniq[:MAX_ITEMS]
 
 
 def is_dossier(items: list[dict]) -> bool:
@@ -141,7 +169,25 @@ def signature(items: list[dict]) -> str:
 
 def live_topics(db: DB, today: str) -> list[dict]:
     since = (date.fromisoformat(today) - timedelta(days=LIVE_DAYS)).isoformat()
-    return [dict(r) for r in db.q("SELECT * FROM topics WHERE last_day >= ? ORDER BY last_day DESC, n DESC LIMIT 120", (since,))]
+    return [dict(r) for r in db.q("SELECT * FROM topics WHERE last_day >= ? OR seed = 1 ORDER BY last_day DESC, n DESC LIMIT 200", (since,))]
+
+
+def candidates(settings: Settings, db: DB, today: str, ai_on: bool) -> list[tuple[dict, list[dict]]]:
+    """The dossiers: [(topic, timeline)], the latest in the news first (see the module doc)."""
+    sync_seeds(db, load_seeds(settings))
+    since = (date.fromisoformat(today) - timedelta(days=LIVE_DAYS)).isoformat()
+    found = []
+    for t in live_topics(db, today):
+        items = timeline(db, t, today, ai_on)
+        if is_dossier(items) and items[0]["day"] >= since:
+            found.append((t, items))
+    kept: list[tuple[dict, list[dict], set]] = []
+    for t, items in sorted(found, key=lambda x: -len(x[1])):  # the bigger of two of the same story stays
+        ids = {x["id"] for x in items}
+        if not any(len(ids & k) >= OVERLAP * min(len(ids), len(k)) for _, _, k in kept):
+            kept.append((t, items, ids))
+    kept.sort(key=lambda x: (x[1][0]["day"], len(x[1])), reverse=True)
+    return [(t, items) for t, items, _ in kept[:MAX_DOSSIERS]]
 
 
 def _points(xs, n: int, chars: int = 240) -> list[str]:
@@ -156,10 +202,7 @@ def build_dossiers(settings: Settings, db: DB, today: str | None = None, http=No
     ai_on = (settings.ai_triage or "").lower() == "on"
     stale = iso(datetime.now(timezone.utc) - timedelta(hours=REWRITE_HOURS))
     todo, n = [], 0
-    for t in live_topics(db, today):
-        items = timeline(db, t, today, ai_on)
-        if not is_dossier(items):
-            continue
+    for t, items in candidates(settings, db, today, ai_on):
         n += 1
         sig = signature(items)
         if sig != t["sig"]:
@@ -214,17 +257,14 @@ def dossiers_payload(settings: Settings, db: DB, today: str | None = None) -> di
     """The dossiers for the pages (data/dossiers.json): the latest in the news first, each with its timeline."""
     today = today or today_ist()
     ai_on = (settings.ai_triage or "").lower() == "on"
+    gs = {x["key"]: x["gs"] for x in load_seeds(settings)}
     out = []
-    for t in live_topics(db, today):
-        items = timeline(db, t, today, ai_on)
-        if not is_dossier(items):
-            continue
+    for t, items in candidates(settings, db, today, ai_on):
+        summary = _load(t["summary"]) or None
         out.append({"key": t["key"], "name": t["name"], "first_day": items[-1]["day"], "last_day": items[0]["day"],
-                    "n": len(items), "days": len({x["day"] for x in items}), "summary": _load(t["summary"]) or None,
+                    "n": len(items), "days": len({x["day"] for x in items}), "summary": summary,
+                    "gs": (summary or {}).get("gs") or gs.get(t["key"]) or [], "seed": bool(t.get("seed")),
                     "fresh": t["summarized_sig"] == signature(items), "timeline": items})
-        if len(out) >= MAX_DOSSIERS:
-            break
-    out.sort(key=lambda d: (d["last_day"], d["n"]), reverse=True)
     return {"generated_at": iso(datetime.now(timezone.utc)), "dossiers": out}
 
 

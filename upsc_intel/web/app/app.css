@@ -790,3 +790,7 @@ button.gl:hover, button.gl[aria-expanded="true"] { color: var(--accent-strong); 
 .segrow { padding: 2px 16px 12px; overflow-x: auto; }
 .seg.scroll { display: inline-flex; gap: 2px; min-width: max-content; }
 .seg.scroll button { white-space: nowrap; padding: 7px 12px; }
+/* Ask Intel on a dossier or an index */
+.ask-intel { display: inline-flex; align-items: center; gap: 7px; align-self: flex-start; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-soft-ink); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.ds-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.ds-one .ds-top .ds-acts .ds-follow { margin-top: 0; }

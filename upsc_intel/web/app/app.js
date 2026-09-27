@@ -847,6 +847,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
   }
   const RK = { data: null };  // India's Ranks, loaded once a visit
   const DS = { data: null }; const MP = { data: null };  // dossiers and the places map, loaded once a visit
+  const askIntel = (s) => { A.cache.set(s.id, s); openBot({ kind: "story", id: s.id }); };  // a dossier or an index, as a story
   const dataUrl = (file, route) => (STATIC ? `../data/${file}?v=${api.stamp()}` : `../api/${route}`);
   async function openInBrief(id, day) {  // a dossier's or the map's report, in its day's brief
     A.tab = "brief"; await goDay(day || A.day);
@@ -857,12 +858,12 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const html = A.tab === "read" ? renderRead() : A.tab === "insights" ? renderInsights() : A.tab === "review" ? renderReview() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
     if (A.tab === "read" && A.readSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
-      CORE.mountRanks($("#rkRoot"), { load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
+      CORE.mountRanks($("#rkRoot"), { ask: askIntel, load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
     }
     const row = A.tab === "read" && $("#screen .segrow"); const on = row && row.querySelector("button.on");
     if (on) row.scrollLeft = Math.max(0, on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2);  // the chosen segment in view
     if (A.tab === "read" && A.readSeg === "dossiers" && $("#dsRoot")) {  // Dossiers (data/dossiers.json)
-      CORE.mountDossiers($("#dsRoot"), { key: A.dsKey, open: openInBrief, onShow: (k) => { A.dsKey = k; },
+      CORE.mountDossiers($("#dsRoot"), { key: A.dsKey, open: openInBrief, ask: askIntel, onShow: (k) => { A.dsKey = k; },
         load: () => DS.data || (DS.data = api.json(dataUrl("dossiers.json", "dossiers")).catch((e) => { DS.data = null; throw e; })) });
     }
     if (A.tab === "read" && A.readSeg === "map" && $("#mpRoot")) {  // Places in the news (data/places.json)

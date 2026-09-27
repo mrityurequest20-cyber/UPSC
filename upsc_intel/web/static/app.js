@@ -1048,7 +1048,7 @@
     if (RK.el && el.contains(RK.el)) return;
     el.innerHTML = '<div id="rkRoot" class="rk-root"></div>';
     RK.el = $("#rkRoot");
-    CORE.mountRanks(RK.el, { load: () => RK.data || (RK.data = api.json(STATIC ? `data/rankings.json?v=${encodeURIComponent(S.meta.built_at || "")}` : "api/rankings").catch((e) => { RK.data = null; throw e; })) });
+    CORE.mountRanks(RK.el, { ask: askIntel, load: () => RK.data || (RK.data = api.json(STATIC ? `data/rankings.json?v=${encodeURIComponent(S.meta.built_at || "")}` : "api/rankings").catch((e) => { RK.data = null; throw e; })) });
   }
 
   // Dossiers (data/dossiers.json): running stories with their timeline and story so far; Map (data/places.json):
@@ -1065,7 +1065,7 @@
     if (DS.el && el.contains(DS.el)) { if (DS.key !== DS.w.key) DS.w.show(DS.key); return; }
     el.innerHTML = '<div id="dsRoot" class="ds-root"></div>';
     DS.el = $("#dsRoot");
-    DS.w = CORE.mountDossiers(DS.el, { key: DS.key, open: openInBrief, onShow: (k) => { DS.key = k; },
+    DS.w = CORE.mountDossiers(DS.el, { key: DS.key, open: openInBrief, ask: askIntel, onShow: (k) => { DS.key = k; },
       load: () => DS.data || (DS.data = api.json(dataUrl("dossiers.json", "api/dossiers")).catch((e) => { DS.data = null; throw e; })) });
   }
   const MP = { el: null, data: null };
@@ -1143,7 +1143,9 @@
   // ─────────────────────────── events ───────────────────────────
   function toggleSet(set, v) { set.has(v) ? set.delete(v) : set.add(v); }
   function closeDrawer() { $("#side").classList.remove("open"); $("#scrim").hidden = true; }
-  const findStory = (id) => S.briefById.get(id) || S.stories.find((s) => s.id === id) || (S.search && S.search.stories.find((s) => s.id === id)) || (S.library || []).find((s) => s.id === id);
+  const VIRTUAL = new Map();  // a dossier or an index, as a story the Ask Intel bot reads (CORE.dossierStory, rankStory)
+  const askIntel = (s) => { VIRTUAL.set(s.id, s); botOpen(s.id); };
+  const findStory = (id) => VIRTUAL.get(id) || S.briefById.get(id) || S.stories.find((s) => s.id === id) || (S.search && S.search.stories.find((s) => s.id === id)) || (S.library || []).find((s) => s.id === id);
   function refreshProgress() {
     const prog = $(".bhero .progress"); if (!prog) return;
     const list = (KIND_TAB[S.tab] ? briefList(S.tab) : briefList("news").concat(briefList("prelims"), briefList("editorials"), briefList("explained"))).filter(briefPasses);
