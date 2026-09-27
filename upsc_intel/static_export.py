@@ -27,7 +27,7 @@ from pathlib import Path
 from .config import Settings, load_topics
 from .db import DB, iso
 from .export_pdf import build_day_pdf
-from .pipeline.brief import ensure_range
+from .pipeline.brief import audit_day, ensure_range, recent_days
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
 from .pipeline.practice import build_practice
@@ -233,4 +233,8 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         meta["counts"]["library"] = 0
         meta["imap_enabled"] = False
     _write_json(out / "data" / "meta.json", meta)
+    # Gemini's verdicts against the rules for the days still being rebuilt: what the AI moves in the brief
+    audits = [a for a in (audit_day(db, clf, d) for d in recent_days()) if a]
+    if audits and not include_private:
+        _write_json(out / "data" / "triage.json", {"mode": (settings.ai_triage or "").lower(), "days": audits})
     return out

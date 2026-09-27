@@ -76,6 +76,8 @@ class Settings:
     gemini_api_key: str | None = field(default_factory=lambda: _env("GEMINI_API_KEY"))
     gemini_model: str = field(default_factory=lambda: _env("UPSC_GEMINI_MODEL", ""))  # "": the best Flash the key can use
     gemini_max_per_run: int = field(default_factory=lambda: _env_int("UPSC_GEMINI_MAX_PER_RUN", 15))
+    # Gemini grades every story for the brief (pipeline/triage.py): "shadow" (graded, brief stays on the rules), "on", "off"
+    ai_triage: str = field(default_factory=lambda: _env("UPSC_AI_TRIAGE", "shadow"))
     # static site: minutes between scheduled rebuilds (shown on the page, used by Refresh)
     site_refresh_min: int = field(default_factory=lambda: _env_int("UPSC_SITE_REFRESH_MIN", 60))
 
