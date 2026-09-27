@@ -69,9 +69,9 @@
   const TABS = [
     { key: "brief", label: "Brief", title: "UPSC Intel", d: "M6 3h9l4 4v14H6zM9 10h7M9 14h7M9 18h4" },
     { key: "read", label: "Read", title: "Read", d: "M3 5h6a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H3zM21 5h-6a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h7z" },
-    { key: "insights", label: "Insights", title: "Insights", d: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z" },
+    { key: "track", label: "Track", title: "Track", d: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM15.5 8.5l-2 5-5 2 2-5z" },
     { key: "practice", label: "Practice", title: "Practice", d: "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" },
-    { key: "review", label: "Review", title: "Review", d: "M4 20V10M10 20V4M16 20v-7M22 20H2" },
+    { key: "progress", label: "Progress", title: "Progress", d: "M4 20V10M10 20V4M16 20v-7M22 20H2" },
     { key: "saved", label: "Saved", title: "Saved", d: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" },
   ];
   const QUICK = ["60-word summary", "Static background", "Make 2 Prelims MCQs", "Mains answer outline", "हिंदी में समझाएं", "Link to syllabus"];
@@ -80,7 +80,7 @@
   // ─────────────────────────── state ───────────────────────────
   const A = {
     meta: null,
-    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", period: "week", moreOpen: new Set(), lowOpen: false,
+    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", trackSeg: "dossiers", progSeg: "insights", period: "week", moreOpen: new Set(), lowOpen: false,
     brief: null, briefDay: null, byId: new Map(),
     months: new Map(), cache: new Map(),  // month brief data; every story seen, by id
     open: null, sheet: null, calMonth: null,
@@ -179,6 +179,7 @@
   const subjName = (k) => labels().subjects[k] || k;
   const subjOf = (s) => ((s.subjects || []).length ? subjName(s.subjects[0]) : s.editorial ? "Editorial" : s.explained ? "Explained" : "General");
   const tagOf = (s) => (s.tags || [])[0] || "";
+  const headOf = (s) => { const h = cleanText((s.explain || {}).headline || ""); return h.length >= 12 ? h : s.title; };  // the write-up's clean headline
   const srcName = (s) => (s.sources && s.sources[0] && s.sources[0].p) || "Source";
   const cleanText = CORE.cleanText;  // a report minus the pipeline's placeholders and feed furniture
   function whyOf(s, max = 260) {  // the card's one-liner: the write-up's "why in news", else the report itself
@@ -277,19 +278,18 @@
   const gradeName = (g) => GRADE_LABEL[g] || g;
   const gradePill = (s) => `<span class="grade g-${esc(s.grade)}" title="${esc(`${GRADE_HELP[s.grade] || ""}${s.ai_why != null ? ` · ✦ Graded by Intel AI${s.ai_why ? `: ${s.ai_why}` : ""}` : ""}`)}">${esc(gradeName(s.grade))}</span>`;
   const gsPills = (s) => (s.gs || []).map((g) => `<span class="gsp">${esc(g)}</span>`).join("");
-  function card(s, rank) {
-    const done = isDone(s); const star = isStar(s); const tag = tagOf(s); const why = whyOf(s);
+  function card(s, rank) {  // a brief card: its section is its grade, so one row of labels (rank, paper, subject)
+    const done = isDone(s); const star = isStar(s); const why = whyOf(s);
     return `<article class="card${done ? " done" : ""}" data-open="${esc(s.id)}">
-      <div class="card-meta">${rank ? `<span class="rank">${rank}</span>` : ""}${gradePill(s)}${gsPills(s)}<span class="sp"></span><span class="min">${minutesOf(s)} min</span></div>
-      <div class="card-tags"><span class="subj">${esc(subjOf(s))}</span>${tag ? `<span class="tag">${esc(tag)}</span>` : ""}</div>
-      <h3 class="card-title">${esc(s.title)}</h3>
+      <div class="card-meta">${rank ? `<span class="rank">${rank}</span>` : ""}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span><span class="sp"></span><span class="min">${minutesOf(s)} min</span></div>
+      <h3 class="card-title">${esc(headOf(s))}</h3>
       ${why ? `<p class="card-why"><b>Why in news:</b> ${esc(why)}</p>` : ""}
-      <div class="card-foot">${vpill(s)}<span class="src">${esc(srcName(s))} · ${plural(s.n_pub || 1, "outlet")}</span>
+      <div class="card-foot">${vpill(s)}<span class="src">${esc(srcName(s))}${(s.n_pub || 1) > 1 ? ` +${s.n_pub - 1}` : ""}</span>
         <button class="star${star ? " on" : ""}" data-act="star" data-id="${esc(s.id)}" aria-label="${star ? "Unstar" : "Star"}" aria-pressed="${star}">${star ? I.starOn : I.star}</button>
         <button class="done-btn${done ? " on" : ""}" data-act="done" data-id="${esc(s.id)}" aria-label="${done ? "Mark not done" : "Mark done"}" aria-pressed="${done}">${I.check}</button></div>
     </article>`;
   }
-  const mrow = (s) => `<div class="mrow${isDone(s) ? " done" : ""}" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(s.title)}<small>${esc(srcName(s))} · ${esc(subjOf(s))}${s.date && s.date !== A.day ? ` · ${esc(dayShort(s.date))}` : ""}</small></div>
+  const mrow = (s) => `<div class="mrow${isDone(s) ? " done" : ""}" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(headOf(s))}<small>${esc(srcName(s))} · ${esc(subjOf(s))}${s.date && s.date !== A.day ? ` · ${esc(dayShort(s.date))}` : ""}</small></div>
     <button class="star${isStar(s) ? " on" : ""}" data-act="star" data-id="${esc(s.id)}" aria-label="Star">${isStar(s) ? I.starOn : I.star}</button></div>`;
   function pcard(s) {
     const x = s.explained && !s.editorial; const sec = s.sources && s.sources[0] && s.sources[0].s;
@@ -323,13 +323,13 @@
     const pct = all.length ? Math.round(done * 100 / all.length) : 0;
     // the day by grade: Must-know (make notes) → Quick read → Background → Low; the one-liners join their grade's block
     const byGrade = (arr) => ({ note: arr.filter((s) => s.grade === "NOTE"), quick: arr.filter((s) => s.grade === "SKIM"), bg: arr.filter((s) => s.grade !== "NOTE" && s.grade !== "SKIM") });
-    const G0 = byGrade(L.more); const nQuick = L.prelims.length + G0.quick.length; const nBg = G0.bg.length;
+    const G0 = byGrade(L.more); const nQuick = L.prelims.length + G0.quick.length;
     const hero = `<section class="hero">
       <div class="eyebrow">Daily Brief · ${esc(dayLabel(d))}</div>
       <div class="hero-n">${plural(L.news.length, "must-know story", "must-know stories")}</div>
-      <div class="hero-sub">${L.news.length ? "make notes on each" : "none yet"}${nQuick ? ` · ${nQuick} quick read` : ""}${nBg ? ` · ${nBg} background` : ""} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}</div>
+      <div class="hero-sub">${[nQuick && `${nQuick} quick read`, L.editorials.length && plural(L.editorials.length, "editorial"), L.explained.length && plural(L.explained.length, "explainer")].filter(Boolean).join(" · ")}<br>about ${fmtMins(mins)}${reported ? ` · from ${reported.toLocaleString("en-IN")} reported` : ""}</div>
       <div class="hero-prog"><div class="track"><div style="width:${pct}%"></div></div><span>${done} of ${all.length} done</span></div>
-      <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}Export as PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button>${CORE.listen.supported && L.news.length ? '<button class="hbtn ghost" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen</button>' : ""}</div>
+      <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button>${CORE.listen.supported && L.news.length ? '<button class="hbtn ghost" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen</button>' : ""}</div>
     </section>`;
     const count = (g) => L.news.concat(L.prelims, L.more).filter((s) => g === "All" || (s.gs || []).includes(g)).length;
     const chips = `<div class="chips nosb">${["All", ...PAPERS].map((g) => `<button class="chip${A.gs === g ? " on" : ""}" data-gs="${g}">${g}${g !== "All" ? `<span class="c">${count(g)}</span>` : ""}</button>`).join("")}</div>`;
@@ -356,10 +356,7 @@
   function renderRead() {
     if (A.briefDay !== A.day) return '<div class="loading">Loading…</div>';
     const L = lists();
-    const seg = `<div class="segrow nosb"><div class="seg scroll">${[["ed", `Editorials · ${L.editorials.length}`], ["ex", `Explained · ${L.explained.length}`], ["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]].map(([k, l]) => `<button class="${A.readSeg === k ? "on" : ""}" data-seg="${k}">${l}</button>`).join("")}</div></div>`;
-    if (A.readSeg === "ranks") return `${seg}<div id="rkRoot" class="rk-root"></div>`;  // India in global indices (mounted after)
-    if (A.readSeg === "dossiers") return `${seg}<div id="dsRoot" class="ds-root"></div>`;  // running stories (mounted after)
-    if (A.readSeg === "map") return `${seg}<div id="mpRoot" class="mp-root"></div>`;  // places in the news (mounted after)
+    const seg = `<div style="padding:2px 16px 12px"><div class="seg">${[["ed", `Editorials · ${L.editorials.length}`], ["ex", `Explained · ${L.explained.length}`]].map(([k, l]) => `<button class="${A.readSeg === k ? "on" : ""}" data-seg="${k}">${l}</button>`).join("")}</div></div>`;
     if (A.readSeg === "ed") {
       const papers = (A.meta && A.meta.gs_papers) || {};
       const groups = ["GS1", "GS2", "GS3", "GS4", "Prelims", "Other"].map((p) => ({ p, items: L.editorials.filter((s) => paperOf(s) === p) })).filter((g) => g.items.length);
@@ -377,7 +374,7 @@
     const t = todayIST(); const key = `${t}|${(A.meta && A.meta.built_at) || ""}`;
     if (R30.key !== key && !R30.busy) {
       R30.busy = true;
-      api.range(addDays(t, -29), t).then((r) => { R30.data = r; R30.key = key; }).catch(() => {}).finally(() => { R30.busy = false; if (A.tab === "insights" || A.tab === "review" || A.tab === "saved") renderScreen(); });
+      api.range(addDays(t, -29), t).then((r) => { R30.data = r; R30.key = key; }).catch(() => {}).finally(() => { R30.busy = false; if (A.tab === "progress" || A.tab === "saved") renderScreen(); });
     }
     return R30.data;
   }
@@ -461,6 +458,18 @@
       <section class="panel"><div class="ph">Exam radar</div><div class="ps">Today's stories that touch recurring UPSC themes</div>${M.radar.map((s) => { const k = tagOf(s) || String(W[(s.watch || [])[0]] || "").split(/[ (]/)[0]; return `<div class="radar" data-open="${esc(s.id)}"><span class="k">${esc(k)}</span><div class="radar-t"><b>${esc(s.title)}</b><span>${esc(subjOf(s))} · recurring ${esc((s.gs || [])[0] || "GS")} theme</span></div>${I.right}</div>`; }).join("") || '<div class="ps" style="margin:0">Nothing flagged for this day.</div>'}</section>`;
   }
 
+  function renderTrack() {  // running stories, the places map and India's ranks (each mounted after)
+    const seg = `<div style="padding:2px 16px 12px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]].map(([k, l]) => `<button class="${A.trackSeg === k ? "on" : ""}" data-tseg="${k}">${l}</button>`).join("")}</div></div>`;
+    const id = { dossiers: "dsRoot", map: "mpRoot", ranks: "rkRoot" }[A.trackSeg] || "dsRoot";
+    return `${seg}<div id="${id}" class="${id === "dsRoot" ? "ds-root" : id === "mpRoot" ? "mp-root" : "rk-root"}"></div>`;
+  }
+  function renderProgress() {  // your last 30 days (Insights) and the week or month in review
+    const seg = `<div style="padding:2px 16px 4px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["insights", "My 30 days"], ["week", "Week"], ["month", "Month"]].map(([k, l]) => `<button class="${A.progSeg === k ? "on" : ""}" data-pseg="${k}">${l}</button>`).join("")}</div></div>`;
+    if (A.progSeg === "insights") return seg + renderInsights();
+    A.period = A.progSeg;
+    return seg + renderReview();
+  }
+
   function reviewRange() {
     if (A.period === "week") { const a = weekStart(A.day); return [a, addDays(a, 6)]; }
     const m = A.day.slice(0, 7); const last = new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)).getUTCDate();
@@ -469,9 +478,9 @@
   const REV = { key: "", data: null, busy: false };
   function renderReview() {
     const [from, to] = reviewRange(); const t = todayIST(); const key = `${from}|${to}|${(A.meta && A.meta.built_at) || ""}`;
-    const seg = `<div class="seg inline" style="margin-bottom:12px">${["week", "month"].map((p) => `<button class="${A.period === p ? "on" : ""}" data-period="${p}">${p[0].toUpperCase() + p.slice(1)}</button>`).join("")}</div>`;
+    const seg = "";  // the week or month is picked in Progress
     if (REV.key !== key) {
-      if (!REV.busy) { REV.busy = true; api.range(from, to).then((r) => { REV.data = r; REV.key = key; }).catch(() => {}).finally(() => { REV.busy = false; if (A.tab === "review") renderScreen(); }); }
+      if (!REV.busy) { REV.busy = true; api.range(from, to).then((r) => { REV.data = r; REV.key = key; }).catch(() => {}).finally(() => { REV.busy = false; if (A.tab === "progress") renderScreen(); }); }
       return `<div class="intro">${seg}</div><div class="loading">Adding up the ${A.period}…</div>`;
     }
     const R = REV.data; const days = []; for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
@@ -529,15 +538,15 @@
     const seen = new Set(); const G = (x) => CORE.gloss.html(x, seen);  // each glossary term marked once per story
     const sum = sumBoxInner(s, seen);
     const vcard = vids.length ? `<a class="vcard" href="${esc(safeUrl(vids[0][0].url))}" target="_blank" rel="noopener"><div class="vthumb"><img src="${esc(ytThumb(vids[0][0]))}" alt="" loading="lazy"><span class="play">${I.play}</span></div><div style="min-width:0"><b>${esc(vids[0][0].title)}</b><small>${esc(vids.map(([, l]) => l).join(" · "))} · ${esc(vids[0][0].channel || "YouTube")}</small></div></a>`
-      : `<a class="vcard" href="${esc(ytSearch(s))}" target="_blank" rel="noopener"><div class="vthumb"><span class="play">${I.play}</span></div><div style="min-width:0"><b>Search YouTube: ${esc((s.video && s.video.query) || s.title)}</b><small>No confident video match yet</small></div></a>`;
+      : "";  // no confident match: a YouTube search link sits with the sources
     const pw = (u) => CORE.web.paywalled(CORE.web.domainOf(u));
     return `<div class="story fixed-col" role="dialog" aria-label="${esc(s.title)}">
       <div class="story-bar"><button class="back" data-act="close">${I.back}${esc((TABS.find((x) => x.key === A.tab) || TABS[0]).title)}</button><span class="sp"></span>
         <button class="ib${m.starred ? " on" : ""}" data-act="star" data-id="${esc(s.id)}" aria-label="${m.starred ? "Unstar" : "Star"}">${m.starred ? I.starOn : I.star}</button>
         <button class="ib" data-act="export" data-scope="story" aria-label="Export as PDF" style="color:var(--accent-strong)">${I.dl}</button></div>
       <div class="story-body" id="storyBody">
-        <div class="card-meta">${gradePill(s)}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span>${tagOf(s) ? `<span class="tag">${esc(tagOf(s))}</span>` : ""}</div>
-        <h1>${esc(s.title)}</h1>
+        <div class="card-meta">${gradePill(s)}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span></div>
+        <h1>${esc(headOf(s))}</h1>
         ${CORE.dossierChips(s.topics)}
         <div class="story-meta">${esc(srcName(s))}${(s.n_pub || 1) > 1 ? ` and ${plural(s.n_pub - 1, "more outlet")}` : ""}${s.first_seen ? ` · first seen ${esc(clockIST(s.first_seen))} IST${s.date && s.date !== todayIST() ? `, ${esc(dayShort(s.date))}` : ""}` : ""} · ${minutesOf(s)} min read</div>
         <section class="sumbox" id="sumbox"><div id="sumbody">${sum}</div>
@@ -549,7 +558,8 @@
           <div class="mains"><div class="rl">Mains question · ${esc(paperOf(s) === "Other" ? "GS" : paperOf(s))}</div><p>${G(mainsOf(s))}</p><small>250 words · 15 marks${e.mains ? "" : " · practice question from the syllabus mapping"}</small></div>
           ${(e.keywords || []).length ? `<div><div class="rl">Keywords</div><div class="kws">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</div></div>` : ""}
           <div><div class="rl">Read the original</div><div class="links">${(s.sources || []).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener"><span>${esc(x.p || "Source")}${x.s ? ` <small>· ${esc(x.s)}</small>` : ""}</span>${pw(x.u) ? '<span class="pw">subscriber</span>' : ""}${I.ext}</a>`).join("")}
-            ${folded.map((f) => `<a href="${esc(safeUrl(f.url || (f.sources && f.sources[0] && f.sources[0].u)))}" target="_blank" rel="noopener"><span>${esc(srcName(f))} <small>· ${esc(f.title)}</small></span>${I.ext}</a>`).join("")}</div></div>
+            ${folded.map((f) => `<a href="${esc(safeUrl(f.url || (f.sources && f.sources[0] && f.sources[0].u)))}" target="_blank" rel="noopener"><span>${esc(srcName(f))} <small>· ${esc(f.title)}</small></span>${I.ext}</a>`).join("")}
+            ${vids.length ? "" : `<a href="${esc(ytSearch(s))}" target="_blank" rel="noopener"><span>Find a video <small>· YouTube search</small></span>${I.ext}</a>`}</div></div>
           <div><div class="rl">My note</div><textarea class="notebox" data-note="${esc(s.id)}" placeholder="Add a revision note…">${esc(m.note || "")}</textarea></div>
         </div>
       </div>
@@ -855,18 +865,16 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
   }
   function renderScreen() {
     if (A.tab === "practice") { renderPractice(); renderTabs(); return; }
-    const html = A.tab === "read" ? renderRead() : A.tab === "insights" ? renderInsights() : A.tab === "review" ? renderReview() : A.tab === "saved" ? renderSaved() : renderBrief();
+    const html = A.tab === "read" ? renderRead() : A.tab === "track" ? renderTrack() : A.tab === "progress" ? renderProgress() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
-    if (A.tab === "read" && A.readSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
+    if (A.tab === "track" && A.trackSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
       CORE.mountRanks($("#rkRoot"), { ask: askIntel, load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
     }
-    const row = A.tab === "read" && $("#screen .segrow"); const on = row && row.querySelector("button.on");
-    if (on) row.scrollLeft = Math.max(0, on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2);  // the chosen segment in view
-    if (A.tab === "read" && A.readSeg === "dossiers" && $("#dsRoot")) {  // Dossiers (data/dossiers.json)
+    if (A.tab === "track" && A.trackSeg === "dossiers" && $("#dsRoot")) {  // Dossiers (data/dossiers.json)
       CORE.mountDossiers($("#dsRoot"), { key: A.dsKey, open: openInBrief, ask: askIntel, onShow: (k) => { A.dsKey = k; },
         load: () => DS.data || (DS.data = api.json(dataUrl("dossiers.json", "dossiers")).catch((e) => { DS.data = null; throw e; })) });
     }
-    if (A.tab === "read" && A.readSeg === "map" && $("#mpRoot")) {  // Places in the news (data/places.json)
+    if (A.tab === "track" && A.trackSeg === "map" && $("#mpRoot")) {  // Places in the news (data/places.json)
       CORE.mountMap($("#mpRoot"), { base: "../static/", open: openInBrief,
         load: () => MP.data || (MP.data = api.json(dataUrl("places.json", "places")).catch((e) => { MP.data = null; throw e; })) });
     }
@@ -894,9 +902,9 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
       toast(navigator.onLine === false ? "You're offline and this day isn't saved on the phone yet." : `Couldn't load the brief (${e.message}).`);
     }
   }
-  async function goDay(d) {
+  async function goDay(d, keepTab) {  // a day picked from the calendar opens its brief; opening the app keeps the asked tab
     A.day = d; A.moreOpen = new Set(); A.lowOpen = false; A.gs = "All";
-    if (A.tab !== "brief" && A.tab !== "read") A.tab = "brief";
+    if (!keepTab && A.tab !== "brief" && A.tab !== "read") A.tab = "brief";
     renderScreen(); window.scrollTo(0, 0);
     await loadDay(d); if (A.day === d) renderScreen();
   }
@@ -911,8 +919,10 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     if (t.dataset.day) { if (A.sheet === "cal") closeTop(); goDay(t.dataset.day); return; }
     if (t.dataset.gs) { A.gs = t.dataset.gs; renderScreen(); return; }
     if (t.dataset.seg) { A.readSeg = t.dataset.seg; renderScreen(); return; }
+    if (t.dataset.tseg) { A.trackSeg = t.dataset.tseg; renderScreen(); return; }
+    if (t.dataset.pseg) { A.progSeg = t.dataset.pseg; renderScreen(); window.scrollTo(0, 0); return; }
     if (t.dataset.dsOpen) {  // a story's running story: its dossier, in Read
-      A.dsKey = t.dataset.dsOpen; A.tab = "read"; A.readSeg = "dossiers";
+      A.dsKey = t.dataset.dsOpen; A.tab = "track"; A.trackSeg = "dossiers";
       if (A.open || A.sheet) closeTop(); else { renderScreen(); window.scrollTo(0, 0); }
       return;
     }
@@ -1000,9 +1010,10 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     try { [A.meta, A.marks] = await Promise.all([api.meta(), api.marks()]); }
     catch (e) { $("#screen").innerHTML = `<div class="empty">Couldn't reach the data (${esc(e.message)}).<br>Check your connection and reopen the app.</div>`; return; }
     const q = new URLSearchParams(location.search);
-    if (q.get("tab") && TABS.some((x) => x.key === q.get("tab"))) A.tab = q.get("tab");
+    const qt = { insights: "progress", review: "progress" }[q.get("tab")] || q.get("tab");  // the old tabs' links still land
+    if (qt && TABS.some((x) => x.key === qt)) A.tab = qt;
     renderLive(); renderTabs();
-    await goDay(todayIST());
+    await goDay(todayIST(), true);
     setInterval(poll, STATIC ? 300000 : 60000);
     setInterval(renderLive, 30000);
     if (STATIC && "serviceWorker" in navigator) {

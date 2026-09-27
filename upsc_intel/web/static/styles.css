@@ -1003,3 +1003,11 @@ button.gl:hover, button.gl[aria-expanded="true"] { color: var(--accent-strong); 
 .ask-intel { display: inline-flex; align-items: center; gap: 7px; align-self: flex-start; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent-soft-ink); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
 .ds-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .ds-one .ds-top .ds-acts .ds-follow { margin-top: 0; }
+/* Trackers: one tab for dossiers, the map and India's ranks */
+.trk-seg { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 16px; }
+.trk-seg button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 13.5px; font-weight: 650; cursor: pointer; color: var(--ink-2); }
+.trk-seg button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* a video search in English or Hindi, one chip */
+.vchip.vpair { gap: 6px; }
+.vchip.vpair a { color: inherit; text-decoration: none; }
+.vchip.vpair a:hover { color: var(--accent-strong); text-decoration: underline; }

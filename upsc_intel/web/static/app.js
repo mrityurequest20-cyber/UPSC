@@ -126,7 +126,7 @@
     meta: null,
     view: "day",
     anchor: todayIST(),
-    tab: "brief",
+    tab: "brief", trk: "dossiers",
     stories: [], loadedKey: "", loadedAt: null,
     brief: null, briefKey: "", briefById: new Map(), pendingBrief: null,
     lastRunSeen: null,
@@ -303,9 +303,7 @@
       ["explained", "Explained", nEx],
       ["videos", "Videos", nVid],
       ["practice", "Practice", ""],
-      ["dossiers", "Dossiers", ""],
-      ["map", "Map", ""],
-      ["ranks", "India's Ranks", ""],
+      ["trackers", "Trackers", ""],
       ["everything", "Everything", S.tab === "everything" ? briefingPool().filter((s) => passes(s)).length : ""],
       ["starred", "Starred", Object.values(S.marks).filter((x) => x.starred).length],
       ...(STATIC ? [] : [["library", "Library", S.meta.counts.library || 0]]),
@@ -342,8 +340,7 @@
     const q = v && v.query ? v.query : (kw || s.title);
     const url = v && v.search_url ? v.search_url : `https://www.youtube.com/results?search_query=${encodeURIComponent(q + " UPSC")}`;
     const urlHi = `https://www.youtube.com/results?search_query=${encodeURIComponent(q + " UPSC hindi")}`;
-    return `<a class="vchip ghost" href="${esc(url)}" target="_blank" rel="noopener" title="No confident match yet: opens a YouTube search">${ICON.search}<span>Find video</span></a>` +
-      `<a class="vchip ghost" href="${esc(urlHi)}" target="_blank" rel="noopener" title="Search YouTube for a Hindi explainer">${ICON.search}<span>हिंदी में खोजें</span></a>`;
+    return `<span class="vchip ghost vpair" title="No confident match yet: a YouTube search">${ICON.search}<a href="${esc(url)}" target="_blank" rel="noopener">Find video</a><span aria-hidden="true">·</span><a href="${esc(urlHi)}" target="_blank" rel="noopener" lang="hi">हिंदी</a></span>`;
   }
   function videoBlock(s) {
     return storyVideos(s).map(([v, lang]) => `<a class="vblock" href="${esc(v.url)}" target="_blank" rel="noopener">
@@ -427,16 +424,15 @@
     const why = CORE.cleanText(e.why_in_news) || CORE.cleanText(e.what) || CORE.cleanText(s.summary) || "";
     const labels = S.meta.labels.subjects;
     const firstSrc = (s.sources[0] && s.sources[0].p) || "Source";
-    return `<article class="bcard ${open ? "open" : ""} ${mk.read ? "read" : ""} ${opts.compact ? "compact" : ""}" data-id="${s.id}"${opts.rank ? ` data-rank="${opts.rank}"` : ""}${opts.day ? ` data-day="${opts.day}"` : ""}${opts.showSubject ? " data-subj=\"1\"" : ""}>
+    return `<article class="bcard ${open ? "open" : ""} ${mk.read ? "read" : ""} ${opts.compact ? "compact" : ""}" data-id="${s.id}"${opts.rank ? ` data-rank="${opts.rank}"` : ""}${opts.inGrade ? ' data-ing="1"' : ""}${opts.day ? ` data-day="${opts.day}"` : ""}${opts.showSubject ? " data-subj=\"1\"" : ""}>
       <button class="btoggle" data-act="toggle" aria-expanded="${open}">
         <span class="pills">
           ${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}
           ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
           ${opts.day ? `<span class="pill daychip">${esc(dayShort(opts.day))}</span>` : ""}
-          <span class="pill g-${s.grade}" title="${esc(gradeTip(s))}">${gradeName(s.grade)}</span>
+          ${opts.inGrade ? "" : `<span class="pill g-${s.grade}" title="${esc(gradeTip(s))}">${gradeName(s.grade)}</span>`}
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${opts.showSubject && s.subjects[0] ? `<span class="pill subj">${esc(labels[s.subjects[0]] || s.subjects[0])}</span>` : ""}
-          ${s.tags.filter((t) => t !== "Data/Stats").slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
           ${KIND_PILL[kindOf(s)]}
         </span>
         <span class="btitle">${esc(headline)}</span>
@@ -470,7 +466,8 @@
     </li>`;
   }
   function alsoReported(s) {
-    const f = foldedOf(s.id); if (!f.length) return "";
+    const own = (s.sources[0] && s.sources[0].p) || "";
+    const f = foldedOf(s.id).filter((x) => ((x.sources[0] && x.sources[0].p) || "") !== own); if (!f.length) return "";
     return `<p class="alsorep"><b>Also reported:</b> ${f.slice(0, 4).map((x) => `<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener" data-open="${x.id}" title="${esc(x.title)}">${esc((x.sources[0] && x.sources[0].p) || "another outlet")}</a>`).join(" · ")}${f.length > 4 ? ` · +${f.length - 4} more` : ""}</p>`;
   }
   function contentsNav(sections, title) {
@@ -495,10 +492,10 @@
     const d = D(from);
     const eyebrow = S.view === "day" ? `Daily Brief · ${WD_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`
       : S.view === "week" ? `Week ${isoWeek(from)} in review · ${periodLabel("week", S.anchor).split(" · ")[0]}` : `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()} in review`;
-    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")}${lines.note.length ? ` + ${lines.note.length} to note` : ""}${nQuick ? ` · ${nQuick} quick read` : ""}${lines.bg.length ? ` · ${lines.bg.length} background` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
+    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")}${lines.note.length ? ` + ${lines.note.length} to note` : ""}`
       : `${plural(news.length, "must-know story", "must-know stories")}${facts.length ? ` + ${plural(facts.length, "Prelims fact")}` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`;
     const sub = S.view === "day"
-      ? `${news.length ? "Must-know: make notes on each" : "No must-know story yet"}${nQuick ? " · Quick read: know the key fact" : ""}${lines.bg.length ? " · Background: context" : ""} · covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
+      ? [nQuick && `${nQuick} quick read`, eds.length && plural(eds.length, "editorial"), exps.length && plural(exps.length, "explainer"), `about ${minutes} min`, `from ${plural(totalReported, "story", "stories")} reported`].filter(Boolean).join(" · ")
       : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported${nMore() ? ` · ${nMore()} more are listed in the daily briefs` : ""}`;
     return `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
       <div class="bhero-side">${progress(all)}${gsChips()}${S.view === "day" && CORE.listen.supported && news.length ? '<button class="chip lsn-go" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen to the brief</button>' : ""}</div></header>`;
@@ -563,14 +560,14 @@
     let html = briefHero(news, eds, exps, reportedTotal(), lines, facts) + (compact ? coverageChips(news.concat(facts)) + briefVolume() : "");
     if (top.length) {
       html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Must-know · make notes: the top " + top.length : `Must-know of ${dayShort(S.anchor)} · make notes: the top ${top.length}`) : S.view === "week" ? "Must-know: top 10 of the week" : "Must-know: top 15 of the month",
-        `make notes on these${news.length > top.length ? ` · the other ${news.length - top.length} must-know stories follow by subject` : ""} · tap any card for its summary`, `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
+        news.length > top.length ? `the other ${news.length - top.length} follow by subject` : "", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true, inGrade: true })).join("")}</div>`);
       sections.push({ id: "sec-top", label: "Must-know: top " + top.length, n: top.length });
     }
     for (const [k, arr] of bySubject) {
       if (!arr.length) continue;
       const key = "b:" + k; const lim = S.expanded.has(key) || S.view === "day" ? arr.length : 6;
       html += section(`sec-${k}`, labels[k], `${S.meta.labels.subject_gs[k] || ""} · ${plural(arr.length, "story", "stories")}`,
-        `<div class="bcards">${arr.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null })).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${arr.length}</button>` : ""}`);
+        `<div class="bcards">${arr.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null, inGrade: true })).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${arr.length}</button>` : ""}`);
       sections.push({ id: `sec-${k}`, label: labels[k], n: arr.length });
     }
     const lineList = (arr) => {  // one line per story, grouped by subject
@@ -586,7 +583,7 @@
     if (facts.length) {
       const key = "b:facts"; const lim = S.expanded.has(key) || S.view === "day" ? facts.length : 12;
       html += section("sec-prelims", "Quick read · Prelims facts", "know the key fact of each: exercises, pacts signed, Acts and approvals, schemes, species, verdicts",
-        `<div class="bcards">${facts.slice(0, lim).map((s) => bcard(s, { compact: true, day: compact ? s._day : null, showSubject: true })).join("")}</div>${facts.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${facts.length}</button>` : ""}`);
+        `<div class="bcards">${facts.slice(0, lim).map((s) => bcard(s, { compact: true, day: compact ? s._day : null, showSubject: true, inGrade: true })).join("")}</div>${facts.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${facts.length}</button>` : ""}`);
       sections.push({ id: "sec-prelims", label: "Quick read · Prelims facts", n: facts.length });
     }
     if (lines.quick.length) {
@@ -876,9 +873,7 @@
     if (S.tab === "explained") return renderKindTab("explained");
     if (S.tab === "videos") return renderVideosTab();
     if (S.tab === "practice") return renderPractice();
-    if (S.tab === "ranks") return renderRanks();
-    if (S.tab === "dossiers") return renderDossiers();
-    if (S.tab === "map") return renderMap();
+    if (S.tab === "trackers") return renderTrackers();
     if (S.tab === "everything") return renderEverything();
     if (S.tab === "starred") return renderStarred();
     if (S.tab === "library") return renderLibrary();
@@ -893,6 +888,7 @@
   function readHash() {
     const m = location.hash.match(/^#(day|week|month)\/(\d{4}-\d{2}-\d{2})(?:\/(\w+))?/);
     if (m) { S.view = m[1]; S.anchor = m[2]; if (m[3]) S.tab = m[3]; }
+    if (["dossiers", "map", "ranks"].includes(S.tab)) { S.trk = S.tab; S.tab = "trackers"; }  // the old tabs' links still land
   }
   async function loadBrief(force = false) {
     const [from, to] = periodRange(S.view, S.anchor);
@@ -1043,8 +1039,17 @@
 
   // India's Ranks (data/rankings.json): India in global indices, kept as the news reports each new edition
   const RK = { el: null, data: null };
-  function renderRanks() {
-    const el = $("#content");
+  // Trackers: running stories, the places map and India's ranks, one tab with three views
+  const TRK = [["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]];
+  function renderTrackers() {
+    const el = $("#content"); let body = $("#trkBody");
+    if (!body || !el.contains(body) || body.dataset.trk !== S.trk) {
+      el.innerHTML = `<div class="trk-seg" role="tablist" aria-label="Trackers">${TRK.map(([k, l]) => `<button type="button" role="tab" data-trk="${k}" aria-selected="${S.trk === k}">${l}</button>`).join("")}</div><div id="trkBody" data-trk="${S.trk}"></div>`;
+      body = $("#trkBody");
+    }
+    return S.trk === "map" ? renderMap(body) : S.trk === "ranks" ? renderRanks(body) : renderDossiers(body);
+  }
+  function renderRanks(el) {
     if (RK.el && el.contains(RK.el)) return;
     el.innerHTML = '<div id="rkRoot" class="rk-root"></div>';
     RK.el = $("#rkRoot");
@@ -1060,8 +1065,7 @@
     const c = $(`.bcard[data-id="${id}"]`); if (c) c.scrollIntoView({ block: "center" });
   }
   const DS = { el: null, w: null, data: null, key: null };
-  function renderDossiers() {
-    const el = $("#content");
+  function renderDossiers(el) {
     if (DS.el && el.contains(DS.el)) { if (DS.key !== DS.w.key) DS.w.show(DS.key); return; }
     el.innerHTML = '<div id="dsRoot" class="ds-root"></div>';
     DS.el = $("#dsRoot");
@@ -1069,8 +1073,7 @@
       load: () => DS.data || (DS.data = api.json(dataUrl("dossiers.json", "api/dossiers")).catch((e) => { DS.data = null; throw e; })) });
   }
   const MP = { el: null, data: null };
-  function renderMap() {
-    const el = $("#content");
+  function renderMap(el) {
     if (MP.el && el.contains(MP.el)) return;
     el.innerHTML = '<div id="mpRoot" class="mp-root"></div>';
     MP.el = $("#mpRoot");
@@ -1154,7 +1157,7 @@
   function rerenderCard(el) {
     const s = findStory(el.dataset.id); if (!s) return;
     if (el.classList.contains("bcard")) {
-      el.outerHTML = bcard(s, { compact: el.classList.contains("compact"), rank: el.dataset.rank ? Number(el.dataset.rank) : null, day: el.dataset.day || null, showSubject: !!el.dataset.subj });
+      el.outerHTML = bcard(s, { compact: el.classList.contains("compact"), rank: el.dataset.rank ? Number(el.dataset.rank) : null, day: el.dataset.day || null, showSubject: !!el.dataset.subj, inGrade: !!el.dataset.ing });
       refreshProgress();
     } else if (el.classList.contains("mrow")) el.outerHTML = mrow(s);
     else el.outerHTML = card(s);
@@ -1286,7 +1289,8 @@
     if (t.dataset.tab) return switchTab(t.dataset.tab);
     if (t.dataset.tabGo) return switchTab(t.dataset.tabGo);
     if (t.dataset.jump) { const target = document.getElementById(t.dataset.jump); if (target) target.scrollIntoView({ behavior: "smooth", block: "start" }); closeDrawer(); return; }
-    if (t.dataset.dsOpen) { DS.key = t.dataset.dsOpen; return switchTab("dossiers"); }  // a card's running story
+    if (t.dataset.dsOpen) { DS.key = t.dataset.dsOpen; S.trk = "dossiers"; return switchTab("trackers"); }  // a card's running story
+    if (t.dataset.trk) { S.trk = t.dataset.trk; return renderTrackers(); }
     if (t.dataset.openCard) {
       S.openCards.add(t.dataset.openCard); await switchTab("brief");
       const c = $(`.bcard[data-id="${t.dataset.openCard}"]`); if (c) c.scrollIntoView({ block: "center" });
