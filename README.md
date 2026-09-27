@@ -30,10 +30,15 @@ Week and Month views recap everything the daily briefs covered.
   - **Must-know bar:**
     - Each story gets a brief score. That's its grade, lifted when the headline reports an examinable development (a Bill passed, an Act in force, a Cabinet approval, a pact signed, a named exercise, a species found, a GI tag, an index rank…) and lowered for reactions and commentary (says, slams, "Who is…", "Watch:", LIVE).
     - The rules live in `config/topics.yaml` → `brief`, next to the other rules.
-  - **Three sections, clearly split:**
-    - **Must-know:** only high-yield (NOTE, "Make notes") stories above the bar whose headline isn't a reaction, a preview, a spat or a niche case. Full cards with the summary, video and notes.
-    - **Prelims facts:** other stories above the bar that report a concrete development: an exercise, an MoU signed, an Act in force, a Cabinet approval, a port or scheme, a species, a key verdict. Compact cards, a quick read each.
-    - **Also in the news:** the rest (reactions, previews, "loaded with expectations", "trade charges", appellant/bail cases, stories just below the bar). One-line entries; tap a line for its summary and sources.
+  - **Laid out by grade** (website and app), each block with the grade pill it's named for:
+    - **Must-know · Make notes:** only high-yield (NOTE) stories above the bar whose headline isn't a reaction, a preview, a spat or a niche case. Full cards with the summary, video and notes. Every card reads "Make notes".
+      - **More to make notes on:** make-notes stories listed as one-liners (analysis pieces, or beyond the day's cards).
+    - **Quick read:**
+      - **Prelims facts** first: stories above the bar that report a concrete development (an exercise, an MoU signed, an Act in force, a Cabinet approval, a port or scheme, a species, a key verdict). Compact cards, each reading "Quick read".
+      - **More quick reads** follow as one-liners, for the stories worth knowing the gist of.
+    - **Background:** context, reactions, previews, appellant/bail cases and stories just below the bar. One-liners; tap a line for its summary and sources.
+    - Editorials and Explained follow, then **Low** at the very bottom, folded away. With Intel AI's triage on, Low lists the stories the rules would have picked that Gemini graded 0 (not UPSC material), each with its reason, so you can check what it took out.
+    - The one-liners (the old "Also in the news" list) sit in the block of their own grade.
     - Typical busy day (26 Sep 2026): 22 must-know + 26 Prelims facts + 70 lines.
   - **Nothing thin on a quiet day:** a light day is topped up to 20 cards (from the day's best Prelims facts, so Must-know stays NOTE-only) and 40 stories in all. Every syllabus area also gets its best story.
   - **Same event, one card:** reports of the same event from different outlets, which clustering kept apart, fold into one card. They're listed on it as "Also reported". Two shared rare names ("Tarang Shakti", "Nomadic Elephant", "Strait of Hormuz") are enough to fold; shared common words ("Cabinet approves", "sign MoU") are not.
@@ -153,7 +158,7 @@ Week and Month views recap everything the daily briefs covered.
 - **Clean article text:** the reader drops menus, "trending" strips of linked headlines, teasers, author bios and comment boxes, and keeps an article's paragraphs together across the tweets and ads a site puts between them. The phone's own reader (for cards the build hasn't read yet) follows the same rules and checks that the page it read is the story.
 - **The app (phone):** the Claude Design "UPSC Intel App" at **`/UPSC/app/`** (the **App** button in the header).
   - **Screens:**
-    - Brief: week strip, the day's hero, GS chips, Must-know cards, Prelims facts and "Also in the news"
+    - Brief: week strip, the day's hero, GS chips, then the day by grade: Must-know, Quick read (Prelims facts and more), Background and Low
     - Read: editorials by GS paper, explainers
     - Insights: streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
     - Practice: MCQs, Revise, Mains, Weekly mock and Mistakes
@@ -320,7 +325,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 198 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 199 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

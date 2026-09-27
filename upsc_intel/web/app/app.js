@@ -80,7 +80,7 @@
   // ─────────────────────────── state ───────────────────────────
   const A = {
     meta: null,
-    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", period: "week", moreOpen: false,
+    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", period: "week", moreOpen: new Set(), lowOpen: false,
     brief: null, briefDay: null, byId: new Map(),
     months: new Map(), cache: new Map(),  // month brief data; every story seen, by id
     open: null, sheet: null, calMonth: null,
@@ -164,7 +164,8 @@
   const dayOf = () => (A.brief && A.brief.days[A.briefDay]) || {};
   const pick = (ids) => (ids || []).map((id) => A.byId.get(id)).filter(Boolean);
   // news: the Must-know cards · prelims: the Prelims facts cards (absent in briefs built before they existed) · more: one-liners
-  const lists = () => { const v = dayOf(); return { news: pick(v.news), prelims: pick(v.prelims), more: pick(v.more), editorials: pick(v.editorials), explained: pick(v.explained) }; };
+  // · low: what Intel AI took out (with its verdicts on)
+  const lists = () => { const v = dayOf(); return { news: pick(v.news), prelims: pick(v.prelims), more: pick(v.more), editorials: pick(v.editorials), explained: pick(v.explained), low: pick(v.low) }; };
   const cardIds = (v) => (v.news || []).concat(v.prelims || []);
   const findStory = (id) => A.byId.get(id) || A.cache.get(id) || A.saved[id] || null;
   function foldedOf(id) {
@@ -320,10 +321,13 @@
     const mins = all.reduce((n, s) => n + minutesOf(s), 0);
     const reported = ((A.meta && A.meta.date_counts) || {})[d];
     const pct = all.length ? Math.round(done * 100 / all.length) : 0;
+    // the day by grade: Must-know (make notes) → Quick read → Background → Low; the one-liners join their grade's block
+    const byGrade = (arr) => ({ note: arr.filter((s) => s.grade === "NOTE"), quick: arr.filter((s) => s.grade === "SKIM"), bg: arr.filter((s) => s.grade !== "NOTE" && s.grade !== "SKIM") });
+    const G0 = byGrade(L.more); const nQuick = L.prelims.length + G0.quick.length; const nBg = G0.bg.length;
     const hero = `<section class="hero">
       <div class="eyebrow">Daily Brief · ${esc(dayLabel(d))}</div>
       <div class="hero-n">${plural(L.news.length, "must-know story", "must-know stories")}</div>
-      <div class="hero-sub">${L.news.length ? "make notes on each" : "none yet"}${L.prelims.length ? ` · +${plural(L.prelims.length, "Prelims fact")}, a quick read` : ""} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}${L.more.length ? ` · +${L.more.length} one-liners` : ""}</div>
+      <div class="hero-sub">${L.news.length ? "make notes on each" : "none yet"}${nQuick ? ` · ${nQuick} quick read` : ""}${nBg ? ` · ${nBg} background` : ""} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}</div>
       <div class="hero-prog"><div class="track"><div style="width:${pct}%"></div></div><span>${done} of ${all.length} done</span></div>
       <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}Export as PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button>${CORE.listen.supported && L.news.length ? '<button class="hbtn ghost" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen</button>' : ""}</div>
     </section>`;
@@ -331,15 +335,21 @@
     const chips = `<div class="chips nosb">${["All", ...PAPERS].map((g) => `<button class="chip${A.gs === g ? " on" : ""}" data-gs="${g}">${g}${g !== "All" ? `<span class="c">${count(g)}</span>` : ""}</button>`).join("")}</div>`;
     const cards = L.news.map((s, i) => [s, i + 1]).filter(([s]) => gsOk(s));
     const facts = L.prelims.filter(gsOk);
-    const more = L.more.filter(gsOk);
-    const shown = A.moreOpen ? more : more.slice(0, 12);
+    const G = byGrade(L.more.filter(gsOk)); const low = L.low.filter(gsOk);
+    const lines = (arr, k) => {  // one-liners, the first 12 until "Show all"
+      const shown = A.moreOpen.has(k) ? arr : arr.slice(0, 12);
+      return `<div class="more">${shown.map(mrow).join("")}${arr.length > shown.length ? `<button class="showmore" data-act="moreall" data-k="${k}">Show all ${arr.length}</button>` : ""}</div>`;
+    };
+    const lowRow = (s) => `<div class="mrow low" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(s.title)}<small>${esc(srcName(s))}${s.ai_why ? ` · ✦ ${esc(s.ai_why)}` : ""}</small></div></div>`;
     return `${head}${hero}${chips}
       <div class="sechead"><h2>Must-know</h2><span>${cards.length} · make notes</span></div>
       <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${esc(A.gs)} must-know story ${L.news.length ? "among today's cards" : "yet"}.</div>`}</div>
-      ${facts.length ? `<div class="sechead"><h2>Prelims facts</h2><span>${facts.length} · a quick read each</span></div>
-        <div class="list">${facts.map((s) => card(s, null)).join("")}</div>` : ""}
-      ${more.length ? `<div class="sechead"><h2>Also in the news</h2><span>${more.length} more that cleared the bar</span></div>
-        <div class="more">${shown.map(mrow).join("")}${more.length > shown.length ? `<button class="showmore" data-act="moreall">Show all ${more.length}</button>` : ""}</div>` : ""}
+      ${G.note.length ? `<div class="sechead"><h2>More to make notes on</h2><span>${G.note.length} · as one-liners</span></div>${lines(G.note, "note")}` : ""}
+      ${facts.length || G.quick.length ? `<div class="sechead"><h2>Quick read</h2><span>${facts.length ? `${plural(facts.length, "Prelims fact")}` : ""}${facts.length && G.quick.length ? " + " : ""}${G.quick.length ? `${G.quick.length} more` : ""} · know the key fact</span></div>
+        ${facts.length ? `<div class="list">${facts.map((s) => card(s, null)).join("")}</div>` : ""}${G.quick.length ? lines(G.quick, "quick") : ""}` : ""}
+      ${G.bg.length ? `<div class="sechead"><h2>Background</h2><span>${G.bg.length} · context and smaller stories</span></div>${lines(G.bg, "bg")}` : ""}
+      ${low.length ? `<div class="sechead"><h2>Low</h2><span>${low.length} · not UPSC material, taken out by Intel AI</span></div>
+        <div class="more lowbox"><button class="showmore" data-act="lowopen" aria-expanded="${A.lowOpen}">${A.lowOpen ? "Hide them" : `Show what Intel AI took out, with its reason`}</button>${A.lowOpen ? low.map(lowRow).join("") : ""}</div>` : ""}
       <p class="fine" style="padding:0 16px 8px">Everything reported today, with filters: <a href="../#everything">the full dashboard ↗</a></p>`;
   }
 
@@ -857,7 +867,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     }
   }
   async function goDay(d) {
-    A.day = d; A.moreOpen = false; A.gs = "All";
+    A.day = d; A.moreOpen = new Set(); A.lowOpen = false; A.gs = "All";
     if (A.tab !== "brief" && A.tab !== "read") A.tab = "brief";
     renderScreen(); window.scrollTo(0, 0);
     await loadDay(d); if (A.day === d) renderScreen();
@@ -917,7 +927,8 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
       case "askstory": openBot({ kind: "story", id: A.open }); break;
       case "claude": A.bot.ctx = null; openBot({ kind: "story", id: A.open }); askClaude(""); break;
       case "plan": A.bot.ctx = null; openBot({ kind: "insights", subj: t.dataset.subj || null }, t.dataset.subj ? `Catch-up plan: ${subjName(t.dataset.subj)}` : "30-min catch-up plan"); break;
-      case "moreall": A.moreOpen = true; renderScreen(); break;
+      case "moreall": A.moreOpen.add(t.dataset.k || ""); renderScreen(); break;
+      case "lowopen": A.lowOpen = !A.lowOpen; renderScreen(); break;
       default: break;
     }
   });

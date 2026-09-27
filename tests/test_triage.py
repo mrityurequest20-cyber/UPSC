@@ -280,3 +280,24 @@ def test_the_everything_tab_uses_the_ai_grades_when_on(db, settings, clf):
         assert {s["id"]: s["grade"] for s in everything}["bb"] == "LOW"  # kept, and shown with "Show LOW too"
         hit = c.post("/api/stories/by_ids", json={"ids": ["bill"]}).json()["stories"]  # starred / saved lists
         assert hit[0]["grade"] == "NOTE" and hit[0]["ai_why"] == "graded 3"
+
+
+def test_the_brief_is_laid_out_by_grade(db, settings, clf):
+    """A card's grade is its place (Must-know NOTE, Prelims facts SKIM); the one-liners keep Gemini's grade (the pages
+    group them under it); Low lists what the rules would have picked that Gemini grades 0, with its reason."""
+    from upsc_intel.pipeline.brief import ai_dropped, build_day
+    from upsc_intel.web.app import brief_payload
+    seed(db)
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
+    build_day(settings, db, clf, DAY)
+    db.commit()
+    p = brief_payload(settings, db, clf, DAY, DAY)
+    v, by = p["days"][DAY], {s["id"]: s for s in p["stories"]}
+    assert {by[i]["grade"] for i in v["news"]} == {"NOTE"} and {by[i]["grade"] for i in v["prelims"]} == {"SKIM"}
+    assert "ex" in v["prelims"] and by["gen"]["grade"] == "READ" and "gen" in v["more"]  # Gemini's 1: background
+    assert v["low"] == ["bb"] == ai_dropped(db, clf, DAY)  # the rules took the Bigg Boss story; Gemini says 0
+    assert by["bb"]["grade"] == "LOW" and by["bb"]["ai_why"] == "graded 0"
+    assert "low" not in brief_payload(settings, db, clf, DAY, DAY, full=False)["days"][DAY]  # a review: cards only
+    settings.ai_triage = "shadow"
+    assert "low" not in brief_payload(settings, db, clf, DAY, DAY)["days"][DAY]

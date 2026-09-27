@@ -480,7 +480,8 @@
     return `<div class="covchips"><span class="covlabel">What we covered</span>${all.filter((k) => counts[k]).map((k) => `<button class="cchip" data-jump="sec-${k}">${esc(labels[k])} <b>${counts[k]}</b></button>`).join("")}
       ${missing.length ? `<span class="cmiss" title="No brief story in these areas for this period">⚠ Nothing in: ${esc(missing.map((k) => labels[k]).join(", "))}</span>` : ""}</div>`;
   }
-  function briefHero(news, eds, exps, totalReported, more = [], facts = []) {
+  function briefHero(news, eds, exps, totalReported, lines = { note: [], quick: [], bg: [] }, facts = []) {
+    const nQuick = facts.length + lines.quick.length;
     const all = news.concat(facts, eds, exps);
     const areas = new Set(news.concat(facts).map((s) => s.subjects[0])).size;
     const minutes = Math.max(5, Math.round(news.length * 1.5 + facts.length * 0.75 + (eds.length + exps.length) * 2));
@@ -488,10 +489,10 @@
     const d = D(from);
     const eyebrow = S.view === "day" ? `Daily Brief · ${WD_LONG[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`
       : S.view === "week" ? `Week ${isoWeek(from)} in review · ${periodLabel("week", S.anchor).split(" · ")[0]}` : `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()} in review`;
-    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")}${facts.length ? ` + ${plural(facts.length, "Prelims fact")}` : ""}${more.length ? ` + ${more.length} more` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
+    const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")}${lines.note.length ? ` + ${lines.note.length} to note` : ""}${nQuick ? ` · ${nQuick} quick read` : ""}${lines.bg.length ? ` · ${lines.bg.length} background` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
       : `${plural(news.length, "must-know story", "must-know stories")}${facts.length ? ` + ${plural(facts.length, "Prelims fact")}` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`;
     const sub = S.view === "day"
-      ? `${news.length ? "Must-know: make notes on each" : "No must-know story yet"}${facts.length ? " · Prelims facts: a quick read for the key fact" : ""} · covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
+      ? `${news.length ? "Must-know: make notes on each" : "No must-know story yet"}${nQuick ? " · Quick read: know the key fact" : ""}${lines.bg.length ? " · Background: context" : ""} · covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
       : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported${nMore() ? ` · ${nMore()} more are listed in the daily briefs` : ""}`;
     return `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
       <div class="bhero-side">${progress(all)}${gsChips()}${S.view === "day" && CORE.listen.supported && news.length ? '<button class="chip lsn-go" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen to the brief</button>' : ""}</div></header>`;
@@ -529,6 +530,11 @@
     const news = briefList("news").filter(briefPasses);
     const facts = briefList("prelims").filter(briefPasses);
     const more = S.view === "day" ? briefList("more").filter(briefPasses) : [];
+    const low = S.view === "day" ? briefList("low").filter(briefPasses) : [];  // what Intel AI took out
+    // the day is laid out by grade: Must-know (make notes) → Quick read → Background → Low; the list under the
+    // cards joins the block of its own grade
+    const lines = { note: more.filter((s) => s.grade === "NOTE"), quick: more.filter((s) => s.grade === "SKIM"),
+      bg: more.filter((s) => s.grade !== "NOTE" && s.grade !== "SKIM") };
     const eds = briefList("editorials").filter(briefPasses);
     const exps = briefList("explained").filter(briefPasses);
     const vids = briefVideos();
@@ -548,9 +554,9 @@
     for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
     const compact = S.view !== "day";
     const sections = [];
-    let html = briefHero(news, eds, exps, reportedTotal(), more, facts) + (compact ? coverageChips(news.concat(facts)) + briefVolume() : "");
+    let html = briefHero(news, eds, exps, reportedTotal(), lines, facts) + (compact ? coverageChips(news.concat(facts)) + briefVolume() : "");
     if (top.length) {
-      html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Must-know today: the top " + top.length : `Must-know of ${dayShort(S.anchor)}: the top ${top.length}`) : S.view === "week" ? "Must-know: top 10 of the week" : "Must-know: top 15 of the month",
+      html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Must-know · make notes: the top " + top.length : `Must-know of ${dayShort(S.anchor)} · make notes: the top ${top.length}`) : S.view === "week" ? "Must-know: top 10 of the week" : "Must-know: top 15 of the month",
         `make notes on these${news.length > top.length ? ` · the other ${news.length - top.length} must-know stories follow by subject` : ""} · tap any card for its summary`, `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true })).join("")}</div>`);
       sections.push({ id: "sec-top", label: "Must-know: top " + top.length, n: top.length });
     }
@@ -561,19 +567,29 @@
         `<div class="bcards">${arr.slice(0, lim).map((s) => bcard(s, { compact, day: compact ? s._day : null })).join("")}</div>${arr.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${arr.length}</button>` : ""}`);
       sections.push({ id: `sec-${k}`, label: labels[k], n: arr.length });
     }
+    const lineList = (arr) => {  // one line per story, grouped by subject
+      const bySubj = new Map(Object.keys(labels).map((k) => [k, []]));
+      for (const s of arr) { const k = s.subjects[0]; (bySubj.get(k) || (bySubj.set(k, []), bySubj.get(k))).push(s); }
+      return `<div class="mlist">${[...bySubj].filter(([, a]) => a.length).map(([k, a]) =>
+        `<div class="mgroup"><h4>${esc(labels[k] || k || "Other")}</h4><ul>${a.map(mrow).join("")}</ul></div>`).join("")}</div>`;
+    };
+    if (lines.note.length) {
+      html += section("sec-note", "More to make notes on", "high-yield stories listed as lines (analysis, or beyond the day's cards) · tap a line for its summary", lineList(lines.note));
+      sections.push({ id: "sec-note", label: "More to make notes on", n: lines.note.length });
+    }
     if (facts.length) {
       const key = "b:facts"; const lim = S.expanded.has(key) || S.view === "day" ? facts.length : 12;
-      html += section("sec-prelims", "Prelims facts", "a quick read each: exercises, pacts signed, Acts and approvals, schemes, species, verdicts",
+      html += section("sec-prelims", "Quick read · Prelims facts", "know the key fact of each: exercises, pacts signed, Acts and approvals, schemes, species, verdicts",
         `<div class="bcards">${facts.slice(0, lim).map((s) => bcard(s, { compact: true, day: compact ? s._day : null, showSubject: true })).join("")}</div>${facts.length > lim ? `<button class="btn showmore" data-expand="${key}">Show all ${facts.length}</button>` : ""}`);
-      sections.push({ id: "sec-prelims", label: "Prelims facts", n: facts.length });
+      sections.push({ id: "sec-prelims", label: "Quick read · Prelims facts", n: facts.length });
     }
-    if (more.length) {
-      const bySubj = new Map(Object.keys(labels).map((k) => [k, []]));
-      for (const s of more) { const k = s.subjects[0]; if (bySubj.has(k)) bySubj.get(k).push(s); }
-      html += section("sec-more", "Also in the news", "reactions, previews and smaller stories · tap a line for its summary",
-        `<div class="mlist">${[...bySubj].filter(([, arr]) => arr.length).map(([k, arr]) =>
-          `<div class="mgroup"><h4>${esc(labels[k])}</h4><ul>${arr.map(mrow).join("")}</ul></div>`).join("")}</div>`);
-      sections.push({ id: "sec-more", label: "Also in the news", n: more.length });
+    if (lines.quick.length) {
+      html += section("sec-quick", "More quick reads", "worth knowing the gist · tap a line for its summary", lineList(lines.quick));
+      sections.push({ id: "sec-quick", label: "More quick reads", n: lines.quick.length });
+    }
+    if (lines.bg.length) {
+      html += section("sec-more", "Background", "context, reactions, previews and smaller stories · tap a line for its summary", lineList(lines.bg));
+      sections.push({ id: "sec-more", label: "Background", n: lines.bg.length });
     }
     if (eds.length) {
       const key = "b:eds"; const lim = S.expanded.has(key) || S.view === "day" ? eds.length : 10;
@@ -592,6 +608,12 @@
       html += section("sec-videos", S.view === "day" ? "Watch: today's analysis" : "Analysis videos", "Sansad TV, PIB, DD News, Indian Express, Drishti, StudyIQ and more",
         `<div class="vgrid">${vids.slice(0, lim).map(videoTile).join("")}</div>${vids.length > lim ? `<button class="btn showmore" data-tab-go="videos">All ${vids.length} videos</button>` : ""}`);
       sections.push({ id: "sec-videos", label: "Videos", n: vids.length });
+    }
+    if (low.length) {
+      html += section("sec-low", "Low · not UPSC material", "taken out of the brief by Intel AI: the old rules would have listed these",
+        `<details class="lowbox"><summary>Show the ${plural(low.length, "story", "stories")} Intel AI took out, with its reason</summary><ul class="lowlist">${low.map((s) =>
+          `<li><span class="pill g-LOW">Low</span><a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(s.title)}</a><span class="msrc">${esc((s.sources[0] && s.sources[0].p) || "")}</span>${s.ai_why ? `<small>✦ ${esc(s.ai_why)}</small>` : ""}</li>`).join("")}</ul></details>`);
+      sections.push({ id: "sec-low", label: "Low", n: low.length });
     }
     el.innerHTML = html;
     $("#side").innerHTML = contentsNav(sections, S.view === "day" ? (S.anchor === todayIST() ? "In today's brief" : `In the ${dayShort(S.anchor)} brief`) : "In this " + S.view) +
@@ -702,12 +724,13 @@
       <section class="panel"><h3>Easy-miss watch</h3>${watch}</section>`;
   }
   // Why a story is (or isn't) in the Daily Brief: one rule set, stated on every card.
-  const BRIEF_RULE = "Daily Brief = every story that clears the bar, however many: its grade, lifted when the headline reports an examinable development (a law passed, a Cabinet decision, a pact signed, an exercise, a species found…) and lowered for reactions and commentary. Must-know = the high-yield (make-notes) stories among them; Prelims facts = other concrete developments worth a quick read; reactions, previews and smaller stories are listed under “Also in the news”. Reports of the same event share one card, every syllabus area gets its best story, and a quiet day is topped up.";
+  const BRIEF_RULE = "Daily Brief = every story that clears the bar, however many: its grade, lifted when the headline reports an examinable development (a law passed, a Cabinet decision, a pact signed, an exercise, a species found…) and lowered for reactions and commentary. The day is laid out by grade: Must-know = the high-yield (make-notes) stories; Quick read = Prelims facts and other stories worth knowing the key fact of; Background = context, reactions, previews and smaller stories; with Intel AI on, Low lists what it took out as not UPSC material. Reports of the same event share one card, every syllabus area gets its best story, and a quiet day is topped up.";
   function briefChip(s) {
     const b = s.in_brief;
     if (b) {
       const where = b.k === "editorial" ? "Editorials" : b.k === "explained" ? "Explained"
-        : b.l ? "brief, on the same event's card" : b.t === "more" ? "brief · Also in the news" : b.t === "prelims" ? "brief · Prelims facts" : "brief · Must-know";
+        : b.l ? "brief, on the same event's card" : b.t === "more" ? `brief · ${s.grade === "NOTE" ? "More to make notes on" : s.grade === "SKIM" ? "More quick reads" : "Background"}`
+        : b.t === "prelims" ? "brief · Quick read" : "brief · Must-know";
       return `<span class="bchip in" title="${esc(BRIEF_RULE)}">✓ In ${esc(dayShort(b.d))} ${where}</span>`;
     }
     if (s.grade === "LOW") return "";
@@ -1053,7 +1076,7 @@
       for (const s of news) { const k = labels[s.subjects[0]] || "Other"; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(s); }
       for (const [k, arr] of groups) md += `\n## ${k}\n` + arr.map(block).join("");
       const facts = briefList("prelims").filter(briefPasses);
-      if (facts.length) md += `\n## Prelims facts\n` + facts.map(block).join("");
+      if (facts.length) md += `\n## Quick read · Prelims facts\n` + facts.map(block).join("");
       const eds = briefList("editorials").filter(briefPasses);
       if (eds.length) md += `\n## Editorials\n` + eds.map(block).join("");
       const exps = briefList("explained").filter(briefPasses);
