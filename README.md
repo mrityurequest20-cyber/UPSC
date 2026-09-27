@@ -174,6 +174,12 @@ Week and Month views recap everything the daily briefs covered.
   - the syllabus-coverage radar
   - the easy-miss watch (marine/EEZ, DPI, neighbourhood politics, appointments, defence-tech deals)
   - LOW-grade items, hidden but never deleted
+  - **Graded by Intel AI** when AI triage is on (see "✦ Intel AI" below):
+    - Each story Gemini has graded takes its grade: 3 is Make notes, 2 Quick read, 1 Background, and 0 is LOW (hidden).
+    - Gemini's subject and GS papers lead, so the filters and the radar follow Gemini too.
+    - The list is ordered by grade, then score. Hovering a grade shows Gemini's reason ("✦ Graded by Intel AI: …").
+    - A story the rules had rejected comes back only with a 2 or 3, as in the brief. Stories not graded yet keep the rules' grade.
+    - The same applies to starred and saved lists, search, and the grade pills on brief cards. A Must-know card always reads Make notes.
 - **Live updates:** a "🔴 N new stories" button appears when a fetch lands.
 - **Refresh button:**
   - **Local / Docker:** fetches *every* source right now (1–3 min) and reports "Done · N new stories".
@@ -314,7 +320,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 197 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 198 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -353,7 +359,7 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
      - On a light day, Must-know is topped up to `must_know_min` (8) with the rules' Must-know stories that Gemini rates 2.
      - A 2 is a Prelims-facts card when it holds a checkable fact and the rules take the story too, else a line. There are at most `prelims_max` (30) such cards, strongest first.
      - A 1 is a line if the rules take it.
-     - Gemini's subject and GS papers lead the card.
+     - Gemini's subject and GS papers lead the card, and its grade is the story's grade everywhere, the Everything tab included.
      - "Also in the news" holds at most `more_max` (60) lines: Gemini's 2s first, then the rules' picks, then its 1s.
      - **Same event, one card:** after the brief is picked, Gemini sees the day's Must-know and Prelims-facts headlines (with the reports already folded in) and groups the ones on the same event, e.g. one speech told three ways. Each group folds into one card. The groups are kept in `ai_groups`, and a day is asked again only when its cards change (3 or more new ones, or 40 minutes later), about one call per busy run.
      - A story without a grade (quota out) keeps the rules.

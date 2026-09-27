@@ -410,11 +410,14 @@ class DB:
 
     def stories_between(self, date_from: str, date_to: str, *, include_low: bool = False,
                         library: bool | None = False, include_private: bool = True,
-                        since: str | None = None) -> list[dict]:
+                        since: str | None = None, ai: bool = False) -> list[dict]:
+        """ai: Gemini's grades are on, so a story the rules graded LOW that Gemini rates 2 or 3 is included too
+        (web/app.py ai_list then drops the ones Gemini grades LOW)."""
         where = ["s.id IN (SELECT story_id FROM story_dates WHERE date_ist BETWEEN ? AND ?)"]
         params: list[Any] = [date_from, date_to]
         if not include_low:
-            where.append("s.grade != 'LOW'")
+            where.append("(s.grade != 'LOW' OR COALESCE(json_extract(s.triage, '$.upsc'), 0) >= 2)" if ai
+                         else "s.grade != 'LOW'")
         if library is not None:
             where.append("s.is_library = ?")
             params.append(1 if library else 0)

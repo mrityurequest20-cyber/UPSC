@@ -164,6 +164,14 @@ def test_must_know_is_topped_up_from_the_rules_on_a_light_day(db, settings, clf)
     ai = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True)}
     assert rules["r2"] == "top" and ai["r2"] == "top"  # the rules' Must-know pick that Gemini rates 2 fills the floor of 8
     assert ai["r1"] == "top"
+    from upsc_intel.pipeline.brief import build_day
+    from upsc_intel.web.app import ai_list, brief_payload, story_out
+    build_day(settings, db, clf, DAY)
+    db.commit()
+    p = brief_payload(settings, db, clf, DAY, DAY)
+    assert "r2" in p["days"][DAY]["news"] and {s["id"]: s["grade"] for s in p["stories"]}["r2"] == "NOTE"  # a card reads NOTE
+    rows = db.stories_by_ids(["r2"])
+    assert ai_list([story_out(rows[0])], rows, clf, True)[0]["grade"] == "SKIM"  # its own grade elsewhere: Gemini's 2
 
 
 def test_also_in_the_news_is_capped(db, settings, clf):
@@ -240,3 +248,35 @@ def test_the_brief_cards_are_graded_first(db, settings, clf):
     db.commit()
     rows = T._todo(db, [DAY])
     assert rows[0]["id"] == "gen" and [r["id"] for r in rows[1:]] == ["bb", "ex", "cab", "bill"]
+
+
+def test_the_everything_tab_uses_the_ai_grades_when_on(db, settings, clf):
+    """Every story list (the Everything tab, search) takes Gemini's 0-3 as its grade and its subject, not just the
+    brief: 3 NOTE, 2 SKIM, 1 READ, 0 LOW (hidden). A story the rules rejected needs a 2 or 3 to come back."""
+    from fastapi.testclient import TestClient
+
+    from upsc_intel.web.app import ai_list, create_app, story_out
+    seed(db)
+    story(db, "low1", "Minister reviews district roads", score=1.0, grade="LOW")
+    db.commit()
+    settings.gemini_api_key, settings.ai_triage = "test-key", "shadow"
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
+
+    def listed(on):
+        rows = db.stories_between(DAY, DAY, include_low=False, ai=on)
+        return {o["id"]: o for o in ai_list([story_out(s) for s in rows], rows, clf, on, include_low=False)}
+    rules, ai = listed(False), listed(True)
+    assert rules["bb"]["grade"] == "NOTE" and "bb" not in ai  # Gemini: 0, not UPSC material
+    assert "bill" not in rules and ai["bill"]["grade"] == "NOTE" and ai["bill"]["subjects"][0] == "polity"  # LOW → 3
+    assert ai["cab"]["grade"] == "NOTE" and ai["ex"]["grade"] == "SKIM" and ai["gen"]["grade"] == "READ"
+    assert ai["cab"]["ai_why"] == "graded 3" and "ai_why" not in rules["cab"]
+    assert "low1" not in ai  # the rules rejected it; Gemini's 1 doesn't bring it back
+
+    settings.ai_triage = "on"
+    with TestClient(create_app(settings, scheduler=False)) as c:
+        got = {s["id"]: s for s in c.get("/api/stories", params={"from": DAY, "to": DAY}).json()["stories"]}
+        assert set(got) == set(ai) and got["bill"]["grade"] == "NOTE" and got["gen"]["grade"] == "READ"
+        everything = c.get("/api/stories", params={"from": DAY, "to": DAY, "include_low": "true"}).json()["stories"]
+        assert {s["id"]: s["grade"] for s in everything}["bb"] == "LOW"  # kept, and shown with "Show LOW too"
+        hit = c.post("/api/stories/by_ids", json={"ids": ["bill"]}).json()["stories"]  # starred / saved lists
+        assert hit[0]["grade"] == "NOTE" and hit[0]["ai_why"] == "graded 3"
