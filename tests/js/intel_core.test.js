@@ -637,6 +637,27 @@ test("listen: ✦ Intel AI's natural voice records each story; the line follows 
   } finally { global.fetch = prev; unspeech(); }
 });
 
+test("glossary: each term's first mention is a button; acronyms keep their capitals; text stays escaped", () => {
+  const G = C.gloss;
+  G.set({});
+  assert.strictEqual(G.html("A <b>bold</b> & plain line"), "A &lt;b&gt;bold&lt;/b&gt; &amp; plain line", "no glossary: plain escaped text");
+  G.set({ a: { t: "Article 142", m: "Lets the Supreme Court do complete justice." }, b: { t: "SIR", m: "Special Intensive Revision of electoral rolls." },
+    c: { t: "repo rate", m: "The rate at which the RBI lends to banks." }, d: { t: "CEPA", m: "Comprehensive Economic Partnership Agreement." },
+    e: { t: "Article 14", m: "Equality before law." } });
+  assert.strictEqual(G.size, 5);
+  const seen = new Set();
+  const a = G.html("The court used Article 142 & the <SIR>; sir, the Repo Rate and the repo rate. Article 14 too.", seen);
+  assert.ok(a.includes('<button type="button" class="gl" data-gl="article 142"') && a.includes(">Article 142</button>"), a);
+  assert.ok(a.includes("&amp; the &lt;<button") && a.includes(">SIR</button>&gt;"), "the text around a term stays escaped");
+  assert.strictEqual((a.match(/data-gl="sir"/g) || []).length, 1, "an acronym: its own capitals only ('sir' stays plain)");
+  assert.ok(a.includes('data-gl="repo rate"') && a.includes(">Repo Rate</button>") && (a.match(/data-gl="repo rate"/g) || []).length === 1, "a common term: any case, once");
+  assert.ok(a.includes('data-gl="article 14"') && !a.includes("Article 14</button>2"), "Article 14 is not the start of Article 142");
+  const b = G.html("CEPA, SIR and Article 142 again.", seen);
+  assert.ok(b.includes('data-gl="cepa"') && !b.includes('data-gl="sir"') && !b.includes('data-gl="article 142"'), "once per story across its blocks");
+  assert.strictEqual(G.meaning("cepa").t, "CEPA");
+  G.set({});
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

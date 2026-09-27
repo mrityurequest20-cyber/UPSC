@@ -160,6 +160,17 @@ Week and Month views recap everything the daily briefs covered.
       - This is the default for Hinglish when Intel AI is on.
       - The voice uses the key's free text-to-speech quota, which is smaller than the text quota. When it runs out, the device's voice takes over and the player says so.
   - Your language, voice and speed are remembered on this device.
+- **Glossary pop-ups (website and app):** the key terms in a story's text are underlined with a dotted line. Tap one for its meaning: a small card on a computer, a sheet at the bottom on a phone. Tap elsewhere, press Esc or tap ✕ to close it.
+  - **What's picked:** 3–6 terms per brief card (Must-know, Prelims facts, editorials, explainers) that an aspirant should know or revise. That means Articles and Schedules, Acts and Bills, schemes and missions, constitutional, statutory and international bodies, agreements, economic and technical terms, acronyms, species, protected areas and exercises. People's names and everyday words are skipped.
+  - **What each one says:** at most 35 words of static textbook background, with an acronym's full form first. It never includes the day's news.
+  - **Where they show:** in the summary points, what happened, background, why it matters, Prelims facts and the Mains question.
+    - A term is marked at its first mention in each story.
+    - Acronyms and numbered Articles match their exact capitals only, so "SIR" is marked but "sir" isn't.
+  - **Who writes them:** Intel AI, in the notes step of each run, for today's and yesterday's cards: 8 cards per call and at most 4 calls a run.
+    - A term must appear in the card's own text to be kept.
+    - Each term is written once (the `glossary` table), and its first explanation stays.
+    - A card is asked once (`stories.terms`; `[]` when it has none).
+    - Each day's file carries its cards' terms (`days[d].glossary`). Older days aren't backfilled.
 - **Daily Brief PDF (Export on the website, the export sheet in the app):** a real PDF of the day, built with the site and laid out like a newspaper brief:
   - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, the syllabus line and a clickable source link
   - Prelims facts (2-3 lines each), **Editorial Watch** (each editorial's argument in 2-3 sentences, with its link), Explained, Also in the news (one line each)
@@ -334,10 +345,10 @@ python -m upsc_intel serve [--port 8000] [--no-scheduler] [--public-only]
 python -m upsc_intel fetch [--only pib hindu-] [--force] [--public-only] [--enrich]
 python -m upsc_intel sources            # health table: which step each source is using, counts, errors
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
-python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
+python -m upsc_intel enrich [--limit N] # AI notes for the brief, then its glossary (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 200 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 203 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

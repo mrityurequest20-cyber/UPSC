@@ -82,7 +82,16 @@ def cmd_enrich(args) -> int:
     if not s.ai_enabled:
         print("Set GEMINI_API_KEY (free, from Google AI Studio) or ANTHROPIC_API_KEY to enable AI notes.", file=sys.stderr)
         return 1
-    print(json.dumps(enrich_top(s, _db(s), limit=args.limit), indent=2))
+    db = _db(s)
+    res = enrich_top(s, db, limit=args.limit)
+    if s.gemini_api_key:  # the glossary of the recent days' cards (pipeline/glossary.py)
+        from .pipeline.brief import recent_days
+        from .pipeline.glossary import build_glossary
+        try:
+            res["glossary"] = build_glossary(s, db, recent_days())
+        except Exception as exc:  # the notes are written: a glossary hiccup waits for the next run
+            res["glossary"] = {"error": type(exc).__name__}
+    print(json.dumps(res, indent=2))
     return 0
 
 

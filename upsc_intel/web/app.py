@@ -18,6 +18,7 @@ from ..db import DB, iso
 from ..pipeline.brief import ai_dropped, ensure_range
 from ..pipeline.classify import GS_ORDER, Classifier
 from ..pipeline.enrich import auto_explain, has_ai_explainer
+from ..pipeline.glossary import glossary_for
 from ..pipeline.normalize import clean_summary, publisher_key, today_ist
 from ..pipeline.videos import daily_videos
 
@@ -269,6 +270,10 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
                 o["summary"] = o["summary"][:LIGHT_SUMMARY].rsplit(" ", 1)[0] + "…"
             o["sources"] = o["sources"][:4]
             out_stories.append(o)
+    if full:  # the glossary of the day's cards (pipeline/glossary.py): the pages mark each term and show its meaning
+        for d, v in days.items():
+            ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v[k]]
+            v["glossary"] = glossary_for(db, [k for i in ids for k in (stories[i].get("terms") or []) if i in stories])
     if ai_on and full:  # Low: what Gemini took out, with its reason, so a reader can check it
         for d, v in days.items():
             v["low"] = ai_dropped(db, clf, d)

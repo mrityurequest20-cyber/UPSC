@@ -224,10 +224,10 @@
       .catch((e) => toast(e.message || "Couldn't reach the web just now."))
       .finally(() => { A.sumStep.delete(s.id); paintSum(s); });
   }
-  function sumBoxInner(s) {
+  function sumBoxInner(s, seen = new Set()) {
     const P = pointsFor(s); const step = A.sumStep.get(s.id) || (P.from === "brief" && P.busy ? "Reading the full article…" : "");
     return `<div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
-      ${P.points.length ? `<ul class="pts">${P.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="rt" style="margin:0;font-size:14px">The outlets carried only the headline.</p>`}
+      ${P.points.length ? `<ul class="pts">${P.points.map((p) => `<li><span>${CORE.gloss.html(p, seen)}</span></li>`).join("")}</ul>` : `<p class="rt" style="margin:0;font-size:14px">The outlets carried only the headline.</p>`}
       <div class="sumsrc">${step ? `<span class="sumstep">${esc(step)}</span>` : P.line}</div>`;
   }
   function paintSum(s) { const box = $("#sumbody"); if (box && A.open === s.id) box.innerHTML = sumBoxInner(s); }
@@ -523,6 +523,8 @@
       ["Link to syllabus", noteOf(s) ? noteOf(s).syllabus : ""],
     ].filter(([, v]) => v);
     const facts = e.prelims || [];
+    const seen = new Set(); const G = (x) => CORE.gloss.html(x, seen);  // each glossary term marked once per story
+    const sum = sumBoxInner(s, seen);
     const vcard = vids.length ? `<a class="vcard" href="${esc(safeUrl(vids[0][0].url))}" target="_blank" rel="noopener"><div class="vthumb"><img src="${esc(ytThumb(vids[0][0]))}" alt="" loading="lazy"><span class="play">${I.play}</span></div><div style="min-width:0"><b>${esc(vids[0][0].title)}</b><small>${esc(vids.map(([, l]) => l).join(" · "))} · ${esc(vids[0][0].channel || "YouTube")}</small></div></a>`
       : `<a class="vcard" href="${esc(ytSearch(s))}" target="_blank" rel="noopener"><div class="vthumb"><span class="play">${I.play}</span></div><div style="min-width:0"><b>Search YouTube: ${esc((s.video && s.video.query) || s.title)}</b><small>No confident video match yet</small></div></a>`;
     const pw = (u) => CORE.web.paywalled(CORE.web.domainOf(u));
@@ -534,13 +536,13 @@
         <div class="card-meta">${gradePill(s)}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span>${tagOf(s) ? `<span class="tag">${esc(tagOf(s))}</span>` : ""}</div>
         <h1>${esc(s.title)}</h1>
         <div class="story-meta">${esc(srcName(s))}${(s.n_pub || 1) > 1 ? ` and ${plural(s.n_pub - 1, "more outlet")}` : ""}${s.first_seen ? ` · first seen ${esc(clockIST(s.first_seen))} IST${s.date && s.date !== todayIST() ? `, ${esc(dayShort(s.date))}` : ""}` : ""} · ${minutesOf(s)} min read</div>
-        <section class="sumbox" id="sumbox"><div id="sumbody">${sumBoxInner(s)}</div>
+        <section class="sumbox" id="sumbox"><div id="sumbody">${sum}</div>
           <div class="qchips nosb">${QUICK.map((q) => `<button class="qchip" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}<button class="qchip claude" data-act="claude">Ask Claude ↗</button></div></section>
         ${vcard}
         <div class="rows">
-          ${rows.map(([l, v]) => `<div><div class="rl">${esc(l)}</div><div class="rt">${esc(v)}</div></div>`).join("")}
-          ${facts.length ? `<div><div class="rl">Prelims facts</div><ul class="facts">${facts.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></div>` : ""}
-          <div class="mains"><div class="rl">Mains question · ${esc(paperOf(s) === "Other" ? "GS" : paperOf(s))}</div><p>${esc(mainsOf(s))}</p><small>250 words · 15 marks${e.mains ? "" : " · practice question from the syllabus mapping"}</small></div>
+          ${rows.map(([l, v]) => `<div><div class="rl">${esc(l)}</div><div class="rt">${l === "When · Where · Who" ? esc(v) : G(v)}</div></div>`).join("")}
+          ${facts.length ? `<div><div class="rl">Prelims facts</div><ul class="facts">${facts.map((f) => `<li>${G(f)}</li>`).join("")}</ul></div>` : ""}
+          <div class="mains"><div class="rl">Mains question · ${esc(paperOf(s) === "Other" ? "GS" : paperOf(s))}</div><p>${G(mainsOf(s))}</p><small>250 words · 15 marks${e.mains ? "" : " · practice question from the syllabus mapping"}</small></div>
           ${(e.keywords || []).length ? `<div><div class="rl">Keywords</div><div class="kws">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</div></div>` : ""}
           <div><div class="rl">Read the original</div><div class="links">${(s.sources || []).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener"><span>${esc(x.p || "Source")}${x.s ? ` <small>· ${esc(x.s)}</small>` : ""}</span>${pw(x.u) ? '<span class="pw">subscriber</span>' : ""}${I.ext}</a>`).join("")}
             ${folded.map((f) => `<a href="${esc(safeUrl(f.url || (f.sources && f.sources[0] && f.sources[0].u)))}" target="_blank" rel="noopener"><span>${esc(srcName(f))} <small>· ${esc(f.title)}</small></span>${I.ext}</a>`).join("")}</div></div>
@@ -860,9 +862,10 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     try {
       const x = await api.day(d);
       A.brief = x; A.briefDay = d; A.byId = new Map(x.stories.map((s) => [s.id, s]));
+      CORE.gloss.set(Object.assign({}, ...Object.values(x.days || {}).map((v) => v.glossary || {})));  // the day's glossary: tap a term
       for (const s of x.stories) A.cache.set(s.id, s);
     } catch (e) {
-      A.brief = { days: {}, stories: [], videos: {} }; A.briefDay = d; A.byId = new Map();
+      A.brief = { days: {}, stories: [], videos: {} }; A.briefDay = d; A.byId = new Map(); CORE.gloss.set({});
       toast(navigator.onLine === false ? "You're offline and this day isn't saved on the phone yet." : `Couldn't load the brief (${e.message}).`);
     }
   }

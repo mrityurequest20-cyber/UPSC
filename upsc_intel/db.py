@@ -183,13 +183,22 @@ CREATE TABLE IF NOT EXISTS ai_groups (
     at TEXT
 );
 
+-- the glossary (pipeline/glossary.py): each term once, with its two-line meaning; key: the term in lower case
+CREATE TABLE IF NOT EXISTS glossary (
+    key TEXT PRIMARY KEY,
+    term TEXT,
+    meaning TEXT,
+    first_day TEXT,
+    at TEXT
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );
 """
 
 JSON_COLS_ITEMS = {"tokens", "subjects", "tags", "watch", "extra"}
-JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi", "triage"}
+JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi", "triage", "terms"}
 MIGRATIONS = [  # (table, column, type): added when missing, so old databases keep working
     ("stories", "video", "TEXT"),
     ("stories", "video_checked_at", "TEXT"),
@@ -201,6 +210,7 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("brief_picks", "lead", "TEXT"),  # folded into this story's card (same event, another outlet)
     ("article_text", "published", "TEXT"),  # the article's own publish date ("": the page doesn't say; NULL: not checked)
     ("stories", "triage", "TEXT"),  # Gemini's verdict for the brief: {upsc 0-3, subject, gs, prelims, why, t}
+    ("stories", "terms", "TEXT"),  # the card's glossary keys (pipeline/glossary.py); [] when it has none
 ]
 
 
