@@ -73,6 +73,27 @@ test("teasers for other stories around the article are dropped", () => {
   assert.strictEqual(C.web.mainText("KOZHIKODE: Highland farmers have demanded that a special session of the Assembly be convened to reject the draft notification on sensitive areas.")[0].slice(0, 10), "KOZHIKODE:");
 });
 
+test("a trending strip of linked headlines never becomes the article, even when it outweighs each paragraph", () => {
+  const link = (t, i) => `[${t}](https://timesofindia.indiatimes.com/x/articleshow/${i}.cms "${t}")`;
+  const strip = ["Bigg Boss Malayalam 8 preview: Mohanlal to make a decision on the issue, says I am here to listen to you",
+    "Suniel Shetty recalls his childhood obsession with cricket, reveals he has been following Rohit Sharma since he was 16",
+    "Numerology prediction, September 27 to October 03, 2026, based on the first letter of your name",
+    "Why do some Indian villages still cook food underground? The centuries-old cooking technique that turns pits into natural ovens.",
+    "NCMC card mandatory for senior citizens, women passengers on MSRTC buses from October 1"].map(link).join("").repeat(4);
+  const md = ["# Vijay government exempts Tamil Nadu Public (Law & Order) department from RTI", "",
+    "NEW DELHI: The Tamil Nadu government has exempted the Public (Law and Order) Department from the ambit of the Right to Information Act.A Gazette notification classifies it as an Intelligence and Security Organisation under Section 24(4).", "",
+    "> — ANI (@ANI) [September 27, 2026](https://x.com/ANI/status/1)", "", "### What the exemption means", "",
+    "The Public (Law and Order) Department deals with policing, public order and law-and-order administration, so RTI requests on these matters will be refused.", "",
+    "Join conversation", "", "View All Comments (2) →", "", "Post Comment", "", "[Sponsored Links](https://popup.taboola.com/x)", "", "You May Like", "", "Undo", "",
+    "However, Section 24 of the RTI Act does not provide a blanket exemption: information on allegations of corruption and human-rights violations must still be given.", "",
+    "Priyanka Jaiswal has four years of experience in digital journalism, news agency reporting and video production at the paper.", "",
+    strip].join("\n");
+  const p = C.web.mainText(md);
+  assert.ok(p[0].startsWith("NEW DELHI: The Tamil Nadu government"), p[0]);
+  assert.ok(p.some((x) => x.startsWith("However, Section 24")) && p.some((x) => x.includes("Act. A Gazette")));
+  assert.ok(!p.some((x) => /Bigg Boss|Numerology|Priyanka Jaiswal/.test(x)));
+});
+
 test("summaries quote the article, lead first, in order", () => {
   const sents = C.web.sentencesFrom({ domain: "ndtv.com", url: "https://www.ndtv.com/x", paragraphs: C.web.mainText(ARTICLE) });
   const pts = C.summarize(sents, 3);

@@ -159,7 +159,86 @@ def test_read_brief_articles_stores_text_and_misses(db, settings):
     db.commit()
     http = FakeHttp({"https://forumias.com/": Resp("https://forumias.com/blog/varuna/", ARTICLE),
                      "https://www.bing.com/news/search": Resp("x", rss())})
-    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=http) == {"read": 1, "missed": 1}
+    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=http) == {"read": 1, "missed": 1, "stale": 0}
     arts = db.articles(["s1", "s2"])
     assert arts["s1"]["points"] and arts["s1"]["domain"] == "forumias.com" and arts["s2"]["miss"] == 1
-    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=http) == {"read": 0, "missed": 0}  # a recent miss waits
+    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=http) == {"read": 0, "missed": 0, "stale": 0}  # a recent miss waits
+
+
+AIR_OLD = """<html><body><header><p>Home | National | International | Updated: September 27, 2026 10:00 AM</p></header>
+<div class="post-meta">News On AIR | March 25, 2026 7:38 PM</div>
+<div class="content"><p>Parliament has passed the Transgender Persons (Protection of Rights) Amendment Bill, 2026, with the Rajya Sabha approving it by voice vote today.</p>
+<p>The bill was passed by the Lok Sabha on Tuesday after a debate in which members raised questions about the certification process for identity.</p>
+<p>On July 25, 2024 the Supreme Court had asked the government to examine the concerns of the community about the certificate of identity.</p></div>
+</body></html>"""
+
+
+def test_published_date_comes_from_tags_or_a_dateline_never_the_body():
+    meta = '<html><head><meta property="article:published_time" content="2026-09-26T08:10:00+05:30"></head><body><p>x</p></body></html>'
+    ld = '<html><head><script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-08-07T11:00:00Z"}</script></head></html>'
+    assert A.published_of(meta) == "2026-09-26" and A.published_of(ld) == "2026-08-07"
+    assert A.published_of(AIR_OLD) == "2026-03-25"  # the dateline, not the header's "Updated" nor the 2024 in the text
+    body_only = "<html><body><p>On July 25, 2024 the Supreme Court held that the rule was valid for all the states in the country.</p></body></html>"
+    assert A.published_of(body_only) == ""
+    assert A.is_stale("2026-03-25", "2026-09-26") and not A.is_stale("2026-09-24", "2026-09-26") and not A.is_stale("", "2026-09-26")
+
+
+def test_an_old_article_filed_under_today_is_kept_with_its_date_and_leaves_the_brief(db, settings):
+    from datetime import datetime, timezone
+
+    from upsc_intel.pipeline.brief import select_day
+    from upsc_intel.pipeline.classify import Classifier
+    from upsc_intel.config import load_topics
+    now = datetime.now(timezone.utc).isoformat()
+    url = "https://www.newsonair.gov.in/parliament-passes-transgender-persons-amendment-bill-2026/"
+    for sid, title, u in (("old", "Parliament passes Transgender Persons Amendment Bill 2026", url),
+                          ("new", "Exercise Varuna 2026 begins at Toulon", "https://forumias.com/blog/varuna/")):
+        db.upsert_story({"id": sid, "title": title, "url": u, "date_ist": "2026-09-26", "dates": ["2026-09-26"], "first_seen": now,
+                         "last_seen": now, "updated_at": now, "n_items": 1, "n_publishers": 1, "publishers": ["x"],
+                         "subjects": ["polity" if sid == "old" else "defence"], "gs": [], "tags": [], "watch": [], "score": 9,
+                         "grade": "NOTE", "is_editorial": 0, "is_explained": 0, "is_library": 0, "is_private": 0,
+                         "tier": "quality", "summary": "", "tokens": []})
+        db.insert_item({"id": "i" + sid, "source_id": "x", "title": title, "url": u, "date_ist": "2026-09-26", "published_at": now,
+                        "is_library": 0, "story_id": sid, "publisher": "P"})
+    db.save_brief("2026-09-26", [("old", "news", 1, "top", None), ("new", "news", 2, "top", None)])
+    db.commit()
+    http = FakeHttp({"https://www.newsonair.gov.in/": Resp(url, AIR_OLD), "https://forumias.com/": Resp("https://forumias.com/blog/varuna/", ARTICLE),
+                     "https://www.bing.com/news/search": Resp("x", rss())})
+    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=http) == {"read": 2, "missed": 0, "stale": 1}
+    assert db.articles(["old"])["old"]["published"] == "2026-03-25" and db.articles(["new"])["new"]["published"] == ""
+    ids = [p[0] for p in select_day(db, Classifier(load_topics(settings)), "2026-09-26")]
+    assert "old" not in ids and "new" in ids
+
+
+def test_a_page_read_before_dates_were_kept_is_checked_once(db, settings):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    db.upsert_story({"id": "s1", "title": "Exercise Varuna 2026 begins at Toulon", "url": "https://forumias.com/blog/varuna/",
+                     "date_ist": "2026-09-26", "dates": ["2026-09-26"], "first_seen": now, "last_seen": now, "updated_at": now,
+                     "n_items": 1, "n_publishers": 1, "publishers": ["x"], "subjects": ["defence"], "gs": [], "tags": [], "watch": [],
+                     "score": 6, "grade": "NOTE", "is_editorial": 0, "is_explained": 0, "is_library": 0, "is_private": 0,
+                     "tier": "quality", "summary": "", "tokens": []})
+    db.insert_item({"id": "is1", "source_id": "x", "title": "t", "url": "https://forumias.com/blog/varuna/", "date_ist": "2026-09-26",
+                    "published_at": now, "is_library": 0, "story_id": "s1", "publisher": "P"})
+    db.save_brief("2026-09-26", [("s1", "news", 1, "top", None)])
+    db.save_article("s1", {"url": "https://forumias.com/blog/varuna/", "domain": "forumias.com", "via": "", "paragraphs": ["a"],
+                           "points": ["kept"], "fetched_at": now})
+    db.x("UPDATE article_text SET published=NULL WHERE story_id='s1'")  # a row from before dates were kept
+    db.commit()
+    down = FakeHttp({})  # the re-check fails: the text already read stays, marked as checked
+    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=down)["read"] == 0
+    a = db.articles(["s1"])["s1"]
+    assert a["points"] == ["kept"] and not a["miss"] and a["published"] == ""
+    assert A.read_brief_articles(db, TOPICS, ["2026-09-26"], http=down) == {"read": 0, "missed": 0, "stale": 0}
+
+
+def test_a_datelined_lead_is_kept_and_a_glued_subheading_split():
+    assert not A.is_teaser("NEW DELHI: The Tamil Nadu government has exempted the department from the RTI Act.")
+    assert A.is_teaser("Mamata slams Centre over funds KOLKATA: Mamata Banerjee alleged on Friday that the Centre withheld funds.")
+    assert A.is_teaser("Priyanka Jaiswal has four years of experience in digital journalism, news agency reporting and video production.")
+    ld = ('<html><head><script type="application/ld+json">{"@type":"NewsArticle","articleBody":"NEW DELHI: The Tamil Nadu government has '
+          'exempted the Public (Law and Order) Department from the ambit of the RTI Act. What the exemption meansThe department deals with '
+          'policing, public order and law-and-order administration in the state. ' + 'The notification was issued under Section 24(4) of the '
+          'law, which lets states exclude intelligence and security organisations from its ambit. ' * 3 + '"}</script></head><body></body></html>')
+    text = " ".join(A.main_text(ld))
+    assert "meansThe" not in text and "The department deals with policing" in text

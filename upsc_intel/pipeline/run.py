@@ -204,6 +204,10 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
             log.exception("video linking failed")
         try:  # the brief cards' free full text: summaries, the PDF and practice questions read it
             article_stats = read_brief_articles(db, load_topics(settings), brief_days)
+            if article_stats.get("stale"):  # an old article a feed filed under today: rebuild without it
+                for d in brief_days:
+                    build_day(settings, db, clf, d)
+                db.commit()
         except Exception:
             log.exception("reading the brief's articles failed")
 

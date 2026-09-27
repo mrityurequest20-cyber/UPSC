@@ -130,6 +130,8 @@ Week and Month views recap everything the daily briefs covered.
   - a coverage check: items per section, syllabus areas covered and empty, the five easy-miss areas, how many items were read in full
   - Week and month views list each day's PDF. **My notes (.md)** is still there for your own notes and stars.
 - **Free full text, read by the build:** for each brief card (Must-know, Prelims facts, editorials, explainers) the build reads the article from a free source: the story's own site when free, a Google News link's own outlet when that site is free, or the same story on a free site found through Bing News (same event, within two days; an editorial only as a syndicated copy of itself; MSN's licensed copies only when they carry no subscription restriction, cited to the original outlet). About two thirds of the cards get their full text; the rest use the reports. Subscriber-only sites are never requested. `python -m upsc_intel articles --days 2` runs it on demand.
+- **Old news re-dated by a feed is dropped:** Google News sometimes files a months-old article under today. The reader keeps each page's own publish date (its `article:published_time` / `datePublished` tags, MSN's `publishedDateTime`, or a short dateline such as "News On AIR | March 25, 2026 7:38 PM", never a date mentioned in the text). A story whose own article is more than 3 days older than the day it was filed under leaves that day's brief, and so its PDF and practice questions. A free copy found by search must be as recent as the story.
+- **Clean article text:** the reader drops menus, "trending" strips of linked headlines, teasers, author bios and comment boxes, and keeps an article's paragraphs together across the tweets and ads a site puts between them. The phone's own reader (for cards the build hasn't read yet) follows the same rules and checks that the page it read is the story.
 - **The app (phone):** the Claude Design "UPSC Intel App" at **`/UPSC/app/`** (the **App** button in the header).
   - **Screens:**
     - Brief: week strip, the day's hero, GS chips, Must-know cards, Prelims facts and "Also in the news"
@@ -293,7 +295,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 171 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 175 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
