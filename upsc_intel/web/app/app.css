@@ -634,3 +634,34 @@ button:disabled { cursor: default; }
 .lsn button:hover { background: var(--surface-2); }
 .lsn .lsn-main { background: var(--accent); color: #fff; }
 .lsn { left: 10px; right: 10px; bottom: calc(78px + var(--safe-b)); }
+/* the player: the bar, and (open) the stories and the lines of the one being read */
+.lsn { flex-direction: column; align-items: stretch; gap: 0; padding: 6px; }
+.lsn-bar { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.lsn .lsn-t { flex: 1; min-width: 0; height: auto; display: grid; text-align: left; padding: 2px 6px; background: transparent; }
+.lsn .lsn-t small { font-size: 11.5px; font-weight: 700; color: var(--accent-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lsn .lsn-t b { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lsn.open { max-height: min(78vh, 640px); }
+.lsn-panel { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); margin-top: 6px; padding: 8px 4px 2px; min-height: 0; flex: 1; }
+.lsn-opts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.lsn-seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 2px; }
+.lsn .lsn-seg button { height: 30px; min-width: 0; padding: 0 12px; font-size: 13px; font-weight: 650; border-radius: 8px; color: var(--ink-2); }
+.lsn .lsn-seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.lsn-voice { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 650; color: var(--muted); min-width: 0; flex: 1 1 200px; justify-content: flex-end; }
+.lsn-voice select { min-width: 0; max-width: 100%; flex: 1; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; padding: 0 6px; }
+.lsn-fine { margin: 0; font-size: 12px; color: var(--muted); }
+.lsn-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; min-height: 0; flex: 1; }
+.lsn-list, .lsn-lines { overflow-y: auto; max-height: 46vh; min-height: 0; }
+.lsn-list { list-style: none; margin: 0; padding: 0; border-right: 1px solid var(--border); padding-right: 6px; }
+.lsn .lsn-list button { display: flex; gap: 8px; width: 100%; height: auto; min-width: 0; padding: 7px 8px; text-align: left; font-size: 13px; font-weight: 600; line-height: 1.35; border-radius: 8px; }
+.lsn .lsn-list button span { flex: none; min-width: 22px; font-size: 11.5px; font-weight: 800; color: var(--muted); padding-top: 1px; }
+.lsn .lsn-list button.on { background: var(--surface-2); color: var(--accent-strong); }
+.lsn .lsn-lines button { display: block; width: 100%; height: auto; min-width: 0; padding: 7px 10px; margin: 0 0 2px; text-align: left; font-size: 14px; font-weight: 500; line-height: 1.5; border-radius: 8px; color: var(--ink-2); }
+.lsn .lsn-lines button.head { font-weight: 700; color: var(--ink); }
+.lsn .lsn-lines button.on { background: var(--accent); color: #fff; }
+.lsn-wait { margin: 8px; font-size: 13px; color: var(--muted); }
+@media (max-width: 640px) {
+  .lsn-cols { grid-template-columns: minmax(0, 1fr); }
+  .lsn-list { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 6px; max-height: 20vh; }
+  .lsn-lines { max-height: 30vh; }
+  .lsn-voice { justify-content: flex-start; }
+}

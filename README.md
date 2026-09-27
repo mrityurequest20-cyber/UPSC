@@ -145,9 +145,21 @@ Week and Month views recap everything the daily briefs covered.
     - It runs on your own Intel AI key (the same one as in Ask Intel; the form is right there if it isn't on yet). Your last answers and your average are listed.
   - **Weekly mock:** 50 questions from the last seven days, 60 minutes on a clock, exam mode with UPSC marking. Unseen questions come first.
   - **Mistakes:** every question you answer wrong, in any mode, lands here with how often you missed it. **Re-test** runs them as a set, and a question leaves once you answer it right.
-- **Listen (🎧 on the day's brief, website and app):** reads the day aloud in your device's own voice: each Must-know story's headline and key points, then the Prelims facts. It's free and works offline.
-  - A small player shows the story being read: play/pause, previous, next, speed (1×, 1.25×, 1.5×, 0.85×) and stop.
-  - It uses an Indian English voice when the device has one.
+- **Listen (🎧 on the day's brief, website and app):** reads the day aloud: each Must-know story's headline and summary points (up to 8), then the Prelims facts.
+  - **Player:** play/pause, previous, next, speed (1×, 1.25×, 1.5×, 0.85×) and stop. Tap the bar (or ☰) to open the panel.
+  - **Choose the story:** the panel lists the day's stories (Must-know 1, 2, 3… then Prelims facts P1, P2…). Tap one to hear it.
+  - **Start from any line:** the open story is shown line by line with the line being read lit. Tap a line to start from there.
+  - **Language:** English, or **हिंदी · Hinglish**.
+    - With ✦ Intel AI on, each story is turned into spoken Hinglish: Hindi in Devanagari, keeping in English the words people say in English (scheme and law names, the Supreme Court, RBI, technical terms, numbers).
+    - Without it, the free translator gives plain Hindi.
+    - Translations are kept on your device (the last 80 stories), and the next story is translated while one plays.
+  - **Voice:**
+    - **This device:** free, and works offline. Its most natural voice for the language is picked first ("Natural", "Online", "Neural" and Google voices; for English an Indian voice), and you can pick another.
+      - On a phone without a Hindi voice, the player says how to add one. Android: Settings → Text-to-speech → Google → Hindi. iPhone: Settings → Accessibility → Spoken Content → Voices → Hindi.
+    - **✦ Intel AI · natural voices:** Aoede, Kore, Charon and Puck, from Gemini's own text-to-speech on your key. Each story is recorded as one clip and the lit line follows the clip.
+      - This is the default for Hinglish when Intel AI is on.
+      - The voice uses the key's free text-to-speech quota, which is smaller than the text quota. When it runs out, the device's voice takes over and the player says so.
+  - Your language, voice and speed are remembered on this device.
 - **Daily Brief PDF (Export on the website, the export sheet in the app):** a real PDF of the day, built with the site and laid out like a newspaper brief:
   - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, the syllabus line and a clickable source link
   - Prelims facts (2-3 lines each), **Editorial Watch** (each editorial's argument in 2-3 sentences, with its link), Explained, Also in the news (one line each)

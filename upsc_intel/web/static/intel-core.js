@@ -560,6 +560,7 @@
   const GEM_API = "https://generativelanguage.googleapis.com/v1beta";
   const GEM_KEY = "upsc-gemini-key"; const GEM_MODELS = "upsc-gemini-models";
   const GEM_FALLBACK = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+  const GEM_TTS = "upsc-gemini-tts"; const TTS_FALLBACK = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"];
   const gemStore = {
     get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) { /* private mode */ } },
@@ -593,7 +594,7 @@
       gemStore.set(GEM_KEY, key); gemStore.set(GEM_MODELS, JSON.stringify(models));
       return models;
     },
-    forget() { gemStore.set(GEM_KEY, ""); gemStore.set(GEM_MODELS, ""); },
+    forget() { gemStore.set(GEM_KEY, ""); gemStore.set(GEM_MODELS, ""); gemStore.set(GEM_TTS, ""); },
     // → {text, model}; onText(textSoFar) as it streams
     async generate({ system, contents, onText, signal, temperature = 0.4 }) {
       const key = gemStore.get(GEM_KEY);
@@ -653,6 +654,54 @@
       throw fail("quota", "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
     },
   };
+  // Gemini's text-to-speech models the key can use: Flash before Pro (more free quota), newest first
+  async function ttsModels(key) {
+    try { const m = JSON.parse(gemStore.get(GEM_TTS)); if (Array.isArray(m) && m.length) return m; } catch (e) { /* none kept yet */ }
+    let names = [];
+    try {
+      const r = await fetch(`${GEM_API}/models?pageSize=200`, { headers: { "x-goog-api-key": key } });
+      if (r.ok) names = (((await r.json()).models) || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => String(m.name).replace(/^models\//, "")).filter((n) => /tts/i.test(n));
+    } catch (e) { /* offline: the usual names */ }
+    const ver = (n) => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)-/) || [])[1] || 0);
+    const out = names.sort((a, b) => (/pro/i.test(a) - /pro/i.test(b)) || ver(b) - ver(a));
+    const list = out.length ? out : TTS_FALLBACK.slice();
+    if (out.length) gemStore.set(GEM_TTS, JSON.stringify(list));
+    return list;
+  }
+  function audioBlob({ mimeType = "", data }) {  // base64 audio → a playable Blob (raw 16-bit PCM gets a WAV header)
+    const bin = atob(data); const pcm = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) pcm[i] = bin.charCodeAt(i);
+    if (mimeType && !/L16|pcm/i.test(mimeType)) return new Blob([pcm], { type: mimeType });
+    const rate = Number((mimeType.match(/rate=(\d+)/) || [])[1]) || 24000;
+    const h = new DataView(new ArrayBuffer(44)); const tag = (o, t) => { for (let i = 0; i < 4; i++) h.setUint8(o + i, t.charCodeAt(i)); };
+    tag(0, "RIFF"); h.setUint32(4, 36 + pcm.length, true); tag(8, "WAVE"); tag(12, "fmt "); h.setUint32(16, 16, true); h.setUint16(20, 1, true);
+    h.setUint16(22, 1, true); h.setUint32(24, rate, true); h.setUint32(28, rate * 2, true); h.setUint16(32, 2, true); h.setUint16(34, 16, true);
+    tag(36, "data"); h.setUint32(40, pcm.length, true);
+    return new Blob([h.buffer, pcm], { type: "audio/wav" });
+  }
+  // Read text aloud in one of Gemini's natural voices (its text-to-speech, on the viewer's key) → {blob (audio), model}
+  gemini.speech = async function speech({ text, voice = "Aoede", signal }) {
+    const key = gemStore.get(GEM_KEY);
+    if (!key) throw fail("nokey", "Switch on ✦ Intel AI first.");
+    const body = JSON.stringify({ contents: [{ role: "user", parts: [{ text }] }],
+      generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } });
+    const models = await ttsModels(key);
+    for (const model of models) {
+      let r;
+      try {
+        r = await fetch(`${GEM_API}/models/${model}:generateContent`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body, signal });
+      } catch (e) { if (signal && signal.aborted) throw e; throw fail("net", "Couldn't reach Google's AI service."); }
+      if (r.status === 401 || r.status === 403 || (r.status === 400 && /API_KEY/.test(await r.clone().text()))) throw fail("key", "Google refused the key: add it again in ✦ Intel AI.");
+      if (!r.ok) continue;  // quota used up, gone, busy, or no audio from this model: the next one
+      const c = (((await r.json()).candidates) || [])[0] || {};
+      const part = ((c.content || {}).parts || []).find((p) => p.inlineData && p.inlineData.data);
+      if (!part) continue;
+      if (models[0] !== model) gemStore.set(GEM_TTS, JSON.stringify([model, ...models.filter((m) => m !== model)]));
+      return { blob: audioBlob(part.inlineData), model };
+    }
+    throw fail("quota", "its free voice quota is used up for now");
+  };
+
   // Gemini's Markdown → safe HTML: headings, bullets, numbered lists, bold, italics, code, http(s) links.
   function mdHtml(t) {
     const inline = (x) => esc(x).replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (m, a, u) => `<a href="${u}" target="_blank" rel="noopener">${a}</a>`)
@@ -1761,99 +1810,272 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
   }
 
   // ─────────────────────────── Listen: the day's brief read aloud ───────────────────────────
-  // The device's own voice (speechSynthesis): free and offline. Must-know stories (headline and key points), then the
-  // Prelims facts. Spoken a few sentences at a time (a long utterance stops after ~15 s in Chrome); pause cancels and
-  // play restarts the sentence (pausing speech is unreliable on Android). The UIs give a provider of the items and a
-  // [data-listen="start"] button; the mini-player bar is this module's own.
-  function listenItems(cards, facts = []) {  // story objects → [{id, title, text}]
-    const pts = (s) => {
+  // The Must-know stories (headline and summary points), then the Prelims facts, as a player: the day's articles (tap
+  // one to hear it) and the open article's lines (tap one to start there; the line being read is lit).
+  // Language: English, or Hindi as spoken Hinglish. Intel AI (the viewer's key) turns each article's lines into
+  // Hinglish; without it the free translator gives plain Hindi. Kept on this device.
+  // Voice: the device's own (speechSynthesis: free, offline; its most natural voice for the language first), or ✦ Intel
+  // AI's natural voices (Gemini's text-to-speech on the viewer's key: one clip per article, the lit line following the
+  // clip; the device's voice takes over when it's unavailable). The device reads a few sentences at a time (a long
+  // utterance stops after ~15 s in Chrome); its pause cancels and play restarts the sentence (pausing speech is
+  // unreliable on Android). The UIs give a provider of the items and a [data-listen="start"] button; the player is
+  // this module's own.
+  function listenItems(cards, facts = []) {  // story objects → [{id, title, kind, lines}]
+    const pts = (s, n) => {
       const p = (s.sum && s.sum.points) || [];
-      if (p.length) return p.slice(0, 5);
+      if (p.length) return p.slice(0, n);
       const e = s.explain || {};
-      return [e.why_in_news, e.what].filter((x) => x && !WEAK.test(x));
+      return [e.why_in_news, e.what].filter((x) => x && !WEAK.test(x)).slice(0, n);
     };
     const say = (t) => String(t || "").replace(/₹\s?|\bRs\.?\s?/g, "rupees ").replace(/\s+/g, " ").trim();
-    const out = cards.map((s, i) => ({ id: s.id, title: s.title, text: say(`Story ${i + 1}. ${s.title}. ${pts(s).join(" ")}`) }));
-    facts.forEach((s, i) => out.push({ id: s.id, title: s.title, text: say(`${i === 0 ? "Prelims facts. " : ""}${s.title}. ${pts(s)[0] || ""}`) }));
-    return out;
+    const item = (s, kind, n) => ({ id: s.id, title: s.title, kind, lines: [s.title, ...pts(s, n)].map(say).filter(Boolean) });
+    return [...cards.map((s) => item(s, "must", 8)), ...facts.map((s) => item(s, "fact", 2))];
   }
+  const HINGLISH_SYSTEM = `You turn English news lines into natural spoken Hinglish for a UPSC aspirant who is listening, the way a friendly Indian teacher explains the news: Hindi sentences in Devanagari script, keeping in English (Latin script) the words Indians say in English: the names of schemes, laws, courts, institutions, organisations, countries and places, technical and economic terms; numbers as digits. Keep every fact, name and number exactly; add nothing, drop nothing. Return one output line for each input line, in the same order.`;
+  const HINGLISH_SCHEMA = { type: "OBJECT", properties: { lines: { type: "ARRAY", items: { type: "STRING" } } }, required: ["lines"] };
+  const AI_VOICES = [["Aoede", "female, warm"], ["Kore", "female, clear"], ["Charon", "male, calm"], ["Puck", "male, lively"]];
+  const NO_HINDI = "This device has no Hindi voice. Android: Settings → Text-to-speech → Google → install Hindi; iPhone: Settings → Accessibility → Spoken Content → Voices → Hindi. Or pick a ✦ Intel AI voice.";
   const listen = (() => {
     const synth = () => root.speechSynthesis || null;
-    const S = { items: [], i: 0, chunks: [], c: 0, on: false, paused: false, rate: 1, gen: 0 };
+    const LSN_KEY = "upsc-listen"; const HING_KEY = "upsc-hinglish";
+    const prefs = (() => { try { return JSON.parse(localStorage.getItem(LSN_KEY) || "{}") || {}; } catch (e) { return {}; } })();
+    // pick[lang]: "ai:<Gemini voice>", "dev:<device voice name>" or "" (Hinglish: Intel AI's voice when it's on; English: the device's best)
+    const S = { items: [], i: 0, l: 0, chunks: [], c: 0, on: false, paused: false, open: false, busy: "", note: "", mode: "dev", aiDown: "",
+      rate: prefs.rate || 1, lang: prefs.lang === "hi" ? "hi" : "en", pick: { en: "", hi: "", ...(prefs.pick || {}) }, gen: 0, audio: null };
     const RATES = [1, 1.25, 1.5, 0.85];
-    let provider = null; let bar = null;
-    const voice = () => {
+    let provider = null; let el = null;
+    const save = () => { try { localStorage.setItem(LSN_KEY, JSON.stringify({ rate: S.rate, lang: S.lang, pick: S.pick })); } catch (e) { /* private mode */ } };
+    function devVoices(lang) {  // the device's voices for the language, the most natural first
       const vs = (synth() && synth().getVoices()) || [];
-      return vs.find((v) => /^en[-_]IN/i.test(v.lang)) || vs.find((v) => /^en[-_]GB/i.test(v.lang)) || vs.find((v) => /^en/i.test(v.lang)) || null;
-    };
+      const fit = vs.filter((v) => (lang === "hi" ? /^hi([-_]|$)/i : /^en([-_]|$)/i).test(v.lang || ""));
+      const score = (v) => (/natural|neural|online|premium|enhanced|wavenet/i.test(v.name || "") ? 4 : 0) + (/google/i.test(v.name || "") ? 2 : 0)
+        + (lang === "en" ? (/^en[-_]IN/i.test(v.lang) ? 3 : /^en[-_]GB/i.test(v.lang) ? 1 : 0) : 0);
+      return fit.map((v, n) => [v, score(v) - n / 1000]).sort((a, b) => b[1] - a[1]).map(([v]) => v);
+    }
+    const choice = () => S.pick[S.lang] || (S.lang === "hi" && gemini.on() ? `ai:${AI_VOICES[0][0]}` : "");
+    const aiVoice = () => (!S.aiDown && gemini.on() && choice().startsWith("ai:") ? choice().slice(3) : "");
+    const devVoice = () => { const vs = devVoices(S.lang); const want = choice().replace(/^dev:/, ""); return vs.find((v) => v.name === want) || vs[0] || null; };
     const chunk = (t) => {  // a few sentences, up to ~220 characters
       const out = []; let cur = "";
-      for (const x of String(t).match(/[^.!?]+[.!?]*\s*/g) || [t]) {
+      for (const x of String(t).match(/[^.!?।]+[.!?।]*\s*/g) || [t]) {
         if (cur && (cur + x).length > 220) { out.push(cur.trim()); cur = x; } else cur += x;
       }
       if (cur.trim()) out.push(cur.trim());
       return out;
     };
-    function paint() {
-      if (typeof document === "undefined") return;
-      if (!bar) {
-        bar = document.createElement("div"); bar.className = "lsn"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Listen");
-        document.body.appendChild(bar);
-      }
-      bar.hidden = !S.on;
-      if (!S.on) return;
-      const it = S.items[S.i] || {};
-      bar.innerHTML = `<div class="lsn-t"><small>🎧 ${S.paused ? "Paused" : "Listening"} · ${S.i + 1} of ${S.items.length}</small><b>${esc(it.title || "")}</b></div>
-        <button data-listen="prev" aria-label="Previous story">⏮</button><button data-listen="toggle" class="lsn-main" aria-label="${S.paused ? "Play" : "Pause"}">${S.paused ? "▶" : "⏸"}</button><button data-listen="next" aria-label="Next story">⏭</button><button data-listen="rate" aria-label="Speed">${S.rate}×</button><button data-listen="stop" aria-label="Stop">✕</button>`;
+    // Hinglish lines: Intel AI's, else the free translator's plain Hindi; kept on this device (the last 80 articles)
+    const hing = new Map(); const pending = new Map();
+    function cached(id) {
+      if (hing.has(id)) return hing.get(id);
+      try { const c = JSON.parse(localStorage.getItem(HING_KEY) || "{}")[id]; if (c && Array.isArray(c.lines)) { hing.set(id, c.lines); return c.lines; } } catch (e) { /* none */ }
+      return null;
     }
-    function say() {
-      if (!S.on || S.paused) return;
-      while (S.c >= S.chunks.length) {
-        S.i += 1;
-        if (S.i >= S.items.length) { stop(); return; }
-        S.chunks = chunk(S.items[S.i].text); S.c = 0;
+    function keep(id, lines, by) {
+      hing.set(id, lines);
+      try {
+        const all = JSON.parse(localStorage.getItem(HING_KEY) || "{}") || {}; all[id] = { lines, by, at: Date.now() };
+        const ids = Object.keys(all).sort((a, b) => all[b].at - all[a].at).slice(0, 80);
+        localStorage.setItem(HING_KEY, JSON.stringify(Object.fromEntries(ids.map((k) => [k, all[k]]))));
+      } catch (e) { /* full or private: kept for this visit */ }
+    }
+    function hinglish(it) {
+      const got = cached(it.id); if (got) return Promise.resolve(got);
+      if (!pending.has(it.id)) {
+        const p = (async () => {
+          let out;
+          if (gemini.on()) {
+            const { data } = await gemini.json({ system: HINGLISH_SYSTEM, parts: [{ text: it.lines.map((l, n) => `${n + 1}. ${l}`).join("\n") }], schema: HINGLISH_SCHEMA, temperature: 0.2 });
+            out = it.lines.map((l, n) => String(((data && data.lines) || [])[n] || "").replace(/^\s*\d+[.)]\s*/, "").trim() || l);
+            keep(it.id, out, "ai");
+          } else {
+            out = await Promise.all(it.lines.map((l) => toHindi(l)));
+            keep(it.id, out, "mt");
+          }
+          return out;
+        })();
+        pending.set(it.id, p); p.then(() => pending.delete(it.id), () => pending.delete(it.id));
       }
-      const g = S.gen; const u = new root.SpeechSynthesisUtterance(S.chunks[S.c]); const v = voice();
+      return pending.get(it.id);
+    }
+    const linesOf = (i) => { const it = S.items[i]; if (!it) return null; return S.lang === "hi" ? cached(it.id) : it.lines; };
+    const intro = (i) => {
+      const it = S.items[i]; const k = S.items.slice(0, i + 1).filter((x) => x.kind === it.kind).length;
+      if (S.lang === "hi") return it.kind === "fact" ? `प्रीलिम्स फ़ैक्ट ${k}: ` : `ख़बर ${k}: `;
+      return it.kind === "fact" ? `Prelims fact ${k}: ` : `Story ${k}: `;
+    };
+    function hush() { S.gen += 1; if (synth()) synth().cancel(); if (S.audio) { try { S.audio.pause(); } catch (e) { /* none */ } } }  // stale handlers see an old generation
+    async function go(i, l = 0) {  // read article i from line l
+      hush();
+      if (!S.on) return;
+      if (i >= S.items.length) { stop(); return; }
+      S.i = Math.max(0, i); S.l = Math.max(0, l); S.paused = false; S.note = ""; S.chunks = []; S.c = 0;
+      const g = S.gen;
+      let lines = linesOf(S.i);
+      if (!lines) {  // not in Hinglish yet
+        S.busy = gemini.on() ? "Turning this story into Hinglish…" : "Translating into Hindi…"; paint();
+        try { lines = await hinglish(S.items[S.i]); } catch (e) {
+          if (g !== S.gen) return;
+          S.busy = ""; halt(`${e.message}${gemini.on() ? "" : " Switch on ✦ Intel AI for Hinglish."}`); return;
+        }
+        if (g !== S.gen) return;
+        S.busy = "";
+      }
+      S.l = Math.min(S.l, lines.length - 1);
+      if (S.lang === "hi" && S.items[S.i + 1]) hinglish(S.items[S.i + 1]).catch(() => {});  // the next one, ready in time
+      S.mode = aiVoice() ? "ai" : "dev";
+      if (S.mode === "ai") clip(g); else line(g);
+    }
+    function line(g) {  // the device's voice: the current line, a few sentences at a time
+      const lines = linesOf(S.i) || [];
+      if (S.l >= lines.length) { go(S.i + 1); return; }
+      S.chunks = chunk((S.l === 0 ? intro(S.i) : "") + lines[S.l]); S.c = 0; paint(); utter(g);
+    }
+    function utter(g) {
+      if (g !== S.gen || !S.on || S.paused) return;
+      if (S.c >= S.chunks.length) { S.l += 1; line(g); return; }
+      const v = devVoice();
+      if (!v && S.lang === "hi") { halt(NO_HINDI); return; }
+      if (!synth() || !root.SpeechSynthesisUtterance) { halt("This browser can't read aloud: pick a ✦ Intel AI voice."); return; }
+      const u = new root.SpeechSynthesisUtterance(S.chunks[S.c]);
       u.rate = S.rate;
       if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-IN";
-      u.onend = () => { if (g === S.gen && S.on && !S.paused) { S.c += 1; say(); } };
+      u.onend = () => { if (g === S.gen && S.on && !S.paused) { S.c += 1; utter(g); } };
       u.onerror = (e) => {  // (a cancelled sentence reports "interrupted"; a real failure stops, it doesn't race through the brief)
         if (g !== S.gen || !S.on || S.paused || (e && /interrupted|canceled/.test(e.error || ""))) return;
-        fail(`Your device couldn't read aloud${e && e.error ? ` (${e.error})` : ""}. Check that a text-to-speech voice is installed.`);
+        halt(`Your device couldn't read aloud${e && e.error ? ` (${e.error})` : ""}. Check that a text-to-speech voice is installed, or pick a ✦ Intel AI voice.`);
       };
-      synth().speak(u); paint();
+      synth().speak(u);
     }
-    function hush() { S.gen += 1; if (synth()) synth().cancel(); }  // a cancelled utterance's handlers see a stale generation
-    function jump(i) { hush(); S.i = Math.max(0, Math.min(S.items.length - 1, i)); S.chunks = chunk(S.items[S.i].text); S.c = 0; S.paused = false; say(); }
-    function play(items) { if (!synth() || !root.SpeechSynthesisUtterance || !items || !items.length) return false; S.items = items; S.on = true; jump(0); return true; }
-    function stop() { hush(); S.on = false; S.paused = false; paint(); }
-    function fail(msg) {
-      stop();
-      if (!bar) return;
-      bar.hidden = false; bar.innerHTML = `<div class="lsn-t"><small>🎧 Listen</small><b>${esc(msg)}</b></div><button data-listen="stop" aria-label="Close">✕</button>`;
-      setTimeout(() => { if (!S.on && bar) bar.hidden = true; }, 6000);
+    // ✦ Intel AI's voice: one clip per article; the lit line follows the clip (each line's share of the text)
+    const clips = new Map();
+    function clipFor(i) {
+      const it = S.items[i]; const lines = linesOf(i); const v = aiVoice();
+      if (!it || !lines || !v) return Promise.reject(new Error("nothing to record"));
+      const k = `${it.id}|${S.lang}|${v}`;
+      if (!clips.has(k)) {
+        const said = lines.map((x, n) => (n === 0 ? intro(i) : "") + x);
+        const style = S.lang === "hi" ? "Read this aloud in natural spoken Hinglish, like a friendly Indian teacher explaining the news: warm, clear, at an easy pace."
+          : "Read this aloud like a warm, clear Indian news presenter, at an easy pace.";
+        const p = gemini.speech({ text: `${style}\n\n${said.join("\n")}`, voice: v }).then(({ blob, model }) => {
+          const total = said.reduce((n, x) => n + x.length + 1, 0); let at = 0;
+          return { url: URL.createObjectURL(blob), model, offs: said.map((x) => { const o = at / total; at += x.length + 1; return o; }) };
+        });
+        clips.set(k, p); p.catch(() => clips.delete(k));
+        while (clips.size > 8) { const old = clips.keys().next().value; clips.get(old).then((c) => URL.revokeObjectURL(c.url), () => {}); clips.delete(old); }
+      }
+      return clips.get(k);
     }
+    async function clip(g) {
+      S.busy = "✦ Intel AI is recording this story…"; paint();
+      let c;
+      try { c = await clipFor(S.i); } catch (e) {
+        if (g !== S.gen) return;
+        S.busy = ""; S.aiDown = e.message; S.mode = "dev"; S.note = `✦ Intel AI's voice isn't available (${e.message}): using this device's voice.`;
+        line(g); return;
+      }
+      if (g !== S.gen) return;
+      S.busy = "";
+      const a = S.audio || (S.audio = new root.Audio());
+      const lit = () => { if (g !== S.gen || !a.duration) return; const f = a.currentTime / a.duration; let l = 0; c.offs.forEach((o, n) => { if (o <= f + 0.001) l = n; }); if (l !== S.l) { S.l = l; paint(); } };
+      a.ontimeupdate = lit;
+      a.onended = () => { if (g === S.gen) go(S.i + 1); };
+      a.onerror = () => { if (g === S.gen) { S.aiDown = "the clip didn't play"; S.mode = "dev"; line(g); } };
+      const seek = () => { if (g === S.gen && S.l > 0 && a.duration) a.currentTime = c.offs[S.l] * a.duration; };
+      a.onloadedmetadata = seek;
+      a.src = c.url; a.playbackRate = S.rate;
+      paint();
+      try { await a.play(); } catch (e) {
+        if (g === S.gen) { S.aiDown = "the browser blocked playback"; S.mode = "dev"; S.note = "The browser blocked the ✦ Intel AI clip: using this device's voice."; line(g); }
+        return;
+      }
+      if (S.items[S.i + 1]) Promise.resolve(S.lang === "hi" ? hinglish(S.items[S.i + 1]) : null).then(() => { if (g === S.gen) return clipFor(S.i + 1); }).catch(() => {});  // the next one, ready in time
+    }
+    function unlock() {  // phones allow sound only from a tap: wake the voice and the audio player while this one lasts
+      try { if (synth() && root.SpeechSynthesisUtterance) synth().speak(new root.SpeechSynthesisUtterance("")); } catch (e) { /* none */ }
+      try {
+        if (root.Audio && gemini.on()) {
+          S.audio = S.audio || new root.Audio();
+          S.audio.src = URL.createObjectURL(audioBlob({ mimeType: "audio/L16;rate=8000", data: btoa("\0\0\0\0\0\0\0\0") }));
+          const p = S.audio.play(); if (p && p.catch) p.catch(() => {});
+        }
+      } catch (e) { /* none */ }
+    }
+    function play(items) {
+      if (!items || !items.length) return false;
+      if (!(synth() && root.SpeechSynthesisUtterance) && !(root.Audio && gemini.on())) return false;
+      S.items = items; S.on = true; S.aiDown = ""; unlock(); go(0, 0); return true;
+    }
+    function stop() { hush(); S.on = false; S.paused = false; S.busy = ""; S.note = ""; paint(); }
+    function halt(msg) { hush(); S.paused = true; S.busy = ""; S.note = msg; paint(); }  // stays open: a voice or the language can be changed
     function toggle() {
       if (!S.on) return;
-      if (S.paused) { S.paused = false; hush(); say(); } else { S.paused = true; hush(); }
+      const ai = S.mode === "ai" && S.audio && S.audio.src && !S.busy;
+      if (S.paused) {
+        S.paused = false; S.note = "";
+        if (ai) { const p = S.audio.play(); if (p && p.catch) p.catch(() => {}); } else if (S.chunks.length) { hush(); utter(S.gen); } else go(S.i, S.l);
+      } else { S.paused = true; if (ai) S.audio.pause(); else hush(); }
       paint();
     }
-    function rate() { S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; if (S.on && !S.paused) { hush(); say(); } else paint(); }
+    function rate() {
+      S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; save();
+      if (S.mode === "ai" && S.audio) S.audio.playbackRate = S.rate;
+      else if (S.on && !S.paused && S.chunks.length) { hush(); utter(S.gen); }
+      paint();
+    }
+    function setLang(lang) { if (lang !== "en" && lang !== "hi") return; S.lang = lang; S.aiDown = ""; save(); if (S.on) go(S.i, S.l); else paint(); }
+    function setVoice(v) { S.pick[S.lang] = String(v || ""); S.aiDown = ""; save(); if (S.on) go(S.i, S.l); else paint(); }
+    function paint() {
+      if (typeof document === "undefined") return;
+      if (!el) { el = document.createElement("div"); el.className = "lsn"; el.setAttribute("role", "region"); el.setAttribute("aria-label", "Listen"); document.body.appendChild(el); }
+      el.hidden = !S.on;
+      if (!S.on) return;
+      el.classList.toggle("open", S.open);
+      const it = S.items[S.i] || {}; const lines = linesOf(S.i);
+      const status = S.busy || S.note || `${S.paused ? "Paused" : "Listening"} · ${S.i + 1} of ${S.items.length}${S.lang === "hi" ? " · हिंदी" : ""}${S.mode === "ai" ? " · ✦ Intel AI voice" : ""}`;
+      const bar = `<div class="lsn-bar"><button class="lsn-t" data-listen="panel" aria-expanded="${S.open}" title="${S.open ? "Hide" : "Choose"} the story and the line">
+          <small>🎧 ${esc(status)}</small><b>${esc(it.title || "")}</b></button>
+        <button data-listen="prev" aria-label="Previous">⏮</button><button data-listen="toggle" class="lsn-main" aria-label="${S.paused ? "Play" : "Pause"}">${S.paused ? "▶" : "⏸"}</button><button data-listen="next" aria-label="Next story">⏭</button><button data-listen="rate" aria-label="Speed">${S.rate}×</button><button data-listen="panel" class="lsn-more" aria-label="${S.open ? "Hide" : "Show"} the stories and lines">${S.open ? "▾" : "☰"}</button><button data-listen="stop" aria-label="Stop">✕</button></div>`;
+      if (!S.open) { el.innerHTML = bar; return; }
+      const dv = devVoices(S.lang); const cur = choice(); const devSel = dv.find((v) => cur === `dev:${v.name}`) || (cur.startsWith("ai:") && gemini.on() ? null : dv[0]);
+      const opts = `${gemini.on() ? `<optgroup label="✦ Intel AI · natural voices">${AI_VOICES.map(([n, d]) => `<option value="ai:${n}"${cur === `ai:${n}` ? " selected" : ""}>✦ ${n} (${d})</option>`).join("")}</optgroup>` : ""}
+        <optgroup label="This device">${dv.length ? dv.map((v) => `<option value="dev:${esc(v.name)}"${v === devSel ? " selected" : ""}>${esc(v.name)}</option>`).join("") : `<option value="" disabled${devSel === undefined && !cur.startsWith("ai:") ? " selected" : ""}>No ${S.lang === "hi" ? "Hindi" : "English"} voice on this device</option>`}</optgroup>`;
+      let fk = 0; let mk = 0;
+      const list = S.items.map((x, n) => `<li><button data-listen="item" data-i="${n}"${n === S.i ? ' class="on" aria-current="true"' : ""}><span>${x.kind === "fact" ? `P${++fk}` : ++mk}</span>${esc(x.title)}</button></li>`).join("");
+      const body = lines ? lines.map((t, n) => `<button data-listen="line" data-l="${n}" class="${n === 0 ? "head" : ""}${n === S.l ? " on" : ""}"${n === S.l ? ' aria-current="true"' : ""}>${esc(t)}</button>`).join("")
+        : `<p class="lsn-wait">${esc(S.busy || "Tap ▶ to translate this story.")}</p>`;
+      el.innerHTML = `${bar}<div class="lsn-panel">
+        <div class="lsn-opts"><div class="lsn-seg" role="group" aria-label="Language"><button data-listen="lang" data-v="en" aria-pressed="${S.lang === "en"}">English</button><button data-listen="lang" data-v="hi" aria-pressed="${S.lang === "hi"}">हिंदी · Hinglish</button></div>
+          <label class="lsn-voice"><span>Voice</span><select data-listen-voice aria-label="Voice">${opts}</select></label></div>
+        ${gemini.on() ? "" : `<p class="lsn-fine">Switch on ✦ Intel AI (in Ask Intel) for natural voices${S.lang === "hi" ? " and Hinglish; for now it's the free translator's plain Hindi" : ""}.</p>`}
+        <div class="lsn-cols"><ol class="lsn-list" aria-label="Stories: tap one to hear it">${list}</ol><div class="lsn-lines" aria-label="Lines: tap one to start there">${body}</div></div></div>`;
+      for (const sel of [".lsn-list .on", ".lsn-lines .on"]) {
+        const x = el.querySelector(sel); const box = x && x.closest(".lsn-list, .lsn-lines");
+        if (x && box) box.scrollTop = Math.max(0, x.offsetTop - box.offsetTop - box.clientHeight / 3);
+      }
+    }
     if (typeof document !== "undefined") {
       document.addEventListener("click", (e) => {
         const b = e.target.closest && e.target.closest("[data-listen]"); if (!b) return;
         const a = b.dataset.listen;
-        if (a === "start") play(provider ? provider() : []);
+        if (a === "start") { S.open = true; play(provider ? provider() : []); }
         else if (a === "toggle") toggle();
-        else if (a === "next") jump(S.i + 1);
-        else if (a === "prev") jump(S.c > 0 ? S.i : S.i - 1);
+        else if (a === "next") go(S.i + 1);
+        else if (a === "prev") go(S.l > 0 ? S.i : S.i - 1);
         else if (a === "rate") rate();
         else if (a === "stop") stop();
+        else if (a === "panel") { S.open = !S.open; paint(); }
+        else if (a === "item") go(Number(b.dataset.i) || 0, 0);
+        else if (a === "line") go(S.i, Number(b.dataset.l) || 0);
+        else if (a === "lang") setLang(b.dataset.v);
       });
+      document.addEventListener("change", (e) => { if (e.target && e.target.matches && e.target.matches("[data-listen-voice]")) setVoice(e.target.value); });
+      if (synth() && synth().addEventListener) synth().addEventListener("voiceschanged", () => { if (S.on && S.open) paint(); });
       root.addEventListener && root.addEventListener("pagehide", stop);
     }
-    return { get supported() { return !!(synth() && root.SpeechSynthesisUtterance); }, provider: (fn) => { provider = fn; }, play, stop, toggle, next: () => jump(S.i + 1), prev: () => jump(S.i - 1), rate,
-      state: () => ({ on: S.on, paused: S.paused, i: S.i, n: S.items.length, rate: S.rate, text: S.chunks[S.c] || "" }) };
+    return { get supported() { return !!(synth() && root.SpeechSynthesisUtterance) || !!(root.Audio && gemini.on()); }, provider: (fn) => { provider = fn; },
+      play, stop, toggle, rate, setLang, setVoice, next: () => go(S.i + 1), prev: () => go(S.l > 0 ? S.i : S.i - 1),
+      pick: (i) => go(i, 0), from: (l) => go(S.i, l), open: (v) => { S.open = v !== false; paint(); },
+      state: () => ({ on: S.on, paused: S.paused, i: S.i, l: S.l, n: S.items.length, rate: S.rate, lang: S.lang, mode: S.mode, busy: S.busy, note: S.note, text: S.chunks[S.c] || "" }) };
   })();
 
   root.UPSCCore = Object.freeze({
