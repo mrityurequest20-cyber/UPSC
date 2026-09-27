@@ -350,7 +350,7 @@
   // Summary box: Claude's note, the full article read from a free copy (fetched when the card opens, or in the
   // background for cards on screen), or until then the key lines of the outlets' reports.
   const SUMSTEP = new Map();
-  function summaryBox(s) {
+  function summaryBox(s, seen = new Set()) {
     const P = CORE.summaryNow(s); const step = SUMSTEP.get(s.id);
     const src = P.from === "web" ? CORE.sourceHtml(P.src)
       : P.from === "note" ? "Claude's study note."
@@ -358,7 +358,7 @@
       : P.miss ? `No free copy of the full article could be read${(P.src && P.src.closed || []).length ? ` (the original on ${esc(P.src.closed.join(", "))} is subscriber-only)` : ""}: these are the key lines from the outlets' reports.`
       : "Key lines from the outlets' reports.";
     return `<section class="sumbox" data-sum="${esc(s.id)}"><div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
-      ${P.points.length ? `<ul class="pts">${P.points.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="pts-none">The outlets carried only the headline.</p>'}
+      ${P.points.length ? `<ul class="pts">${P.points.map((x) => `<li><span>${CORE.gloss.html(x, seen)}</span></li>`).join("")}</ul>` : '<p class="pts-none">The outlets carried only the headline.</p>'}
       <p class="sumsrc">${src}</p></section>`;
   }
   function patchSummary(id) {
@@ -389,23 +389,25 @@
   function explainBody(s) {
     const e = s.explain || {};
     const labels = S.meta.labels.subjects;
-    const li = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    const seen = new Set(); const G = (x) => CORE.gloss.html(x, seen);  // each glossary term marked once per story
+    const sum = summaryBox(s, seen);
+    const li = (arr) => `<ul>${arr.map((x) => `<li>${G(x)}</li>`).join("")}</ul>`;
     const study = []; const details = [];
     const what = CORE.cleanText(e.what);
-    if (what && !e.auto) study.push([WHAT_LABEL[kindOf(s)], `<p>${esc(what)}</p>`]); else if (what) details.push([WHAT_LABEL[kindOf(s)], `<p>${esc(what)}</p>`]);
+    if (what && !e.auto) study.push([WHAT_LABEL[kindOf(s)], `<p>${G(what)}</p>`]); else if (what) details.push([WHAT_LABEL[kindOf(s)], `<p>${esc(what)}</p>`]);
     if (e.when) details.push(["When", `<p>${esc(e.when)}</p>`]);
     if (e.where) details.push(["Where", `<p>${esc(e.where)}</p>`]);
     if (e.who) details.push(["Who", `<p>${esc(e.who)}</p>`]);
-    if (e.background) (e.auto ? details : study).push(["Background", `<p>${esc(e.background)}</p>`]);
+    if (e.background) (e.auto ? details : study).push(["Background", `<p>${G(e.background)}</p>`]);
     if (e.significance && e.significance.length) (e.auto ? details : study).push([SIG_LABEL[kindOf(s)], li(e.significance)]);
     if (e.prelims && e.prelims.length) study.push(["Prelims facts", li(e.prelims)]);
-    if (e.mains) study.push(["Mains question", `<p class="mq">${esc(e.mains)}</p>`]);
+    if (e.mains) study.push(["Mains question", `<p class="mq">${G(e.mains)}</p>`]);
     if (e.keywords && e.keywords.length) study.push(["Keywords", `<p class="kw">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</p>`]);
     const srcs = (s.sources || []).slice(0, 6).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}${x.s ? ` · ${esc(x.s)}` : ""}</a>`).join("");
     const subj = s.subjects.map((x) => labels[x] || x).join(" · ");
     const dl = (rows) => `<dl class="explain">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
     return `<div class="bbody">
-      ${summaryBox(s)}
+      ${sum}
       <div class="qchips">${QUICK.map((q) => `<button class="chip qchip" data-act="askq" data-q="${esc(q)}">${esc(q)}</button>`).join("")}<button class="chip qchip claude" data-act="askclaude" title="Opens Claude with this story, on your own Claude account">Ask Claude ↗</button></div>
       ${study.length ? dl(study) : ""}
       ${videoBlock(s)}
@@ -892,7 +894,10 @@
     S.brief = await api.brief(from, to, force);
     S.briefKey = key;
     S.briefById = new Map(S.brief.stories.map((s) => [s.id, s]));
+    setGlossary();
   }
+  // the day's glossary (days[d].glossary): its terms are marked in a card's text, a tap shows the meaning
+  const setGlossary = () => CORE.gloss.set(Object.assign({}, ...Object.values((S.brief && S.brief.days) || {}).map((v) => v.glossary || {})));
   async function loadStories(force = false) {
     const [from, to] = periodRange(S.view, S.anchor);
     const key = `${from}|${to}|${S.f.low}`;
@@ -995,6 +1000,7 @@
       const before = new Set(S.brief ? S.brief.stories.map((s) => s.id) : []);
       S.brief = S.pendingBrief; S.pendingBrief = null;
       S.briefById = new Map(S.brief.stories.map((s) => [s.id, s]));
+      setGlossary();
       if (before.size) for (const s of S.brief.stories) if (!before.has(s.id)) S.freshIds.add(s.id);
     }
     for (const s of S.pending) { S.stories.push(s); S.freshIds.add(s.id); }

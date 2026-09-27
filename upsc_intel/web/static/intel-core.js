@@ -1809,6 +1809,66 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     return { setDay: (d) => { if (d && d !== P.day && P.view === "setup" && P.tab === "mcq") load(d); }, render, tab: (k) => { P.tab = k; P.view = "setup"; render(); } };
   }
 
+  // ─────────────────────────── Glossary: tap a term for its meaning ───────────────────────────
+  // The day's glossary (written by the build: days[d].glossary {key: {t: term, m: meaning}}) marks the first mention of
+  // each term in a story's text; a tap opens a small card with its meaning (a sheet on a phone). An acronym or a
+  // numbered Article is matched in its own capitals only ("SIR", not "sir").
+  const gloss = (() => {
+    let dict = {}; let rx = null; let pop = null; let openEl = null;
+    const keyOf = (t) => String(t || "").trim().replace(/\s+/g, " ").toLowerCase();
+    const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const exact = (t) => /[A-Z][^a-z]*[A-Z]|\d/.test(t);
+    function set(d) {
+      dict = {};
+      for (const v of Object.values(d || {})) if (v && v.t && v.m) dict[keyOf(v.t)] = v;
+      const ts = Object.values(dict).map((v) => v.t).sort((a, b) => b.length - a.length);
+      rx = ts.length ? new RegExp(`(^|[^\\p{L}\\p{N}])(${ts.map(reEsc).join("|")})(?=$|[^\\p{L}\\p{N}])`, "giu") : null;
+    }
+    function html(text, seen = new Set()) {  // escaped text, each term's first mention (per `seen`) a button
+      const s = String(text == null ? "" : text);
+      if (!rx) return esc(s);
+      let out = ""; let at = 0; let m;
+      rx.lastIndex = 0;
+      while ((m = rx.exec(s))) {
+        const word = m[2]; const start = m.index + m[1].length; const k = keyOf(word); const v = dict[k];
+        if (!v || seen.has(k) || (exact(v.t) && word !== v.t)) continue;
+        seen.add(k);
+        out += `${esc(s.slice(at, start))}<button type="button" class="gl" data-gl="${esc(k)}" aria-expanded="false" title="What is ${esc(v.t)}?">${esc(word)}</button>`;
+        at = start + word.length;
+      }
+      return out + esc(s.slice(at));
+    }
+    function close() {
+      if (pop) { pop.remove(); pop = null; }
+      if (openEl) { openEl.setAttribute("aria-expanded", "false"); openEl = null; }
+    }
+    function open(el, k) {
+      const v = dict[k]; if (!v || typeof document === "undefined") return;
+      close();
+      pop = document.createElement("div"); pop.className = "glpop"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", v.t);
+      pop.innerHTML = `<div class="glpop-h"><b>${esc(v.t)}</b><button type="button" class="glpop-x" data-gl-close aria-label="Close">✕</button></div><p>${esc(v.m)}</p><small>✦ Intel AI glossary</small>`;
+      document.body.appendChild(pop);
+      const W = root.innerWidth || 1024; const H = root.innerHeight || 768;
+      if (W < 640) pop.classList.add("sheet");
+      else {
+        const r = el.getBoundingClientRect(); const w = pop.offsetWidth; const h = pop.offsetHeight;
+        let y = r.bottom + 8; if (y + h > H - 8) y = r.top - h - 8;
+        pop.style.left = `${Math.min(Math.max(8, r.left), W - w - 8)}px`; pop.style.top = `${Math.max(8, y)}px`;
+      }
+      el.setAttribute("aria-expanded", "true"); openEl = el;
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("click", (e) => {  // (capture: a term inside a clickable card opens its meaning, not the card)
+        const t = e.target; const b = t && t.closest && t.closest("[data-gl]");
+        if (b) { e.preventDefault(); e.stopPropagation(); if (openEl === b) close(); else open(b, b.dataset.gl); return; }
+        if (pop && (!t.closest || t.closest("[data-gl-close]") || !t.closest(".glpop"))) close();
+      }, true);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+      document.addEventListener("scroll", () => { if (pop && !pop.classList.contains("sheet")) close(); }, true);
+    }
+    return { set, html, open, close, get size() { return Object.keys(dict).length; }, meaning: (t) => dict[keyOf(t)] || null };
+  })();
+
   // ─────────────────────────── Listen: the day's brief read aloud ───────────────────────────
   // The Must-know stories (headline and summary points), then the Prelims facts, as a player: the day's articles (tap
   // one to hear it) and the open article's lines (tap one to start there; the line being read is lit).
@@ -2086,6 +2146,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     mdHtml,
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
-    mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems,
+    mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss,
   });
 })(window);

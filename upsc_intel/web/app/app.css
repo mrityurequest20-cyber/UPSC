@@ -665,3 +665,17 @@ button:disabled { cursor: default; }
   .lsn-lines { max-height: 30vh; }
   .lsn-voice { justify-content: flex-start; }
 }
+
+/* glossary: a marked term (tap for its meaning) and its card */
+button.gl { display: inline; padding: 0; margin: 0; border: 0; background: none; font: inherit; color: inherit; text-align: inherit; cursor: help;
+  text-decoration: underline dotted var(--accent); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+button.gl:hover, button.gl[aria-expanded="true"] { color: var(--accent-strong); text-decoration-style: solid; }
+.glpop { position: fixed; z-index: 80; width: min(320px, calc(100vw - 16px)); padding: 12px 14px; border-radius: 12px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); }
+.glpop-h { display: flex; align-items: flex-start; gap: 8px; }
+.glpop-h b { flex: 1; font-size: 14.5px; line-height: 1.35; }
+.glpop-x { flex: none; width: 28px; height: 28px; margin: -4px -6px 0 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 14px; cursor: pointer; }
+.glpop-x:hover { background: var(--surface-2); color: var(--ink); }
+.glpop p { margin: 6px 0 6px; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.glpop small { font-size: 11.5px; font-weight: 650; color: var(--muted); }
+.glpop.sheet { left: 10px; right: 10px; bottom: calc(78px + var(--safe-b)); width: auto; }
