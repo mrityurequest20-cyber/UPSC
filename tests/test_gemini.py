@@ -200,3 +200,48 @@ def test_older_gemini_notes_are_written_again_once_after_new_cards(db, settings)
     finally:
         EN._enrich_gemini = real
     assert seen == ["new", "old"]
+
+
+STATIC = ["The RTI Act, 2005 gives citizens the right to information held by public authorities.",
+          "Section 24 lets the Centre and the States exempt intelligence and security organisations, listed in the Second Schedule.",
+          "Even exempt bodies must disclose information on corruption and human-rights violations; the latter needs the Information Commission's approval.",
+          "The Central Information Commission and State Information Commissions hear appeals under Sections 12-17 of the Act.",
+          "The RTI (Amendment) Act, 2019 let the Centre set the tenure and pay of Information Commissioners.",
+          "The RTI Act, 2005 gives citizens the right to information held by public authorities.",  # repeated
+          "Tamil Nadu exempted the Public (Law and Order) Department from the RTI Act under Section 24(4).",  # a current point again
+          "Too short"]
+
+
+def test_the_summary_has_a_static_part_not_checked_against_the_article(db, settings):
+    assert "static" in E.SCHEMA["required"] and E.gemini_schema(E.SCHEMA)["properties"]["static"]["type"] == "ARRAY"
+    story = card(db)
+    settings.gemini_api_key = "test-key"
+    E._enrich_gemini(settings, db, [(story, "news")], pause=0, http=FakeGemini(reply={**NOTE, "static": STATIC, "background": ""}))
+    ai = json.loads(db.q("SELECT ai FROM stories WHERE id='tn'")[0]["ai"])
+    assert ai["static"] == STATIC[:5]  # 2005 and 2019 aren't in the article: kept (general knowledge); repeats and stubs go
+    assert not any("4,500" in p for p in ai["points"])  # the current part is still checked
+    assert ai["background"] == STATIC[0]  # an empty gist is the first static point
+    many = {**NOTE, "points": [f"Point {i} from the text." for i in range(12)], "static": [f"Static fact number {chr(65 + i)} about the Act." for i in range(10)]}
+    E._enrich_gemini(settings, db, [(story, "news")], pause=0, http=FakeGemini(reply=many))
+    ai = json.loads(db.q("SELECT ai FROM stories WHERE id='tn'")[0]["ai"])
+    assert (len(ai["points"]), len(ai["static"])) == (9, 7)  # at most 16 lines in all
+
+
+def test_notes_without_the_static_part_are_written_again_once(db, settings):
+    from upsc_intel.pipeline import enrich as EN
+    card(db, "done")
+    card(db, "nostatic")
+    card(db, "new")
+    db.save_brief("2026-09-27", [("done", "news", 1, "top", None), ("nostatic", "news", 2, "top", None), ("new", "news", 3, "top", None)])
+    db.set_story_ai("done", {**NOTE, "by": "Gemini", "src": "article", "mcqs": [], "static": STATIC[:4]})
+    db.set_story_ai("nostatic", {**NOTE, "by": "Gemini", "src": "article", "mcqs": []})  # written before the static part
+    db.commit()
+    settings.gemini_api_key = "test-key"
+    seen = []
+    real = EN._enrich_gemini
+    EN._enrich_gemini = lambda s, d, todo, **kw: seen.extend(x[0]["id"] for x in todo) or {"enriched": 0}
+    try:
+        EN.enrich_top(settings, db, days=400)
+    finally:
+        EN._enrich_gemini = real
+    assert seen == ["new", "nostatic"]  # new cards first; a note with its static part isn't asked again

@@ -227,9 +227,11 @@
   }
   function sumBoxInner(s, seen = new Set()) {
     const P = pointsFor(s); const step = A.sumStep.get(s.id) || (P.from === "brief" && P.busy ? "Reading the full article…" : "");
-    return `<div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
+    const st = CORE.staticFor(s);  // the summary's static part: Intel AI's, else the glossary's
+    return `<div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length + (st ? st.points.length : 0), "point")}</div>
+      ${st && P.points.length ? '<div class="sumsub">What\'s happening</div>' : ""}
       ${P.points.length ? `<ul class="pts">${P.points.map((p) => `<li><span>${CORE.gloss.html(p, seen)}</span></li>`).join("")}</ul>` : `<p class="rt" style="margin:0;font-size:14px">The outlets carried only the headline.</p>`}
-      <div class="sumsrc">${step ? `<span class="sumstep">${esc(step)}</span>` : P.line}</div>`;
+      <div class="sumsrc">${step ? `<span class="sumstep">${esc(step)}</span>` : P.line}</div>${CORE.staticHtml(st, seen)}`;
   }
   function paintSum(s) { const box = $("#sumbody"); if (box && A.open === s.id) box.innerHTML = sumBoxInner(s); }
   CORE.onSummary((id) => { const s = findStory(id); if (s) paintSum(s); });
@@ -530,7 +532,7 @@
       ["What happened", e.what && e.what !== e.why_in_news ? cleanText(e.what) : ""],
       ["Why in news", cleanText(e.why_in_news) && !P.points.some((p) => cleanText(e.why_in_news).startsWith(p.slice(0, 40))) ? cleanText(e.why_in_news) : ""],
       ["When · Where · Who", [e.when, e.where, e.who].filter(Boolean).join(" · ")],
-      ["Background", !e.auto || noteOf(s) ? e.background : ""],
+      ["Background", (!e.auto || noteOf(s)) && !(e.static || []).length ? e.background : ""],  // (else it's in the summary)
       ["Why it matters", (e.significance || []).join(" · ")],
       ["Link to syllabus", noteOf(s) ? noteOf(s).syllabus : ""],
     ].filter(([, v]) => v);

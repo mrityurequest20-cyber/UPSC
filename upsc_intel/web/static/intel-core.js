@@ -1075,12 +1075,14 @@ Rules:
       const corpus = corpusOf(s);
       if (intent === "summary" && s.digest) return `${sub(s.digest.title)}${list(s.digest.points.map(esc), "ol")}<p class="bot-src">${esc(s.digest.note)}</p>`;  // a dossier or an index
       if (intent === "summary" || intent === "websummary") {  // the shared summary: instant when a card already read it
-        if (intent === "summary" && n && n.points && n.points.length) return `${sub(`Summary · ${n.points.length} points`, NOTE_TAG)}${list(n.points.map(esc), "ol")}<p class="bot-src">${btn("chip", "Summarise the full article from the web", { q: "Summarise the full article from the web" })}</p>`;
+        const st = intent === "summary" ? staticFor(s) : null;  // …and its static part
+        const stat = st ? `${sub("Static background")}${list(st.points.map(esc))}<p class="bot-src">${esc(st.note)}</p>` : "";
+        if (intent === "summary" && n && n.points && n.points.length) return `${sub(`Summary · ${n.points.length} points`, NOTE_TAG)}${list(n.points.map(esc), "ol")}${stat}<p class="bot-src">${btn("chip", "Summarise the full article from the web", { q: "Summarise the full article from the web" })}</p>`;
         let r;
         try { r = await summaryFor(s, { onStep }); } catch (err) { r = { miss: true, err }; }
-        if (r.points) return `${sub(`Summary · ${r.points.length} points`)}${list(r.points.map(esc), "ol")}<p class="bot-src">${sourceHtml(r.src)} Lines are quoted from it.</p>`;
+        if (r.points) return `${sub(`${stat ? "What's happening" : "Summary"} · ${r.points.length} points`)}${list(r.points.map(esc), "ol")}<p class="bot-src">${sourceHtml(r.src)}</p>${stat}`;  // (sourceHtml says whether lines are quoted)
         return `${sub("Summary from the brief")}${quickSummary(s) || "<p>The outlets carried only the headline.</p>"}${othersSay({ hits: r.hits || [] })}
-          <p class="bot-src">${r.err ? esc(r.err.message) : `No free copy of this story could be read${(r.closed || []).length ? ` (the original on ${esc(r.closed.join(", "))} is subscriber-only)` : ""}.`}</p>${claudeBtn("Summarise this story for UPSC")}`;
+          <p class="bot-src">${r.err ? esc(r.err.message) : `No free copy of this story could be read${(r.closed || []).length ? ` (the original on ${esc(r.closed.join(", "))} is subscriber-only)` : ""}.`}</p>${stat}${claudeBtn("Summarise this story for UPSC")}`;
       }
       if (intent === "s60") {
         if (n && n.summary60) return `${sub("In 60 words", NOTE_TAG)}${para(n.summary60)}`;
@@ -1101,10 +1103,12 @@ Rules:
           : `<p>The reports on this story don't say. ${btn("wiki", `Look up ${termOf(s)} on Wikipedia`, { term: termOf(s) })}</p>`;
       }
       if (intent === "background") {
+        const st = n ? null : staticFor(s);  // Intel AI's static points (or the glossary's), then the web's background
         const own = n ? n.background : (!e.auto && e.background);
         const term = termOf(s);
         const extra = await webText(s, onStep, !!s.sum || (isAcronym(term) && !expandAcronym(term, corpus.map((o) => o.text).join(" "))));
-        return `${own ? `${sub("Static background", n ? NOTE_TAG : "")}${para(own)}` : ""}${await backgroundHtml(s, extra)}`;
+        const head = st ? `${sub("Static background")}${list(st.points.map(esc))}<p class="bot-src">${esc(st.note)}</p>` : own ? `${sub("Static background", n ? NOTE_TAG : "")}${para(own)}` : "";
+        return `${head}${await backgroundHtml(s, extra)}`;
       }
       if (intent === "mcq") {
         if (n && n.mcqs && n.mcqs.length) return `${sub("Prelims MCQs", NOTE_TAG)}${n.mcqs.slice(0, 2).map((m, i) => mcqHtml(m, i, NOTE_TAG)).join("")}`;
@@ -2164,8 +2168,37 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
       document.addEventListener("scroll", () => { if (pop && !pop.classList.contains("sheet")) close(); }, true);
     }
-    return { set, html, open, close, get size() { return Object.keys(dict).length; }, meaning: (t) => dict[keyOf(t)] || null };
+    function find(text) {  // → [{t, m}]: the glossary terms the text carries, in the order it first names them
+      const s = String(text == null ? "" : text); const out = []; const seen = new Set(); let m;
+      if (!rx) return out;
+      rx.lastIndex = 0;
+      while ((m = rx.exec(s))) {
+        const k = keyOf(m[2]); const v = dict[k];
+        if (v && !seen.has(k) && !(exact(v.t) && m[2] !== v.t)) { seen.add(k); out.push(v); }
+      }
+      return out;
+    }
+    return { set, html, find, open, close, get size() { return Object.keys(dict).length; }, meaning: (t) => dict[keyOf(t)] || null };
   })();
+
+  // ─────────────────────────── the static part of a summary ───────────────────────────
+  // A story's summary has two parts: what's happening (its points) and the static background: Intel AI's
+  // (explain.static: the institution, scheme, law or technology behind it, from general knowledge), else the
+  // meanings of the day's glossary terms the story carries. → {points, from: "ai" | "glossary"} or null
+  const STATIC_NOTE = { ai: "✦ From Intel AI's general knowledge: check dates and figures before quoting.", glossary: "✦ From the day's glossary of terms in this story." };
+  function staticFor(s) {
+    const e = (s && s.explain) || {};
+    const pts = (e.static || []).map((x) => String(x || "").trim()).filter(Boolean);
+    if (pts.length) return { points: pts, from: "ai", note: STATIC_NOTE.ai };
+    if (!s || s.kind) return null;  // a dossier or an index carries its own background
+    const text = [s.title, ...((s.sum && s.sum.points) || []), e.what, e.why_in_news, s.summary].filter(Boolean).join(" ");
+    const hits = gloss.find(text).slice(0, 5);
+    return hits.length ? { points: hits.map((g) => `${g.t}: ${g.m}`), from: "glossary", note: STATIC_NOTE.glossary } : null;
+  }
+  function staticHtml(st, seen = new Set()) {  // the static part inside a summary box (both pages style .sum-static)
+    if (!st || !st.points.length) return "";
+    return `<div class="sum-static"><div class="sumsub">Static background</div><ul class="pts">${st.points.map((x) => `<li><span>${st.from === "ai" ? gloss.html(x, seen) : esc(x)}</span></li>`).join("")}</ul><p class="sumnote">${esc(st.note)}</p></div>`;
+  }
 
   // ─────────────────────────── Listen: the day's brief read aloud ───────────────────────────
   // The Must-know stories (headline and summary points), then the Prelims facts, as a player: the day's articles (tap
@@ -2445,6 +2478,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
     mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss, mountRanks, ranksHtml, rankMove,
-    mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn, dossierStory, rankStory,
+    mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn, dossierStory, rankStory, staticFor, staticHtml,
   });
 })(window);

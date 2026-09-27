@@ -104,13 +104,16 @@ def test_pdf_has_every_section_and_a_link_per_item(tmp_path):
     ed = {**story("e1", "The case for a maritime doctrine", "defence", paras=["India must set out a maritime doctrine that ties the Navy to its trade routes."]), "editorial": True}
     fact = story("f1", "Cabinet approves Rs 17,167-crore outer harbour at VOC Port", "ir", paras=["The Cabinet approved ₹17,167 crore for the harbour."])
     more = story("m1", "Minister slams Opposition over walkout", "polity")
-    stories = [story("v1", "Exercise VARUNA 2026", paras=VARUNA), story("p1", "Parliament passes Transgender Bill", "polity", paras=PARL), ed, fact, more]
+    v1 = story("v1", "Exercise VARUNA 2026", paras=VARUNA)
+    v1["explain"] = {"static": ["VARUNA is the India-France bilateral naval exercise, first held in 2001.", "It began as a naval exercise in 1993."]}
+    stories = [v1, story("p1", "Parliament passes Transgender Bill", "polity", paras=PARL), ed, fact, more]
     pl = {"days": {"2026-09-26": {"news": ["v1", "p1"], "prelims": ["f1"], "more": ["m1"], "folded": {}, "editorials": ["e1"], "explained": []}},
           "stories": stories}
     out = build_day_pdf(pl, "2026-09-26", LABELS, tmp_path / "brief.pdf", reported=480, site_url="https://example.org/UPSC/")
     r = PdfReader(str(out))
     text = " ".join(p.extract_text() for p in r.pages)
-    for part in ("MUST-KNOW", "PRELIMS FACTS", "EDITORIAL WATCH", "ALSO IN THE NEWS", "COVERAGE CHECK", "INS Trishul", "Rs. 17,167"):
+    for part in ("MUST-KNOW", "PRELIMS FACTS", "EDITORIAL WATCH", "ALSO IN THE NEWS", "COVERAGE CHECK", "INS Trishul", "Rs. 17,167",
+                 "Static", "India-France bilateral naval exercise"):  # a must-know note carries its static part
         assert part in text, part
     assert "₹" not in text
     links = [a.get_object()["/A"]["/URI"] for p in r.pages for a in p.get("/Annots") or [] if "/A" in a.get_object()]

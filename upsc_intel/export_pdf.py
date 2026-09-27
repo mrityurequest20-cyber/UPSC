@@ -240,6 +240,9 @@ def must_know_block(s: dict, labels: dict, folded: list[dict]) -> list:
     why = _why(s)
     if why:
         fl.append(Paragraph("<b>Why it matters —</b> " + esc(why), S["why"]))
+    static = [x for x in (s.get("explain") or {}).get("static") or [] if x][:3]  # the summary's static part
+    if static:
+        fl.append(Paragraph("<b>Static —</b> " + esc(" ".join(static)), S["meta"]))
     fl.append(Paragraph("<b>Syllabus:</b> " + _syllabus_line(s, labels), S["meta"]))
     outlet, url = _source(s)
     src = [link(url, f"{outlet}: read the source")] if url else [esc(outlet)]

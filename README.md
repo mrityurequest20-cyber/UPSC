@@ -114,7 +114,7 @@ Week and Month views recap everything the daily briefs covered.
   - **Paywalls are never bypassed.** Only sites on a free-to-read list (`free_reading` in `config/topics.yaml`, mirrored by `OPEN_DOMAINS` in `static/intel-core.js`; a test keeps them identical) are opened; subscriber sites are listed, never fetched. Pages are read through Jina Reader, which is free, keyless, and allows about 20 pages a minute per device.
   - **Most cards are already read by the build** (see "Free full text" below), so their summary and answers are instant.
   - **About a story:**
-    - Summary (8 points), 60-word summary, the 5 Ws, why it matters and the link to the syllabus
+    - Summary (what's happening and the static background), 60-word summary, the 5 Ws, why it matters and the link to the syllabus
     - Prelims facts, **2 fact MCQs** made from the article's own figures (with answers), a **Mains answer outline**, and a Mains question
     - **हिंदी में**: a free machine translation (MyMemory, about 5,000 characters a day), with a Google Translate link when the quota runs out
     - Static background from Wikipedia in the story's sense, and only a page that fits the story: its keywords, an acronym spelt out from the story (ESA in a Western Ghats story is the Ecologically Sensitive Area, not the space agency; CBAM is the Carbon Border Adjustment Mechanism), India's relations with a country in it ("Tariffs, Russian oil and the uneasy India-US relationship" → India–United States relations), names the article repeats. A country or other broad page is never shown as a story's background; when nothing fits, it says so and offers terms to look up.
@@ -206,7 +206,7 @@ Week and Month views recap everything the daily briefs covered.
   - **Where the places come from:** Intel AI names 0–4 places each card is about (not every place it mentions), with their kind (state, city, river, protected area, border…) and coordinates. A place in India must fall inside India's bounds, and a place without sane coordinates is dropped. Each place is kept once (the `places` table), with its first coordinates.
   - The map is [Leaflet](https://leafletjs.com) (BSD-2, served from the site's own `static/`, loaded only when the map opens) with OpenStreetMap tiles. The lists work without a connection. Pipeline: `places_payload` in `pipeline/dossiers.py` and `data/places.json` (`/api/places`).
 - **Daily Brief PDF (Export on the website, the export sheet in the app):** a real PDF of the day, built with the site and laid out like a newspaper brief:
-  - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, the syllabus line and a clickable source link
+  - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, three lines of static background (when Intel AI wrote them), the syllabus line and a clickable source link
   - Prelims facts (2-3 lines each), **Editorial Watch** (each editorial's argument in 2-3 sentences, with its link), Explained, Also in the news (one line each)
   - a coverage check: items per section, syllabus areas covered and empty, the five easy-miss areas, how many items were read in full
   - Week and month views list each day's PDF. **My notes (.md)** is still there for your own notes and stars.
@@ -223,7 +223,7 @@ Week and Month views recap everything the daily briefs covered.
     - Saved: stars and notes, PDF
   - **Kept uncluttered:** a brief card shows one row of labels (rank, GS paper, subject; its section is its grade) and the write-up's short headline. A story without a matched video gets a YouTube search link with its sources instead of an empty video box. The website groups Dossiers, Map and India's Ranks under one **Trackers** tab, and old links to those tabs (and the app's old Insights and Review links) still land in the right place.
   - **Refresh (the ↻ button in the top bar):** checks for the latest build now instead of waiting for the app's own 5-minute check. It says what it found: new stories, "you're up to date" with when the next update is due, or that the scheduled update is running late. It also looks for a newer version of the app. On the local server it fetches every source, like the website's Refresh.
-  - **Story view:** the article's 8-point summary (read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
+  - **Story view:** the summary (what's happening, then the static background; read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
   - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded (and the last three Daily Brief PDFs you opened).
   - **Synced with the dashboard:** stars, done ticks and notes are the same on the dashboard and in the app, as long as both use the same browser.
 - **Summaries on every card:**
@@ -384,7 +384,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 216 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 218 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -394,11 +394,14 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
 
 1. **Study notes written by the build.** Add the key as a repository secret named `GEMINI_API_KEY`: *Settings → Secrets and variables → Actions → New repository secret*.
    - Each Pages run then writes notes for up to 15 new brief cards (`UPSC_GEMINI_MAX_PER_RUN`), a few seconds apart to stay within the free per-minute limit. A day's cards are covered within an hour or two.
-   - **What's in a note:** an 8-point summary of the full article, plus what happened, why in news, background, why it matters, Prelims facts, a Mains question, a video search query, 3-4 revision flashcards and 2 UPSC-style MCQs (Practice uses both; see "Practice hub").
-   - **Older notes:** notes from today and yesterday written before flashcards and MCQs existed are rewritten once, after the new cards.
+   - **What's in a note:** a summary in two parts (10–16 points), plus what happened, why in news, background, why it matters, Prelims facts, a Mains question, a video search query, 3-4 revision flashcards and 2 UPSC-style MCQs (Practice uses both; see "Practice hub").
+     - **What's happening** (6–9 points, from the article): what happened, why it happened, the core issue or argument, then the key details and what comes next. For an editorial: the news peg, the author's thesis and arguments.
+     - **Static background** (4–7 points, from general knowledge): the institution, scheme, law, technology, grouping or concept behind the story. For a body like the Election Commission: its Article, when it was set up, its composition, appointment, tenure and removal, powers and accountability, and key reforms or judgments. For a satellite like NavIC: what it is, the programme's history and the organisation behind it. Labelled "✦ From Intel AI's general knowledge: check dates and figures before quoting".
+     - A story without Intel AI's static part (quota out, an older day) shows the meanings of the day's glossary terms it names instead.
+   - **Older notes:** notes from today and yesterday written before flashcards and MCQs, or before the static part, are rewritten once, after the new cards.
    - **Where it shows:** the card's Summary, the story view, the bot and the Daily Brief PDF, labelled "✦ Written by Intel AI from the full article on …".
    - **Model:** the newest stable Gemini Flash the key can use. A model that is busy (503) is skipped for that card only. One whose quota is used up (429) is skipped for the rest of the run, stepping down to the next and then Flash-Lite. `UPSC_GEMINI_MODEL` pins one.
-   - **Fact guard:** a summary line, Prelims fact or flashcard whose figure isn't in the article is dropped. An MCQ needs four options and a valid answer.
+   - **Fact guard:** a "what's happening" line, Prelims fact or flashcard whose figure isn't in the article is dropped. An MCQ needs four options and a valid answer. The static part comes from general knowledge, not the article, so it isn't checked against it; repeats and over-long lines are dropped.
    - **Safe to lose:** the step is `continue-on-error`, so a used-up quota or an outage never holds back the site. The cards keep their quoted summary until a note is written.
 2. **Intel AI in the Ask bot, on your phone and browser.** In Ask Intel, tap **✦ Intel AI**, paste the key and tap Save.
    - **Where the key lives:** only in that browser's storage. It is sent only to Google's Gemini API, in a request header, and never reaches this site or the repository.
