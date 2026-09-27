@@ -357,9 +357,11 @@
       : step || P.busy ? `<span class="sumstep">${esc(step || "Reading the full article…")}</span>`
       : P.miss ? `No free copy of the full article could be read${(P.src && P.src.closed || []).length ? ` (the original on ${esc(P.src.closed.join(", "))} is subscriber-only)` : ""}: these are the key lines from the outlets' reports.`
       : "Key lines from the outlets' reports.";
-    return `<section class="sumbox" data-sum="${esc(s.id)}"><div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
+    const st = CORE.staticFor(s);  // the summary's static part: Intel AI's, else the glossary's
+    return `<section class="sumbox" data-sum="${esc(s.id)}"><div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length + (st ? st.points.length : 0), "point")}</div>
+      ${st && P.points.length ? '<div class="sumsub">What\'s happening</div>' : ""}
       ${P.points.length ? `<ul class="pts">${P.points.map((x) => `<li><span>${CORE.gloss.html(x, seen)}</span></li>`).join("")}</ul>` : '<p class="pts-none">The outlets carried only the headline.</p>'}
-      <p class="sumsrc">${src}</p></section>`;
+      <p class="sumsrc">${src}</p>${CORE.staticHtml(st, seen)}</section>`;
   }
   function patchSummary(id) {
     const s = findStory(id); if (!s) return;
@@ -398,7 +400,7 @@
     if (e.when) details.push(["When", `<p>${esc(e.when)}</p>`]);
     if (e.where) details.push(["Where", `<p>${esc(e.where)}</p>`]);
     if (e.who) details.push(["Who", `<p>${esc(e.who)}</p>`]);
-    if (e.background) (e.auto ? details : study).push(["Background", `<p>${G(e.background)}</p>`]);
+    if (e.background && !(e.static || []).length) (e.auto ? details : study).push(["Background", `<p>${G(e.background)}</p>`]);  // (else it's in the summary)
     if (e.significance && e.significance.length) (e.auto ? details : study).push([SIG_LABEL[kindOf(s)], li(e.significance)]);
     if (e.prelims && e.prelims.length) study.push(["Prelims facts", li(e.prelims)]);
     if (e.mains) study.push(["Mains question", `<p class="mq">${G(e.mains)}</p>`]);

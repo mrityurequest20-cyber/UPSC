@@ -731,6 +731,29 @@ test("Intel bot on a dossier or an index: its summary is the story so far or the
   assert.ok(C.ranksHtml({ indices: [x] }).includes('data-rk-ask="hunger"'));
 });
 
+test("the summary's static part: Intel AI's points, else the glossary's; the bot adds it to Summary and Static background", async () => {
+  const sum = { points: ["ISRO launched NVS-03 for NavIC on 27 Sep.", "It replaces an ageing IRNSS satellite."], url: "https://www.thehindu.com/x", domain: "thehindu.com", via: "", by: "Gemini" };
+  const ai = { id: "nv1", title: "ISRO launches NVS-03 for NavIC", sources: [{ p: "The Hindu", u: "https://www.thehindu.com/x" }], sum,
+    explain: { what: "ISRO launched NVS-03.", static: ["NavIC (IRNSS) is India's regional navigation satellite system, run by ISRO.", "ISRO was set up in 1969 and works under the Department of Space."] } };
+  const st = C.staticFor(ai);
+  assert.strictEqual(st.from, "ai"); assert.strictEqual(st.points.length, 2); assert.ok(st.note.includes("general knowledge"));
+  const html = C.staticHtml(st);
+  assert.ok(html.includes("Static background") && html.includes("ISRO was set up in 1969") && html.includes("check dates and figures"));
+  // no static from Intel AI: the day's glossary terms the story names
+  C.gloss.set({ navic: { t: "NavIC", m: "India's regional navigation satellite system." }, isro: { t: "ISRO", m: "Indian Space Research Organisation, set up in 1969." }, cag: { t: "CAG", m: "Comptroller and Auditor General." } });
+  const g = C.staticFor({ ...ai, id: "nv2", explain: { what: "ISRO launched NVS-03." } });
+  assert.strictEqual(g.from, "glossary");
+  assert.deepStrictEqual(g.points, ["ISRO: Indian Space Research Organisation, set up in 1969.", "NavIC: India's regional navigation satellite system."], "in the order the story names them; CAG isn't in it");
+  assert.strictEqual(C.staticFor({ id: "x", title: "Nothing here", explain: {} }), null);
+  assert.strictEqual(C.staticFor({ id: "ds:x", kind: "dossier", title: "ISRO", explain: {} }), null, "a dossier carries its own");
+  const bot = C.makeBot({});
+  const a = await bot.answer(ai, "Summary");
+  assert.ok(a.includes("What&#39;s happening") && a.includes("ISRO launched NVS-03") && a.indexOf("Static background") > a.indexOf("ISRO launched NVS-03") && a.includes("ISRO was set up in 1969"));
+  const b = await bot.answer(ai, "Static background");
+  assert.ok(b.indexOf("Static background") >= 0 && b.includes("regional navigation satellite system, run by ISRO"));
+  C.gloss.set({});
+});
+
 test("Places map: the period filters reports; India by state, the world by country", () => {
   const data = { to: "2026-09-27", stories: { a: { day: "2026-09-27" }, b: { day: "2026-09-24" }, c: { day: "2026-09-05" }, d: { day: "2026-09-26" } },
     places: [

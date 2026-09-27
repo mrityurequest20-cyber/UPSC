@@ -4,9 +4,10 @@ Prelims facts · Mains question — the format UPSC notes are written in.
 Two tiers:
 * AI explainer (when GEMINI_API_KEY, a free Google AI Studio key, or ANTHROPIC_API_KEY is set): the model
   writes it from the free full article the build read (pipeline/articles.py) and the outlets' reports,
-  plus an 8-point summary of the article. News facts come only from that text (a summary line or Prelims
-  fact carrying a number the text doesn't have is dropped); the Background line may use well-established
-  static knowledge (what an institution is, which Article applies) and is left empty when unsure.
+  plus a summary in two parts: the current part (what happened, why, the core issue, the details: facts only
+  from that text, and a line or Prelims fact carrying a number the text doesn't have is dropped) and the static
+  part (the institution, scheme, law or technology behind it: its basis, history, appointment and removal,
+  powers… from well-established knowledge, so not checked against the text).
 * Auto explainer (always available, no key): built from the feed text and the classifier's tags.
   Shorter, extractive, never invents anything.
 Each story is explained once; results are cached in the database.
@@ -34,20 +35,36 @@ You get one story: its headline, the outlets that carried it, and the text that 
 Rules:
 - Facts about the news event (who, what, numbers, dates, names of schemes/bodies) come ONLY from
   the provided text. Never invent them.
-- "background" is static context a student needs (what the institution/law/scheme/concept is, the
-  relevant Article or convention). Use only well-established facts; leave it "" if unsure.
+- "static" is the textbook background a student needs to answer any question on the topic, from
+  well-established knowledge (not the article). Skip a point rather than guess; never repeat the day's news.
 - Plain, simple English. No hype. Short sentences.
 - If the text is too thin, set "insufficient": true and keep fields short rather than guessing.
 - Write in your own words: never copy whole sentences from the text.
 
 Fields:
-- points: 6-8 bullet points summarising the article for revision, most important first. One sentence
-  each, at most 30 words, facts only from the text (names, numbers, places, bodies, the decision and
-  its reasons). For an editorial: the author's main arguments and proposals.
+- points: the current part of the summary, 6-9 bullet points in this order: (1) what happened; (2) why it
+  happened, the trigger or the reason; (3) the core issue or argument, what is at stake or debated; then the
+  key details (names, numbers, places, bodies, the decision and its reasons); last, what happens next or the
+  implications. One sentence each, at most 30 words, facts only from the text. For an editorial: (1) the news
+  peg, (2) the author's thesis, then the main arguments and proposals.
+- static: the static part of the summary, 4-7 bullet points (at most 35 words each) on the institution,
+  scheme, law, technology, grouping, concept or place behind the story. Cover what applies:
+  * an institution or body (Election Commission, RBI, CAG, a tribunal, a commission): its constitutional
+    or statutory basis (the Article or Act), when and how it was set up, its composition, appointment,
+    tenure and removal, its powers and functions, how it is held accountable, and key reforms or judgments
+    on it.
+  * a scheme or mission: the ministry, the launch year, its aim, key features and targets.
+  * a law, Bill or judgment: the provisions involved, the constitutional basis, earlier landmark cases.
+  * technology, space or defence (a satellite, a missile, a navigation system): what it is and how it
+    works, the programme's history, and the organisation behind it (for ISRO: when it was formed, under
+    which department).
+  * an international grouping, agreement or organisation: its members, when it was founded, its aim and
+    India's role.
+  * a concept, index or place: the definition, who publishes it and how it is measured, location facts.
 - headline: a clear factual headline, at most 14 words.
 - what: 1-2 sentences, what happened.
 - why_in_news: 1 sentence, the trigger that put it in the news now.
-- background: 0-3 sentences of static context.
+- background: 1-2 sentences: the gist of the static part.
 - significance: 2-3 short points on why it matters for India / for the exam.
 - prelims: 0-4 short, checkable facts from the text.
 - mains: one Mains-style question (15 or 10 marker) this could be asked as.
@@ -79,6 +96,7 @@ SCHEMA = {
     "properties": {
         "headline": {"type": "string"},
         "points": {"type": "array", "items": {"type": "string"}},
+        "static": {"type": "array", "items": {"type": "string"}},
         "what": {"type": "string"},
         "why_in_news": {"type": "string"},
         "background": {"type": "string"},
@@ -99,7 +117,7 @@ SCHEMA = {
             "options": {"type": "array", "items": {"type": "string"}}, "answer": {"type": "integer"}, "why": {"type": "string"}},
             "required": ["q", "statements", "ask", "options", "answer", "why"], "additionalProperties": False}},
     },
-    "required": ["headline", "points", "what", "why_in_news", "background", "significance", "prelims", "mains",
+    "required": ["headline", "points", "static", "what", "why_in_news", "background", "significance", "prelims", "mains",
                  "gs", "keywords", "when", "where", "who", "video_query", "insufficient", "flashcards", "mcqs"],
     "additionalProperties": False,
 }
@@ -322,6 +340,8 @@ def enrich_story(client, settings: Settings, db: DB, story: dict, kind: str = "n
     except ValueError:
         log.warning("AI notes: non-JSON reply for %s", story["id"])
         return None
+    data = guard(data, _story_text(db, story, kind))
+    data["points"] = data.get("points", [])[:MAX_POINTS]
     data["prelims"] = [p for p in data.get("prelims", []) if p][:4]
     data["significance"] = [p for p in data.get("significance", []) if p][:3]
     data.update({"model": resp.model, "at": iso(datetime.now(timezone.utc))})
@@ -342,15 +362,36 @@ def supported(line: str, source: str) -> bool:
     return all(n in have or (n.isdigit() and int(n) <= 12) for n in _numbers(line))
 
 
+MAX_POINTS, MAX_STATIC = 9, 7
+
+
+def static_points(items, points: list[str]) -> list[str]:
+    """The static part of the summary: general knowledge, so not checked against the text's figures; only blank,
+    over-long and repeated lines (a line that restates a current point) go, and at most MAX_STATIC stay."""
+    now = {re.sub(r"\W+", " ", p.lower()).strip()[:60] for p in points}
+    out, seen = [], set()
+    for x in items or []:
+        x = " ".join(str(x or "").split())
+        k = re.sub(r"\W+", " ", x.lower()).strip()[:60]
+        if len(x) < 12 or len(x.split()) > 55 or k in seen or k in now:
+            continue
+        seen.add(k)
+        out.append(x)
+    return out[:MAX_STATIC]
+
+
 def guard(data: dict, source: str) -> dict:
     """Drops summary lines, Prelims facts and flashcards whose figures the text doesn't carry, and MCQs that
     aren't well formed (four distinct options, an answer among them). (An MCQ's wrong statements are wrong on
-    purpose, so its figures aren't checked.)"""
+    purpose, so its figures aren't checked; the static part is general knowledge, see static_points.)"""
     for k in ("points", "prelims"):
         kept = [x for x in data.get(k) or [] if x and supported(x, source)]
         if len(kept) < len(data.get(k) or []):
             log.info("AI notes: dropped %d %s line(s) with figures not in the text", len(data[k]) - len(kept), k)
         data[k] = kept
+    data["static"] = static_points(data.get("static"), data.get("points") or [])
+    if not str(data.get("background") or "").strip() and data["static"]:
+        data["background"] = data["static"][0]
     data["flashcards"] = [{"q": str(c["q"]).strip(), "a": str(c["a"]).strip()} for c in data.get("flashcards") or []
                           if isinstance(c, dict) and c.get("q") and c.get("a") and supported(f"{c['q']} {c['a']}", source)][:4]
     mcqs = []
@@ -464,7 +505,7 @@ def enrich_story_gemini(gem: Gemini, db: DB, story: dict, kind: str = "news") ->
     if data.get("skipped"):
         return {**data, "model": model, "at": now}
     data = guard(data, text)
-    data["points"] = data.get("points", [])[:8]
+    data["points"] = data.get("points", [])[:MAX_POINTS]
     data["prelims"] = [p for p in data.get("prelims", []) if p][:4]
     data["significance"] = [p for p in data.get("significance", []) if p][:3]
     data.update({"model": model, "by": "Gemini", "src": "article" if "--- FULL ARTICLE" in text else "reports", "at": now})
@@ -491,8 +532,9 @@ def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int =
         ai = json.loads(r["ai"]) if r["ai"] else None
         a = arts.get(r["id"])
         upgrade = bool(ai and ai.get("src") == "reports" and a and not a["miss"])  # the full article came in since
-        # a Gemini note from before flashcards and MCQs: written again once (the recent days only, new cards first)
-        older = bool(gemini and ai and ai.get("by") == "Gemini" and "mcqs" not in ai)
+        # a Gemini note from before flashcards and MCQs, or before the static part: written again once (the recent
+        # days only, new cards first)
+        older = bool(gemini and ai and ai.get("by") == "Gemini" and ("mcqs" not in ai or "static" not in ai))
         if (has_ai_explainer(ai) and not upgrade and not older) or (ai and ai.get("skipped")) or (ai and ai.get("source") == "claude-notes"):
             continue
         todo.append(({"id": r["id"], "title": r["title"], "dates": json.loads(r["dates"] or "[]")}, r["kind"], older))
