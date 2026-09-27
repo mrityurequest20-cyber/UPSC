@@ -7,8 +7,9 @@
              is read from a free site that carries it.
    - wiki:   background from Wikipedia's REST API (keyless, allows calls from any page)
    - claude: hands a question to Claude (claude.ai, on the viewer's own plan) with the story as context
-   - gemini: with the viewer's own free Google AI Studio key (kept only on their device, sent only to Google's
-             Gemini API), free questions and the writing chips are answered by Gemini from the story's article */
+   - Intel AI: with the viewer's own free Google AI Studio key (kept only on their device, sent only to Google's
+             Gemini API), free questions and the writing chips are answered in Intel's own words from the story's
+             article. The bot is always "Intel"; Gemini is the engine underneath. */
 (function (root) {
   "use strict";
 
@@ -435,7 +436,7 @@
     if (!src || !src.domain) return "";
     const a = `<a href="${esc(safeUrl(src.url))}" target="_blank" rel="noopener">${esc(src.domain)}</a>`;
     const closed = (src.closed || []).length ? ` The original on ${esc(src.closed.join(", "))} is subscriber-only, so it wasn't opened.` : "";
-    const verb = src.by ? `Written by ${esc(src.by)} from` : "Summarised from";
+    const verb = src.by ? "✦ Written by Intel AI from" : "Summarised from";
     const tail = src.by ? " Check key facts against it before quoting." : " Lines are quoted from it.";
     return (src.via === "search" ? `${verb} ${a}, a free report of the same story.${closed}` : `${verb} the full article on ${a}.`) + tail;
   }
@@ -583,10 +584,10 @@
     models() { try { const m = JSON.parse(gemStore.get(GEM_MODELS)); return Array.isArray(m) && m.length ? m : GEM_FALLBACK.slice(); } catch (e) { return GEM_FALLBACK.slice(); } },
     async connect(key) {  // checks the key with Google, then keeps it on this device → the models it can use
       key = String(key || "").trim();
-      if (!/^[\w-]{20,}$/.test(key)) throw fail("key", "That doesn't look like a Gemini API key (it starts with “AIza…”).");
+      if (!/^[\w-]{20,}$/.test(key)) throw fail("key", "That doesn't look like a Google AI key (it starts with “AIza…”).");
       let r;
-      try { r = await fetch(`${GEM_API}/models?pageSize=200`, { headers: { "x-goog-api-key": key } }); } catch (e) { throw fail("net", "Couldn't reach Google's Gemini API."); }
-      if (!r.ok) throw fail("key", r.status === 400 || r.status === 403 ? "Google refused that key: check it was copied whole." : `Gemini answered with an error (${r.status}).`);
+      try { r = await fetch(`${GEM_API}/models?pageSize=200`, { headers: { "x-goog-api-key": key } }); } catch (e) { throw fail("net", "Couldn't reach Google's AI service."); }
+      if (!r.ok) throw fail("key", r.status === 400 || r.status === 403 ? "Google refused that key: check it was copied whole." : `Google's AI service answered with an error (${r.status}).`);
       const names = (((await r.json()).models) || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => String(m.name).replace(/^models\//, ""));
       const models = rankModels(names);
       gemStore.set(GEM_KEY, key); gemStore.set(GEM_MODELS, JSON.stringify(models));
@@ -596,7 +597,7 @@
     // → {text, model}; onText(textSoFar) as it streams
     async generate({ system, contents, onText, signal, temperature = 0.4 }) {
       const key = gemStore.get(GEM_KEY);
-      if (!key) throw fail("nokey", "Add your Gemini key first.");
+      if (!key) throw fail("nokey", "Switch on ✦ Intel AI first.");
       // (a "thinking" model counts its thinking in the output budget: room for both)
       const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature, maxOutputTokens: 8192 } });
       const models = gemini.models();
@@ -604,10 +605,10 @@
         let r;
         try {
           r = await fetch(`${GEM_API}/models/${model}:streamGenerateContent?alt=sse`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body, signal });
-        } catch (e) { if (signal && signal.aborted) throw e; throw fail("net", "Couldn't reach Google's Gemini API."); }
-        if (r.status === 429 || r.status === 404 || r.status >= 500) continue;  // this model's free quota is used up (or it's gone): the next one
-        if (r.status === 401 || r.status === 403 || (r.status === 400 && /API_KEY/.test(await r.clone().text()))) throw fail("key", "Google refused the Gemini key: add it again in ✦ Gemini.");
-        if (!r.ok) throw fail("http", `Gemini couldn't answer (${r.status}).`);
+        } catch (e) { if (signal && signal.aborted) throw e; throw fail("net", "Couldn't reach Google's AI service."); }
+        if (r.status === 429 || r.status === 404 || r.status >= 500) continue;  // quota used up, gone or busy: the next model
+        if (r.status === 401 || r.status === 403 || (r.status === 400 && /API_KEY/.test(await r.clone().text()))) throw fail("key", "Google refused the key: add it again in ✦ Intel AI.");
+        if (!r.ok) throw fail("http", `Intel AI couldn't answer (${r.status}).`);
         let text = ""; let reason = "";
         const take = (chunk) => { for (const x of sseTexts(chunk)) { reason = x.reason || reason; if (x.text) { text += x.text; if (onText) onText(text); } } };
         if (r.body && r.body.getReader) {
@@ -620,11 +621,11 @@
           }
           take(buf);
         } else take(await r.text());
-        if (!text) throw fail("blocked", reason === "RECITATION" ? "Gemini stopped: its answer would have copied the article word for word. Try asking in a different way." : `Gemini gave no answer${reason ? ` (${reason.toLowerCase()})` : ""}.`);
+        if (!text) throw fail("blocked", reason === "RECITATION" ? "Intel AI stopped: the answer would have copied the article word for word. Try asking in a different way." : `Intel AI gave no answer${reason ? ` (${reason.toLowerCase()})` : ""}.`);
         if (models[0] !== model) gemStore.set(GEM_MODELS, JSON.stringify([model, ...models.filter((m) => m !== model)]));  // start with the one that works
         return { text, model };
       }
-      throw fail("quota", "Gemini's free quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
+      throw fail("quota", "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
     },
   };
   // Gemini's Markdown → safe HTML: headings, bullets, numbered lists, bold, italics, code, http(s) links.
@@ -647,13 +648,13 @@
   // The key form, shown in the bot. The UIs call gemini.bindForms(onDone) once: it listens on the page.
   function geminiPanel() {
     const on = gemini.on();
-    return `<div class="gem-box"><p class="bot-sub">✦ Gemini ${on ? "is on" : "(free)"}</p>
-      <p>${on ? `Free questions, MCQs, Mains outlines, Hindi and background are answered by Google's Gemini (${esc(gemini.models()[0])}) from the story's article.`
-        : "Add your free Gemini API key and the bot answers any question about a story in its own words, grounded in the article: explanations, MCQs, Mains outlines, Hindi."}</p>
-      ${on ? `<p><button class="linkbtn" data-gem="forget">Remove the key from this device</button></p>`
-        : `<form class="gem-form"><input type="password" name="key" placeholder="Paste your key (AIza…)" autocomplete="off" spellcheck="false" aria-label="Gemini API key"><button type="submit">Save</button></form>
-      <p class="bot-src">Get one free at ${link("https://aistudio.google.com/apikey", "aistudio.google.com/apikey")}. The key stays in this browser and goes only to Google.</p>`}
-      <p class="bot-src">Your questions and the story's text are sent to Google to answer. On the free tier Google may use them to improve its products, so don't type anything private.</p></div>`;
+    return `<div class="gem-box"><p class="bot-sub">✦ Intel AI ${on ? "is on" : "(free)"}</p>
+      <p>${on ? "Intel answers your questions, MCQs, Mains outlines, Hindi and background in its own words, from the story's article."
+        : "Switch it on and Intel answers any question about a story in its own words, grounded in the article: explanations, MCQs, Mains outlines, Hindi."}</p>
+      ${on ? `<p><button class="linkbtn" data-gem="forget">Switch off (removes the key from this device)</button></p>`
+        : `<form class="gem-form"><input type="password" name="key" placeholder="Paste your free Google AI key (AIza…)" autocomplete="off" spellcheck="false" aria-label="Google AI key"><button type="submit">Save</button></form>
+      <p class="bot-src">Get a key free at ${link("https://aistudio.google.com/apikey", "aistudio.google.com/apikey")}. It stays in this browser and goes only to Google.</p>`}
+      <p class="bot-src">Intel AI runs on Google's Gemini: your questions and the story's text go to Google to answer. On the free tier Google may use them to improve its products, so don't type anything private.</p></div>`;
   }
   let gemBound = false;
   function bindGemini(onDone) {
@@ -664,12 +665,12 @@
       e.preventDefault();
       const btn = f.querySelector("button"); const input = f.querySelector("input");
       btn.disabled = true; btn.textContent = "Checking…";
-      try { const models = await gemini.connect(input.value); onDone({ ok: true, html: `<p>✦ Gemini is on (${esc(models[0])}). Ask me anything about the story.</p>` }); }
+      try { await gemini.connect(input.value); onDone({ ok: true, html: "<p>✦ Intel AI is on. Ask me anything about the story.</p>" }); }
       catch (err) { btn.disabled = false; btn.textContent = "Save"; onDone({ ok: false, html: `<p>${esc(err.message)}</p>` }); }
     });
     document.addEventListener("click", (e) => {
       const b = e.target.closest && e.target.closest('[data-gem="forget"]'); if (!b) return;
-      gemini.forget(); onDone({ ok: true, html: "<p>The Gemini key is removed from this device. Answers now come from the reports and the article again.</p>" });
+      gemini.forget(); onDone({ ok: true, html: "<p>✦ Intel AI is off and the key is removed from this device. Answers now quote the reports and the article again.</p>" });
     });
   }
 
@@ -692,13 +693,13 @@
   const sub = (t, note) => `<p class="bot-sub">${esc(t)}${note ? ` <span class="bot-src">${esc(note)}</span>` : ""}</p>`;
   const NOTE_TAG = "Claude's study note";
   const STORY_CHIPS = ["60-word summary", "Static background", "Make 2 Prelims MCQs", "Mains answer outline", "हिंदी में समझाएं",
-    "Link to syllabus", "Summary", "Search the web", "5W", "Prelims facts", "Other outlets", "Related stories", "Videos", "✦ Gemini", "Ask Claude ↗"];
-  const DAY_CHIPS = ["Top stories", "GS1", "GS2", "GS3", "GS4", "Prelims", "✦ Gemini", "Ask Claude ↗"];
+    "Link to syllabus", "Summary", "Search the web", "5W", "Prelims facts", "Other outlets", "Related stories", "Videos", "✦ Intel AI", "Ask Claude ↗"];
+  const DAY_CHIPS = ["Top stories", "GS1", "GS2", "GS3", "GS4", "Prelims", "✦ Intel AI", "Ask Claude ↗"];
   // "What is the issue with …", "What is India's stand on …": a question about the story, not a term to define
   const ABOUT_STORY = /\b(issue|problem|impact|effect|reason|stand|stance|position|role|significance|concern|debate|controversy|dispute|row|happen\w*|said|says|say|mean for|means for|latest|update|outcome|result|decision|plan|deal|response|reaction|status|matter|point|argument|view)\b|['’]s\b/i;
   function intentOf(q) {
     const t = String(q || "").toLowerCase().trim();
-    if (/^✦?\s*gemini( key| settings)?$/.test(t)) return "gemini";
+    if (/^✦?\s*(intel ai|gemini|ai)( key| settings)?$/.test(t)) return "gemini";  // the ✦ Intel AI switch
     if (/claude/.test(t)) return "claude";
     if (/^summari[sz]e the full article/.test(t)) return "websummary";
     if (/\bhindi\b|हिंदी|हिन्दी/.test(t)) return "hindi";
@@ -930,8 +931,9 @@
       prelims: "List the Prelims-relevant facts in this story (names, numbers, places, institutions, laws, dates), then 3-5 related static facts worth revising. Short bullets.",
     };
     GEM_TASKS.syllabus = GEM_TASKS.matters;
-    const GEM_SYSTEM = `You are Intel, a UPSC Civil Services Exam tutor inside a current-affairs app. The STORY CONTEXT is the news article and the reports for what the student is reading.
+    const GEM_SYSTEM = `You are Intel, the UPSC Civil Services Exam tutor inside the UPSC Intel current-affairs app. The STORY CONTEXT is the news article and the reports for what the student is reading.
 Rules:
+- Your name is Intel. Speak as Intel; don't call yourself Gemini or a Google assistant. If asked what powers you, say Intel runs on Google's Gemini.
 - Facts about this news event (who, what, numbers, dates, names, quotes) come only from the STORY CONTEXT. If it doesn't say, say "The article doesn't say". Never guess or invent figures, dates, names or quotes.
 - You may add well-established static knowledge (constitutional articles, laws, institutions, history, geography) when it helps; keep it clearly marked, e.g. under a "Background" heading.
 - Your own knowledge of recent events may be out of date: for anything recent, rely on the context only.
@@ -972,13 +974,13 @@ Rules:
     }
     async function geminiStory(s, q, intent, { onStep, onPartial } = {}) {
       const ctx = await storyContext4(s, onStep);
-      if (onStep) onStep("✦ Gemini is writing…");
+      if (onStep) onStep("✦ Intel is writing…");
       const contents = [...(history.get(s.id) || []), { role: "user", parts: [{ text: GEM_TASKS[intent] || q }] }];
       const { text, model } = await gemini.generate({ system: `${GEM_SYSTEM}\n\nToday is ${new Date().toISOString().slice(0, 10)}.\n\nSTORY CONTEXT\n${ctx.text}`,
         contents, onText: (t) => { if (onPartial) onPartial(mdHtml(t)); } });
       history.set(s.id, [...contents, { role: "model", parts: [{ text }] }].slice(-8));
       const from = ctx.page ? `the article on ${link(ctx.page.url, ctx.page.domain)}${ctx.page.via === "search" ? ", a free report of the same story" : ""}` : "the reports in the brief";
-      return `${mdHtml(text)}<p class="bot-src">✦ Written by Gemini (${esc(model)}) from ${from}. Check key facts against the source before quoting.</p>`;
+      return `${mdHtml(text)}<p class="bot-src" title="${esc(model)}">✦ Intel AI, from ${from}. Check key facts against the source before quoting.</p>`;
     }
     async function storyAnswer(s, q, opts = {}) {
       const intent = opts.deep ? "deep" : intentOf(q);
@@ -1180,7 +1182,7 @@ Rules:
       const d = H.day();
       if (!gemini.on() || !d || DAY_LISTS.test(q)) return dayAnswer(q);
       try {
-        if (opts.onStep) opts.onStep("✦ Gemini is writing…");
+        if (opts.onStep) opts.onStep("✦ Intel is writing…");
         const item = (x) => `- ${x.title}${x.explain && (x.explain.why_in_news || x.explain.what) ? `: ${clip(x.explain.why_in_news || x.explain.what, 220)}` : ""}`;
         const ctx = [`THE DAILY BRIEF (${d.label})`, "MUST-KNOW:", ...d.cards.slice(0, 40).map(item),
           ...(d.prelims || []).length ? ["", "PRELIMS FACTS:", ...d.prelims.slice(0, 30).map(item)] : [],
@@ -1193,7 +1195,7 @@ Rules:
         const all = d.cards.concat(d.prelims || [], d.more, d.editorials, d.explained);
         const hits = rank(all.map((x) => ({ x, text: `${x.title}. ${(x.explain && (x.explain.why_in_news || x.explain.what)) || x.summary || ""}` })), q).slice(0, 4);
         return `${mdHtml(text)}${hits.length ? `${sub("Stories in this brief")}<ul class="bot-stories">${hits.map((o) => storyLine(o.x)).join("")}</ul>` : ""}
-          <p class="bot-src">✦ Written by Gemini (${esc(model)}) from the day's brief.</p>`;
+          <p class="bot-src" title="${esc(model)}">✦ Intel AI, from the day's brief.</p>`;
       } catch (err) {
         return `<p class="bot-src">✦ ${esc(err.message)} This answer comes from the brief instead.</p>${dayAnswer(q)}`;
       }
@@ -1210,7 +1212,7 @@ Rules:
     }
 
     function welcome(s) {
-      const gem = gemini.on() ? " ✦ Gemini is on: ask in your own words." : "";
+      const gem = gemini.on() ? " ✦ Intel AI is on: ask in your own words." : "";
       return s ? `<p>Ask me about <b>${esc(s.title)}</b>: a summary of the full article (I find a free copy on the web when the original is paywalled), 60 words, the 5 Ws, background, MCQs, a Mains outline, Hindi, or anything in it.${gem}</p>`
         : `<p>Ask me about the day: the top stories, one GS paper or subject, or a topic like “RBI” or “Manipur”.${gem}</p>`;
     }

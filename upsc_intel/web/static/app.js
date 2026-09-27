@@ -1310,7 +1310,7 @@
         <div id="botLog" class="bot-log" aria-live="polite"></div>
         <div id="botChips" class="bot-chips"></div>
         <form id="botForm" class="bot-in"><input id="botQ" autocomplete="off" aria-label="Your question"><button type="submit">Ask</button></form>
-        <p class="bot-foot">Answers quote the reports, the free full article (read via Jina Reader; paywalled sites are never opened) and Wikipedia. With your free <b>✦ Gemini</b> key (kept only in this browser), Gemini answers in its own words from the article; check key facts before quoting.</p>
+        <p class="bot-foot">Answers quote the reports, the free full article (read via Jina Reader; paywalled sites are never opened) and Wikipedia. Switch on <b>✦ Intel AI</b> (a free Google key, kept only in this browser) and Intel answers in its own words from the article; check key facts before quoting.</p>
       </section>`);
     $("#botForm").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#botQ").value.trim(); if (q) { $("#botQ").value = ""; botAsk(q); } });
     CORE.gemini.bind((r) => { BOT.log.push({ who: "from-bot", html: r.html }); botRender(); });
@@ -1320,7 +1320,7 @@
     $("#botCtx").textContent = s ? s.title : `The ${S.view === "day" ? "day's" : S.view + "'s"} brief · ${periodLabel(S.view, S.anchor)}`;
     $("#botQ").placeholder = s ? "Ask about this story…" : "Ask about the day, e.g. “GS2” or “RBI”…";
     $("#bot").querySelector('[data-bot="day"]').hidden = !s;
-    $("#botChips").innerHTML = bot.chips(s).map((c) => `<button class="chip${/claude/i.test(c) ? " chip-claude" : /gemini/i.test(c) ? ` chip-gem${CORE.gemini.on() ? " on" : ""}` : ""}" data-bot="chip" data-q="${esc(c)}">${esc(c)}</button>`).join("");
+    $("#botChips").innerHTML = bot.chips(s).map((c) => `<button class="chip${/claude/i.test(c) ? " chip-claude" : /intel ai/i.test(c) ? ` chip-gem${CORE.gemini.on() ? " on" : ""}` : ""}" data-bot="chip" data-q="${esc(c)}">${esc(c)}</button>`).join("");
     $("#botLog").innerHTML = BOT.log.map((m) => `<div class="bot-msg ${m.who}">${m.html}</div>`).join("")
       + (BOT.busy ? (BOT.partial ? `<div class="bot-msg from-bot">${BOT.partial}</div>`
         : `<div class="bot-msg from-bot typing" aria-label="Working">${BOT.step ? `<span class="bot-step">${esc(BOT.step)}</span>` : "…"}</div>`) : "");
@@ -1351,7 +1351,7 @@
     BOT.busy = true; BOT.step = ""; BOT.partial = ""; botRender();
     if (!opts.url) BOT.last = q;
     const onStep = (m) => { BOT.step = m; botRender(); };
-    const onPartial = (h) => { BOT.partial = h; botRender(); };  // Gemini's answer as it types
+    const onPartial = (h) => { BOT.partial = h; botRender(); };  // Intel AI's answer as it types
     let html;
     try { html = opts.url ? await bot.read(opts.url, onStep) : await bot.answer(s, q, { onStep, onPartial, deep: opts.deep }); }
     catch (e) { html = `<p>Something went wrong: ${esc(e.message)}</p>`; }

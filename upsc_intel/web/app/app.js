@@ -665,7 +665,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     videos: storyVideos,
     dayShort,
   });
-  const STORY_CHIPS = [...QUICK, "Summary", "Search the web", "5W", "Other outlets", "✦ Gemini", "Ask Claude ↗"];
+  const STORY_CHIPS = [...QUICK, "Summary", "Search the web", "5W", "Other outlets", "✦ Intel AI", "Ask Claude ↗"];
   const INSIGHT_CHIPS = ["30-min catch-up plan", "My blind spots", "Ask Claude ↗"];
   function botCtxStory() { const c = A.bot.ctx; return c && c.kind === "story" ? findStory(c.id) : null; }
   function openBot(ctx, first) {
@@ -692,11 +692,11 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     return `<div class="scrim" data-act="close"></div><div class="bot fixed-col" role="dialog" aria-label="Ask Intel"><div class="grab"></div>
       <div class="bot-h">${LOGO(32)}<div><b>Ask Intel</b><small>${esc(ctx)}</small></div><button class="x" data-act="close" aria-label="Close">${I.x}</button></div>
       <div class="bot-log" id="botLog" aria-live="polite">${botLogHtml()}</div>
-      <div class="bot-chips nosb">${chips.map((c) => `<button class="${/claude/i.test(c) ? "claude" : /gemini/i.test(c) ? `gem${CORE.gemini.on() ? " on" : ""}` : ""}" data-ask="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+      <div class="bot-chips nosb">${chips.map((c) => `<button class="${/claude/i.test(c) ? "claude" : /intel ai/i.test(c) ? `gem${CORE.gemini.on() ? " on" : ""}` : ""}" data-ask="${esc(c)}">${esc(c)}</button>`).join("")}</div>
       <form class="bot-in" id="botForm"><input id="botQ" placeholder="${s ? "Ask about this article…" : "Ask about the brief…"}" autocomplete="off" enterkeyhint="send" aria-label="Your question"><button class="send" type="submit" aria-label="Send">${I.send}</button></form>
-      <div class="bot-foot">Answers quote the reports, the free full article (paywalled sites are never opened) and Wikipedia. With your free ✦ Gemini key (kept only on this phone), Gemini answers in its own words from the article. “Ask Claude” opens Claude on your own account.</div></div>`;
+      <div class="bot-foot">Answers quote the reports, the free full article (paywalled sites are never opened) and Wikipedia. Switch on ✦ Intel AI (a free Google key, kept only on this phone) and Intel answers in its own words from the article. “Ask Claude” opens Claude on your own account.</div></div>`;
   }
-  function botLogHtml() {  // the conversation, and while busy: Gemini's answer as it types, or what the bot is doing
+  function botLogHtml() {  // the conversation, and while busy: Intel AI's answer as it types, or what the bot is doing
     const B = A.bot;
     return B.log.map((m) => `<div class="msg${m.me ? " me" : ""}">${m.html}</div>`).join("")
       + (B.busy ? (B.partial ? `<div class="msg">${B.partial}</div>` : `<div class="busy"><i></i>${esc(B.step || "Intel is reading the coverage…")}</div>`) : "");
@@ -752,7 +752,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     if (!opts.url) B.last = q;
     paintBot();
     const onStep = (m) => { B.step = m; paintBot(); };
-    const onPartial = (h) => { B.partial = h; paintBot(); };  // Gemini's answer as it types
+    const onPartial = (h) => { B.partial = h; paintBot(); };  // Intel AI's answer as it types
     let html;
     try {
       if (opts.url) html = await bot.read(opts.url, onStep);
