@@ -184,6 +184,22 @@ Week and Month views recap everything the daily briefs covered.
     - Each term is written once (the `glossary` table), and its first explanation stays.
     - A card is asked once (`stories.terms`; `[]` when it has none).
     - Each day's file carries its cards' terms (`days[d].glossary`). Older days aren't backfilled.
+    - The same call also names each card's **places** and **running story** (below), so neither costs an extra call. A card read before these were asked for is asked once more.
+- **Dossiers (a website tab; in the app, Read → Dossiers):** the running stories of the news (the Waqf Act, India–Canada relations, Manipur, a Parliament session…), each on one page.
+  - **Each dossier has:**
+    - **the timeline:** its reports from the last 45 days, the latest first, with the date, grade, source and one line. A report that was a brief card opens in its day's brief.
+    - **the story so far:** 3–6 points in order, then the **UPSC angle** (GS paper, provisions, bodies, a likely Mains angle) and **what to watch** next. Intel AI writes it from the timeline's dated lines, and rewrites it only when a new report lands (at most every 6 hours per dossier, to save quota). Until then the dossier says the newer reports aren't in it yet.
+  - **Follow** a dossier to keep it at the top. It's marked **New** when a report lands after you last opened it (remembered on this device).
+  - A brief card that belongs to a dossier shows a **📂 Running story** link to it.
+  - **How the timeline is built:** when Intel AI reads a card (the glossary call), it names the ongoing issue the card belongs to, reusing a known topic's name when one fits, and a few search words. The timeline is the tagged cards plus every story whose headline carries those words (a full-text search of everything stored). A story found that way counts only if it's worth reading (Intel AI's 2–3, or the rules' Must-know and Quick read). Private and subscriber-only stories never appear.
+  - A topic becomes a dossier once it has reports on 2 days. The dossiers in the news in the last 30 days are shown, up to 40.
+  - Pipeline: `pipeline/dossiers.py`, the `topics` table and `data/dossiers.json` (`/api/dossiers` on the local server). It runs in the notes step: at most 2 calls a run, 3 dossiers a call.
+- **Map (a website tab; in the app, Read → Map):** the places in the news, on a map, for the Prelims map questions.
+  - A dot per place: blue for India, orange for the world, bigger with more reports. Tap a dot for its reports; each opens in its day's brief.
+  - **Today / 7 days / 30 days**, and an **India** view (the whole country, as in the exam's maps) or **World** view.
+  - Below the map: India's places by state, and the world's by country. Tap one to find it on the map.
+  - **Where the places come from:** Intel AI names 0–4 places each card is about (not every place it mentions), with their kind (state, city, river, protected area, border…) and coordinates. A place in India must fall inside India's bounds, and a place without sane coordinates is dropped. Each place is kept once (the `places` table), with its first coordinates.
+  - The map is [Leaflet](https://leafletjs.com) (BSD-2, served from the site's own `static/`, loaded only when the map opens) with OpenStreetMap tiles. The lists work without a connection. Pipeline: `places_payload` in `pipeline/dossiers.py` and `data/places.json` (`/api/places`).
 - **Daily Brief PDF (Export on the website, the export sheet in the app):** a real PDF of the day, built with the site and laid out like a newspaper brief:
   - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, the syllabus line and a clickable source link
   - Prelims facts (2-3 lines each), **Editorial Watch** (each editorial's argument in 2-3 sentences, with its link), Explained, Also in the news (one line each)
@@ -358,10 +374,10 @@ python -m upsc_intel serve [--port 8000] [--no-scheduler] [--public-only]
 python -m upsc_intel fetch [--only pib hindu-] [--force] [--public-only] [--enrich]
 python -m upsc_intel sources            # health table: which step each source is using, counts, errors
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
-python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
+python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 206 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 213 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

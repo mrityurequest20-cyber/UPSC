@@ -1868,6 +1868,210 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     return { reload: () => Promise.resolve(host.load()).then((d) => { R.data = d; paint(); }) };
   }
 
+  // ─────────────────────────── Dossiers: running stories with their timeline ───────────────────────────
+  // data/dossiers.json (pipeline/dossiers.py): each running story's timeline from the news (the latest first) and a
+  // story so far, UPSC angle and what to watch, written by the AI when the timeline changes. Following a dossier keeps
+  // it at the top and marks it "new" when a report lands after you last opened it (on this device).
+  // host: load() → the payload; open(id, day) → the story in that day's brief.
+  const FOLLOW_KEY = "upsc-follow";
+  const follows = {
+    get() { try { const v = JSON.parse(localStorage.getItem(FOLLOW_KEY) || "{}"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } },
+    put(v) { try { localStorage.setItem(FOLLOW_KEY, JSON.stringify(v)); } catch (e) { /* private mode */ } },
+    toggle(key, last) { const v = follows.get(); if (key in v) delete v[key]; else v[key] = last || ""; follows.put(v); return key in v; },
+    seen(key, last) { const v = follows.get(); if (key in v && v[key] !== last) { v[key] = last; follows.put(v); } },
+  };
+  const dsNew = (d, f) => d.key in f && (d.last_day || "") > (f[d.key] || "");
+  const dsSpan = (d) => `${d.n} report${d.n === 1 ? "" : "s"} on ${d.days} day${d.days === 1 ? "" : "s"} · ${dayLabel(d.first_day)} to ${dayLabel(d.last_day)}`;
+  function dossiersHtml(data, opts = {}) {
+    const f = opts.follow || {}; const q = (opts.q || "").trim().toLowerCase();
+    const all = (data && data.dossiers) || [];
+    const list = all.filter((d) => (opts.only !== "follow" || d.key in f) && (!q || d.name.toLowerCase().includes(q) || d.timeline.some((x) => x.title.toLowerCase().includes(q))))
+      .sort((a, b) => ((b.key in f) - (a.key in f)) || (b.last_day || "").localeCompare(a.last_day || "") || b.n - a.n);
+    const nf = all.filter((d) => d.key in f).length;
+    const card = (d) => {
+      const lead = (d.summary && d.summary.so_far && d.summary.so_far[d.summary.so_far.length - 1]) || (d.timeline[0] && d.timeline[0].title) || "";
+      return `<article class="ds-card${d.key in f ? " followed" : ""}" data-ds="${esc(d.key)}">
+        <button type="button" class="ds-go" data-ds-go="${esc(d.key)}"><span class="ds-name">${esc(d.name)}${dsNew(d, f) ? ' <span class="ds-new">New</span>' : ""}</span>
+          <small>${esc(dsSpan(d))}${d.summary && d.summary.gs && d.summary.gs.length ? ` · ${esc(d.summary.gs.join(", "))}` : ""}</small>
+          ${lead ? `<span class="ds-lead">${esc(lead)}</span>` : ""}</button>
+        <button type="button" class="ds-follow" data-ds-follow="${esc(d.key)}" aria-pressed="${d.key in f}">${d.key in f ? "★ Following" : "☆ Follow"}</button></article>`;
+    };
+    return `<section class="ds"><header class="ds-top"><div class="ds-eyebrow">Dossiers</div>
+        <h2>${all.length ? `${all.length} running stor${all.length === 1 ? "y" : "ies"}` : "Running stories"}</h2>
+        <p>Each dossier follows one ongoing issue across days: its reports in order, and the story so far with the UPSC angle, written by the AI when a new report lands. Follow the ones you're tracking.</p></header>
+      ${all.length ? `<div class="ds-tools"><input type="search" class="ds-q" data-ds-q placeholder="Find a dossier or a headline" value="${esc(opts.q || "")}" aria-label="Find a dossier">
+        <div class="ds-seg" role="tablist"><button type="button" role="tab" data-ds-only="all" aria-selected="${opts.only !== "follow"}">All</button><button type="button" role="tab" data-ds-only="follow" aria-selected="${opts.only === "follow"}">Following${nf ? ` · ${nf}` : ""}</button></div></div>` : ""}
+      <div class="ds-list">${list.map(card).join("") || `<p class="ds-note">${all.length ? (opts.only === "follow" && !nf ? "Follow a dossier to keep it here." : "No dossier matches.") : "Dossiers appear once a running story has been in the news on two days: the build names each card's running story as it reads the brief."}</p>`}</div></section>`;
+  }
+  function dossierHtml(d, opts = {}) {
+    const f = opts.follow || {}; const s = d.summary;
+    const list = (xs) => (xs || []).map((x) => `<li>${esc(x)}</li>`).join("");
+    return `<section class="ds ds-one" data-ds="${esc(d.key)}"><button type="button" class="ds-back" data-ds-back>‹ All dossiers</button>
+      <header class="ds-top"><div class="ds-eyebrow">Dossier${s && s.gs && s.gs.length ? ` · ${esc(s.gs.join(", "))}` : ""}</div><h2>${esc(d.name)}</h2>
+        <p>${esc(dsSpan(d))}</p><button type="button" class="ds-follow" data-ds-follow="${esc(d.key)}" aria-pressed="${d.key in f}">${d.key in f ? "★ Following" : "☆ Follow"}</button></header>
+      ${s ? `<div class="ds-sum"><h3>The story so far</h3><ol>${list(s.so_far)}</ol>
+        ${s.upsc && s.upsc.length ? `<h3>UPSC angle</h3><ul>${list(s.upsc)}</ul>` : ""}
+        ${s.watch && s.watch.length ? `<h3>What to watch</h3><ul>${list(s.watch)}</ul>` : ""}
+        <p class="ds-by">✦ Written by ${esc(s.by || "the AI")} from the reports below${s.day ? `, ${esc(dayLabel(s.day))}` : ""}.${d.fresh ? "" : " Newer reports have landed since; it's rewritten on a coming run."} Check the facts against the reports.</p></div>`
+        : '<p class="ds-note">The story so far is written by the AI on a coming run (when it has quota). The timeline below is complete.</p>'}
+      <h3 class="ds-h">Timeline · latest first</h3>
+      <ol class="ds-tl">${d.timeline.map((x) => `<li><time datetime="${esc(x.day)}">${esc(dayLabel(x.day))}</time><div>
+        <a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener">${esc(x.title)}</a>${x.grade ? ` <span class="pill g-${esc(x.grade)}">${esc(x.grade === "NOTE" ? "Must-know" : x.grade === "SKIM" ? "Quick read" : x.grade === "READ" ? "Background" : "Low")}</span>` : ""}
+        ${x.line && x.line !== x.title ? `<p>${esc(x.line)}</p>` : ""}<small>${esc(x.source || domainOf(x.url) || "")}${x.card && opts.canOpen ? ` · <button type="button" class="linkbtn" data-ds-read="${esc(x.id)}" data-at="${esc(x.day)}">Open in the brief ›</button>` : ""}</small></div></li>`).join("")}</ol></section>`;
+  }
+  function dossierChips(topics) {  // a card's running stories (s.topics [{k, n}]): a link to each dossier
+    if (!topics || !topics.length) return "";
+    return `<p class="ds-chips"><span>📂 Running story:</span>${topics.map((t) => `<button type="button" class="ds-chip" data-ds-open="${esc(t.k)}">${esc(t.n)} ›</button>`).join("")}</p>`;
+  }
+  function mountDossiers(el, host) {
+    const D = { data: null, key: host.key || null, q: "", only: "all", err: "" };
+    const find = (k) => ((D.data && D.data.dossiers) || []).find((d) => d.key === k);
+    const paint = () => {
+      if (!D.data) { el.innerHTML = `<p class="ds-note" style="padding:16px">${esc(D.err || "Loading the dossiers…")}</p>`; return; }
+      const f = follows.get(); const d = D.key && find(D.key);
+      if (D.key && !d) {
+        el.innerHTML = `<section class="ds"><button type="button" class="ds-back" data-ds-back>‹ All dossiers</button><p class="ds-note">This running story isn't a dossier yet: it becomes one once it has been in the news on two days.</p></section>`;
+        return;
+      }
+      if (d) { follows.seen(d.key, d.last_day); el.innerHTML = dossierHtml(d, { follow: follows.get(), canOpen: !!host.open }); return; }
+      el.innerHTML = dossiersHtml(D.data, { follow: f, q: D.q, only: D.only });
+    };
+    const show = (k) => { D.key = k || null; if (host.onShow) host.onShow(D.key); paint(); if (el.scrollIntoView && k) el.scrollIntoView({ block: "start" }); };
+    el.onclick = (e) => {
+      const t = e.target.closest && e.target.closest("button"); if (!t) return;
+      if (t.dataset.dsGo) return show(t.dataset.dsGo);
+      if (t.hasAttribute("data-ds-back")) return show(null);
+      if (t.dataset.dsOnly) { D.only = t.dataset.dsOnly; return paint(); }
+      if (t.dataset.dsFollow) { const d = find(t.dataset.dsFollow); follows.toggle(t.dataset.dsFollow, d && d.last_day); return paint(); }
+      if (t.dataset.dsRead && host.open) host.open(t.dataset.dsRead, t.dataset.at);
+    };
+    el.oninput = (e) => {
+      if (!e.target.matches || !e.target.matches("[data-ds-q]")) return;
+      D.q = e.target.value; const at = e.target.selectionStart;
+      paint(); const box = el.querySelector("[data-ds-q]"); if (box) { box.focus(); try { box.setSelectionRange(at, at); } catch (er) { /* type=search */ } }
+    };
+    paint();
+    Promise.resolve(host.load()).then((x) => { D.data = x; paint(); }).catch(() => { D.err = "Couldn't load the dossiers. Check the connection and open this again."; paint(); });
+    return { show, get key() { return D.key; } };
+  }
+
+  // ─────────────────────────── Places in the news: the map ───────────────────────────
+  // data/places.json (pipeline/dossiers.py): the last month's brief cards by place, with coordinates. The map (Leaflet,
+  // loaded from the site's own static files when first opened; OpenStreetMap tiles) shows a dot per place, sized by
+  // its reports, India and the world in two colours; the lists below group India by state and the world by country.
+  // host: load() → the payload; open(id, day) → the story in that day's brief; base: the path of static/.
+  const isIndia = (p) => /^(india|bharat)$/i.test((p && p.country) || "");
+  const shiftDay = (d, n) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  function placesIn(data, range = 7) {  // → {places (their reports in the range), india: [[state, places]], world: [[country, places]], stories}
+    const st = (data && data.stories) || {}; const to = (data && data.to) || "";
+    const from = !to || range >= 30 ? "" : shiftDay(to, -(Math.max(1, range) - 1));
+    const places = ((data && data.places) || []).map((p) => ({ ...p, ids: (p.ids || []).filter((i) => st[i] && st[i].day >= from) }))
+      .filter((p) => p.ids.length && Number.isFinite(p.lat) && Number.isFinite(p.lon)).sort((a, b) => b.ids.length - a.ids.length || a.name.localeCompare(b.name));
+    const group = (list, key) => {
+      const m = new Map(); for (const p of list) { const k = key(p); if (!m.has(k)) m.set(k, []); m.get(k).push(p); }
+      return [...m.entries()].sort((a, b) => b[1].reduce((n, p) => n + p.ids.length, 0) - a[1].reduce((n, p) => n + p.ids.length, 0) || a[0].localeCompare(b[0]));
+    };
+    return { places, india: group(places.filter(isIndia), (p) => p.state || (p.kind === "country" ? "All India" : "India")),
+      world: group(places.filter((p) => !isIndia(p)), (p) => p.country || "Elsewhere"), stories: new Set(places.flatMap((p) => p.ids)).size };
+  }
+  let leafletP = null;
+  function loadLeaflet(base) {
+    if (root.L && root.L.map) return Promise.resolve(root.L);
+    if (leafletP) return leafletP;
+    leafletP = new Promise((res, rej) => {
+      const css = document.createElement("link"); css.rel = "stylesheet"; css.href = `${base}leaflet.css`; document.head.appendChild(css);
+      const js = document.createElement("script"); js.src = `${base}leaflet.js`; js.async = true;
+      js.onload = () => (root.L && root.L.map ? res(root.L) : rej(new Error("Leaflet didn't start")));
+      js.onerror = () => { leafletP = null; js.remove(); rej(new Error("Leaflet didn't load")); };
+      document.head.appendChild(js);
+    });
+    return leafletP;
+  }
+  function mountMap(el, host) {
+    const M = { data: null, range: 7, view: "india", err: "", map: null, layer: null, marks: {}, ready: null, L: null };
+    const kindOf = (p) => [p.kind && p.kind !== "other" ? p.kind : "", isIndia(p) ? p.state : p.country].filter(Boolean).join(" · ");
+    const pop = (p) => {
+      const st = M.data.stories || {};
+      return `<div class="mp-pop"><b>${esc(p.name)}</b><small>${esc(kindOf(p))}</small><ul>${p.ids.slice(0, 6).map((i) => {
+        const s = st[i]; return `<li><a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener">${esc(s.title)}</a><span>${esc(dayLabel(s.day))}${host.open ? ` · <button type="button" class="linkbtn" data-mp-read="${esc(i)}" data-at="${esc(s.day)}">In the brief ›</button>` : ""}</span></li>`;
+      }).join("")}</ul>${p.ids.length > 6 ? `<small>+${p.ids.length - 6} more reports</small>` : ""}</div>`;
+    };
+    const groupHtml = (title, groups) => `<div class="mp-group"><h3>${esc(title)} · ${groups.reduce((n, g) => n + g[1].length, 0)}</h3>${groups.length ? groups.map(([k, ps]) => `<div class="mp-area"><b>${esc(k)}</b>${ps.map((p) => `<button type="button" class="mp-place" data-mp-go="${esc(p.k)}">${esc(p.name)}${p.ids.length > 1 ? ` <span>${p.ids.length}</span>` : ""}</button>`).join("")}</div>`).join("") : '<p class="mp-note">None in this period.</p>'}</div>`;
+    const RANGES = [[1, "Today"], [7, "7 days"], [30, "30 days"]];
+    function paint() {
+      if (!M.data) { el.innerHTML = `<p class="mp-note" style="padding:16px">${esc(M.err || "Loading the places in the news…")}</p>`; return; }
+      if (!el.querySelector("[data-mp-map]")) {
+        el.innerHTML = '<section class="mp"><header class="mp-top" data-mp-head></header><div class="mp-map" data-mp-map role="region" aria-label="Map of the places in the news"></div><div class="mp-lists" data-mp-lists></div></section>';
+        M.map = null; M.layer = null;
+      }
+      const g = placesIn(M.data, M.range);
+      el.querySelector("[data-mp-head]").innerHTML = `<div class="mp-eyebrow">Places in the news</div>
+        <h2>${g.places.length} place${g.places.length === 1 ? "" : "s"} in ${g.stories} report${g.stories === 1 ? "" : "s"}</h2>
+        <p>Where the brief's stories happened: revise them for the Prelims map questions. Tap a dot, or a place below, for its reports. <span class="mp-key"><i class="in"></i>India <i class="out"></i>World</span></p>
+        <div class="mp-bar"><div class="mp-seg" role="tablist" aria-label="Period">${RANGES.map(([n, l]) => `<button type="button" role="tab" data-mp-range="${n}" aria-selected="${M.range === n}">${l}</button>`).join("")}</div>
+        <div class="mp-seg" role="tablist" aria-label="Map view">${[["india", "India"], ["world", "World"]].map(([k, l]) => `<button type="button" role="tab" data-mp-view="${k}" aria-selected="${M.view === k}">${l}</button>`).join("")}</div></div>`;
+      el.querySelector("[data-mp-lists]").innerHTML = g.places.length ? groupHtml("India", g.india) + groupHtml("World", g.world)
+        : `<p class="mp-note">${(M.data.places || []).length ? "No places in this period: try a longer one." : "Places appear as the build reads the brief's cards: today's and yesterday's first."}</p>`;
+      draw();
+    }
+    async function draw() {
+      const box = el.querySelector("[data-mp-map]"); if (!box) return;
+      if (!M.map) {
+        if (!M.ready) {
+          M.ready = loadLeaflet(host.base || "static/").then((L) => {
+            const b = el.querySelector("[data-mp-map]"); if (!b || M.map) return;
+            M.L = L;
+            M.map = L.map(b, { scrollWheelZoom: false, worldCopyJump: true, zoomSnap: 0.25 }).setView([22.5, 80], 4);
+            L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 12,
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }).addTo(M.map);
+            M.layer = L.layerGroup().addTo(M.map);
+            setTimeout(() => { if (M.map) M.map.invalidateSize(); }, 80);
+          });
+        }
+        try { await M.ready; } catch (e) {
+          M.ready = null; box.classList.add("off");
+          box.innerHTML = '<p class="mp-note">The map couldn\'t load (it needs a connection). The lists below have every place.</p>';
+          return;
+        }
+        if (!M.map) return;
+      }
+      const g = placesIn(M.data, M.range); const L = M.L;
+      M.layer.clearLayers(); M.marks = {};
+      const pts = [];
+      for (const p of g.places) {
+        const ind = isIndia(p); const n = p.ids.length;
+        const m = L.circleMarker([p.lat, p.lon], { radius: Math.min(5 + n * 2, 15), weight: 1.5, color: ind ? "#1c5cab" : "#a84a14",
+          fillColor: ind ? "#2a78d6" : "#e8793a", fillOpacity: 0.75 });
+        m.bindPopup(pop(p), { maxWidth: 280 }); m.bindTooltip(p.name, { direction: "top", offset: [0, -6] });
+        m.addTo(M.layer); M.marks[p.k] = m; pts.push([p.lat, p.lon]);
+      }
+      fit(g);
+    }
+    function fit(g) {  // India: the whole of India, as in the exam's maps; World: every place
+      const pts = M.view === "india" ? [[7, 68.5], [35.5, 97.2]] : g.places.map((p) => [p.lat, p.lon]);
+      if (pts.length) M.map.fitBounds(pts, { padding: [12, 12], maxZoom: 5 }); else M.map.setView([22.5, 80], 4);
+    }
+    el.onclick = (e) => {
+      const t = e.target.closest && e.target.closest("button"); if (!t) return;
+      if (t.dataset.mpRange) { M.range = Number(t.dataset.mpRange) || 7; paint(); return; }
+      if (t.dataset.mpView) {
+        M.view = t.dataset.mpView === "world" ? "world" : "india";
+        el.querySelectorAll("[data-mp-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mpView === M.view)));
+        if (M.map) fit(placesIn(M.data, M.range));
+        return;
+      }
+      if (t.dataset.mpGo) {
+        const m = M.marks[t.dataset.mpGo]; const box = el.querySelector("[data-mp-map]");
+        if (m && M.map) { M.map.setView(m.getLatLng(), Math.max(M.map.getZoom(), 6)); m.openPopup(); if (box && box.scrollIntoView) box.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+        return;
+      }
+      if (t.dataset.mpRead && host.open) host.open(t.dataset.mpRead, t.dataset.at);
+    };
+    paint();
+    Promise.resolve(host.load()).then((x) => { M.data = x; paint(); }).catch(() => { M.err = "Couldn't load the places. Check the connection and open this again."; paint(); });
+    return { refit: () => { if (M.map) M.map.invalidateSize(); } };
+  }
+
   // ─────────────────────────── Glossary: tap a term for its meaning ───────────────────────────
   // The day's glossary (written by the build: days[d].glossary {key: {t: term, m: meaning}}) marks the first mention of
   // each term in a story's text; a tap opens a small card with its meaning (a sheet on a phone). An acronym or a
@@ -2206,5 +2410,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
     mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss, mountRanks, ranksHtml, rankMove,
+    mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn,
   });
 })(window);

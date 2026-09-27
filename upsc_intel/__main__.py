@@ -88,9 +88,14 @@ def cmd_enrich(args) -> int:
         from .pipeline.brief import recent_days
         from .pipeline.glossary import build_glossary
         try:
-            res["glossary"] = build_glossary(s, db, recent_days())
+            res["glossary"] = build_glossary(s, db, recent_days())  # terms, places and running topics of the cards
         except Exception as exc:  # the notes are written: a glossary hiccup waits for the next run
             res["glossary"] = {"error": type(exc).__name__}
+        from .pipeline.dossiers import build_dossiers
+        try:  # running stories: the story so far of each dossier whose timeline changed (pipeline/dossiers.py)
+            res["dossiers"] = build_dossiers(s, db)
+        except Exception as exc:
+            res["dossiers"] = {"error": type(exc).__name__}
         from .pipeline.rankings import update_rankings
         try:  # India in global indices (pipeline/rankings.py)
             res["rankings"] = update_rankings(s, db, recent_days())
