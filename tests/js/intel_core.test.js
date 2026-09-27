@@ -362,7 +362,8 @@ const TN = { id: "tn", title: "Tamil Nadu government exempts Public (Law and Ord
   sum: { points: ["x"], url: "https://timesofindia.indiatimes.com/tn.cms", domain: "timesofindia.indiatimes.com", via: "",
     text: "NEW DELHI: The Tamil Nadu government has exempted the Public (Law and Order) Department from the ambit of the RTI Act under Section 24(4).\nEven exempted bodies must disclose information on corruption and human-rights violations." } };
 
-test("Gemini: the key is checked with Google and kept on the device; models ranked best first", async () => {
+test("Intel AI: the key is checked with Google and kept on the device; models ranked best first", async () => {
+  assert.strictEqual(C.intentOf("✦ Intel AI"), "gemini");
   const mem = {}; global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
   const g = gemStub();
   try {
@@ -384,7 +385,8 @@ test("Gemini: a free question is answered from the article, streamed, with a use
     const bot = C.makeBot({ labels: () => ({ subjects: { polity: "Polity" }, subject_gs: { polity: "GS2" } }) });
     const partial = [];
     const html = await bot.answer(TN, "What does Section 24 of the RTI Act do here?", { onPartial: (h) => partial.push(h) });
-    assert.ok(html.includes("<b>RTI Act</b>") && html.includes("<p class=\"bot-sub\">Section 24</p>") && html.includes("Written by Gemini (gemini-2.5-flash-lite)"), html);
+    assert.ok(html.includes("<b>RTI Act</b>") && html.includes("<p class=\"bot-sub\">Section 24</p>") && html.includes('title="gemini-2.5-flash-lite">✦ Intel AI, from the article on'), html);
+    assert.ok(!/Gemini/.test(html.replace(/title="[^"]*"/g, "")), "the answer speaks as Intel");
     assert.ok(partial.length >= 2 && partial[0].length < partial[partial.length - 1].length, "the answer streams in");
     const body = JSON.parse(g.seen.find((x) => x.u.includes("flash-lite:streamGenerateContent")).init.body);
     assert.ok(body.systemInstruction.parts[0].text.includes("Section 24(4) of the RTI Act means information held"), "the full article is in the context");
@@ -401,7 +403,7 @@ test("Gemini: when every model's quota is used up, the reports answer instead, s
   const g = gemStub({ busy: ["gemini-2.5-flash"] });
   try {
     const html = await C.makeBot({}).answer(TN, "Make 2 Prelims MCQs");
-    assert.ok(/✦ Gemini&#39;s free quota is used up.*from the reports instead/.test(html) && !/Written by Gemini/.test(html), html.slice(0, 200));
+    assert.ok(/✦ The free AI quota is used up.*from the reports instead/.test(html) && !/Intel AI, from/.test(html), html.slice(0, 200));
   } finally { g.restore(); }
 });
 

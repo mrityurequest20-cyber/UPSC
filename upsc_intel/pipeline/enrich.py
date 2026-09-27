@@ -407,9 +407,10 @@ class Gemini:
                                      "responseSchema": gemini_schema(schema)}}
         for model in list(self.pick()):
             r = self.http.post(f"{GEMINI_API}/models/{model}:generateContent", headers=self._headers(), json=body)
-            if r.status_code in (429, 404) or r.status_code >= 500:  # this model's quota is used up, or it's gone
+            if r.status_code in (429, 404) or r.status_code >= 500:
                 log.warning("Gemini %s: HTTP %s, trying the next model", model, r.status_code)
-                self.models.remove(model)
+                if r.status_code < 500:  # quota used up or model gone: not again this run (a busy 503 is tried next card)
+                    self.models.remove(model)
                 continue
             if r.status_code in (401, 403) or (r.status_code == 400 and "API_KEY" in r.text):
                 raise GeminiStop(f"the key was refused (HTTP {r.status_code})")

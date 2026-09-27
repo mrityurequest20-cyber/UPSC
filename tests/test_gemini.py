@@ -117,6 +117,23 @@ def test_the_card_summary_uses_the_ai_points_and_names_the_writer(db, settings, 
     assert s["explain"]["what"] == NOTE["what"] and "points" not in s["explain"] and s["ai"] is None  # sent once, not three times
 
 
+def test_a_busy_model_is_skipped_for_one_card_only(db, settings):
+    settings.gemini_api_key = "test-key"
+
+    class BusyOnce(FakeGemini):
+        n = 0
+
+        def post(self, url, headers=None, json=None):
+            BusyOnce.n += 1
+            if BusyOnce.n == 1:
+                return Resp(503, {"error": {"code": 503, "status": "UNAVAILABLE"}})
+            return super().post(url, headers, json)
+    http = BusyOnce()
+    res = E._enrich_gemini(settings, db, [(card(db, "a"), "news"), (card(db, "b"), "news")], pause=0, http=http)
+    models = [json.loads(r["ai"])["model"] for r in db.q("SELECT ai FROM stories ORDER BY id")]
+    assert res["enriched"] == 2 and models == ["gemini-2.0-flash", "gemini-2.5-flash"]  # the second card goes back to the best one
+
+
 def test_a_refused_request_stops_the_run_without_marking_cards(db, settings):
     story = card(db)
     settings.gemini_api_key = "test-key"
