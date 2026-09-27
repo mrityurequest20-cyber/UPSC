@@ -238,6 +238,9 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             heavy.add(sid)
     by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
     articles = db.articles([i for i in ids if i in heavy])
+    tkeys = sorted({k for i in heavy if i in stories for k in (stories[i].get("extras") or {}).get("topics") or []})
+    dossiers = {r["key"]: r["name"] for r in db.q(  # the topics that make a dossier (their timeline is signed)
+        f"SELECT key, name FROM topics WHERE sig IS NOT NULL AND key IN ({','.join('?' * len(tkeys))})", tkeys)} if tkeys else {}
     must = {i for v in days.values() for i in v["news"]}
     facts = {i for v in days.values() for i in v["prelims"]}
     out_stories = []
@@ -251,6 +254,9 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
                 ai_lead(o, stories[i], clf)
             if i in must or i in facts:  # the card's grade is its place (a light day's Must-know is topped up with
                 o["grade"] = "NOTE" if i in must else "SKIM"  # Gemini's 2s; a 3 over the cap steps down to a fact)
+            topics = [{"k": k, "n": dossiers[k]} for k in (stories[i].get("extras") or {}).get("topics") or [] if k in dossiers]
+            if topics:  # the running stories it belongs to: the pages link its dossier (pipeline/dossiers.py)
+                o["topics"] = topics
             if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
                 o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
             a = articles.get(i)
@@ -406,6 +412,18 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
             raise HTTPException(400, "range too large (max ~3 months)")
         clf, _ = classifier()
         return brief_payload(settings, db, clf, a, b, include_private=not public_only)
+
+    @app.get("/api/dossiers")
+    def dossiers():
+        """Running stories with their timelines and story so far, as the static site's data/dossiers.json."""
+        from ..pipeline.dossiers import dossiers_payload
+        return dossiers_payload(settings, db)
+
+    @app.get("/api/places")
+    def places():
+        """The places-in-news map: the last month's cards by place, as the static site's data/places.json."""
+        from ..pipeline.dossiers import places_payload
+        return places_payload(settings, db)
 
     @app.get("/api/rankings")
     def rankings():

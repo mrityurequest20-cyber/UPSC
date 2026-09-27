@@ -356,8 +356,10 @@
   function renderRead() {
     if (A.briefDay !== A.day) return '<div class="loading">Loading…</div>';
     const L = lists();
-    const seg = `<div style="padding:2px 16px 12px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["ed", `Editorials · ${L.editorials.length}`], ["ex", `Explained · ${L.explained.length}`], ["ranks", "India's Ranks"]].map(([k, l]) => `<button class="${A.readSeg === k ? "on" : ""}" data-seg="${k}">${l}</button>`).join("")}</div></div>`;
+    const seg = `<div class="segrow nosb"><div class="seg scroll">${[["ed", `Editorials · ${L.editorials.length}`], ["ex", `Explained · ${L.explained.length}`], ["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]].map(([k, l]) => `<button class="${A.readSeg === k ? "on" : ""}" data-seg="${k}">${l}</button>`).join("")}</div></div>`;
     if (A.readSeg === "ranks") return `${seg}<div id="rkRoot" class="rk-root"></div>`;  // India in global indices (mounted after)
+    if (A.readSeg === "dossiers") return `${seg}<div id="dsRoot" class="ds-root"></div>`;  // running stories (mounted after)
+    if (A.readSeg === "map") return `${seg}<div id="mpRoot" class="mp-root"></div>`;  // places in the news (mounted after)
     if (A.readSeg === "ed") {
       const papers = (A.meta && A.meta.gs_papers) || {};
       const groups = ["GS1", "GS2", "GS3", "GS4", "Prelims", "Other"].map((p) => ({ p, items: L.editorials.filter((s) => paperOf(s) === p) })).filter((g) => g.items.length);
@@ -536,6 +538,7 @@
       <div class="story-body" id="storyBody">
         <div class="card-meta">${gradePill(s)}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span>${tagOf(s) ? `<span class="tag">${esc(tagOf(s))}</span>` : ""}</div>
         <h1>${esc(s.title)}</h1>
+        ${CORE.dossierChips(s.topics)}
         <div class="story-meta">${esc(srcName(s))}${(s.n_pub || 1) > 1 ? ` and ${plural(s.n_pub - 1, "more outlet")}` : ""}${s.first_seen ? ` · first seen ${esc(clockIST(s.first_seen))} IST${s.date && s.date !== todayIST() ? `, ${esc(dayShort(s.date))}` : ""}` : ""} · ${minutesOf(s)} min read</div>
         <section class="sumbox" id="sumbox"><div id="sumbody">${sum}</div>
           <div class="qchips nosb">${QUICK.map((q) => `<button class="qchip" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}<button class="qchip claude" data-act="claude">Ask Claude ↗</button></div></section>
@@ -843,12 +846,28 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     PX.el = $("#pxRoot"); PX.w = CORE.mountPractice(PX.el, pxHost);
   }
   const RK = { data: null };  // India's Ranks, loaded once a visit
+  const DS = { data: null }; const MP = { data: null };  // dossiers and the places map, loaded once a visit
+  const dataUrl = (file, route) => (STATIC ? `../data/${file}?v=${api.stamp()}` : `../api/${route}`);
+  async function openInBrief(id, day) {  // a dossier's or the map's report, in its day's brief
+    A.tab = "brief"; await goDay(day || A.day);
+    if (findStory(id)) openStory(id); else toast("That report isn't in the day's brief.");
+  }
   function renderScreen() {
     if (A.tab === "practice") { renderPractice(); renderTabs(); return; }
     const html = A.tab === "read" ? renderRead() : A.tab === "insights" ? renderInsights() : A.tab === "review" ? renderReview() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
     if (A.tab === "read" && A.readSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
       CORE.mountRanks($("#rkRoot"), { load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
+    }
+    const row = A.tab === "read" && $("#screen .segrow"); const on = row && row.querySelector("button.on");
+    if (on) row.scrollLeft = Math.max(0, on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2);  // the chosen segment in view
+    if (A.tab === "read" && A.readSeg === "dossiers" && $("#dsRoot")) {  // Dossiers (data/dossiers.json)
+      CORE.mountDossiers($("#dsRoot"), { key: A.dsKey, open: openInBrief, onShow: (k) => { A.dsKey = k; },
+        load: () => DS.data || (DS.data = api.json(dataUrl("dossiers.json", "dossiers")).catch((e) => { DS.data = null; throw e; })) });
+    }
+    if (A.tab === "read" && A.readSeg === "map" && $("#mpRoot")) {  // Places in the news (data/places.json)
+      CORE.mountMap($("#mpRoot"), { base: "../static/", open: openInBrief,
+        load: () => MP.data || (MP.data = api.json(dataUrl("places.json", "places")).catch((e) => { MP.data = null; throw e; })) });
     }
     renderTabs();
     watchCards();
@@ -891,6 +910,11 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     if (t.dataset.day) { if (A.sheet === "cal") closeTop(); goDay(t.dataset.day); return; }
     if (t.dataset.gs) { A.gs = t.dataset.gs; renderScreen(); return; }
     if (t.dataset.seg) { A.readSeg = t.dataset.seg; renderScreen(); return; }
+    if (t.dataset.dsOpen) {  // a story's running story: its dossier, in Read
+      A.dsKey = t.dataset.dsOpen; A.tab = "read"; A.readSeg = "dossiers";
+      if (A.open || A.sheet) closeTop(); else { renderScreen(); window.scrollTo(0, 0); }
+      return;
+    }
     if (t.dataset.period) { A.period = t.dataset.period; renderScreen(); return; }
     if (t.dataset.calm !== undefined) { if (t.dataset.calm) { A.calMonth = t.dataset.calm; renderLayer(); } return; }
     if (t.dataset.scopePick) { A.exp.scope = t.dataset.scopePick; renderLayer(true); return; }

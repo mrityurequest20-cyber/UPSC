@@ -37,7 +37,7 @@ log = logging.getLogger("upsc_intel.export")
 # per-day files next to data/day/, frozen into the archive with their month: (folder, file pattern)
 EXTRA_DAY_FILES = (("pdf", "brief-{m}-*.pdf"), ("practice", "{m}-*.json"))
 
-ASSETS = ("intel-core.js", "app.js", "styles.css")
+ASSETS = ("intel-core.js", "app.js", "styles.css", "leaflet.js", "leaflet.css")  # Leaflet: the places map, loaded when opened
 SUMMARY_CHARS = 420
 FREEZE_AFTER_DAYS = 3
 
@@ -243,6 +243,9 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
     if not include_private:  # India in global indices (pipeline/rankings.py): the "India's Ranks" section
         from .pipeline.rankings import rankings_payload
         _write_json(out / "data" / "rankings.json", rankings_payload(settings, db))
+        from .pipeline.dossiers import dossiers_payload, places_payload  # running stories and the places map
+        _write_json(out / "data" / "dossiers.json", dossiers_payload(settings, db))
+        _write_json(out / "data" / "places.json", places_payload(settings, db))
     # Gemini's verdicts against the rules for the days still being rebuilt: what the AI moves in the brief
     audits = [a for a in (audit_day(db, clf, d) for d in recent_days()) if a]
     if audits and not include_private:

@@ -677,6 +677,57 @@ test("India's Ranks: the change reads the right way for each index; empty ones s
   assert.ok(sec.includes("Global Peace Index") && !sec.includes("102<sup>") && !sec.includes("Latest reports"));
 });
 
+test("Dossiers: followed first and marked new; filter; the detail shows the story so far and opens brief cards", () => {
+  const mem = {}; global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
+  const tl = (id, day, title, card) => ({ id, day, title, url: `https://www.thehindu.com/${id}`, source: "The Hindu", grade: "NOTE", line: `${title}: more.`, card });
+  const data = { dossiers: [
+    { key: "waqf", name: "Waqf (Amendment) Act", first_day: "2026-09-17", last_day: "2026-09-27", n: 3, days: 3, fresh: false,
+      summary: { so_far: ["Passed on 17 Sep.", "SC reserved its verdict on 27 Sep."], upsc: ["GS2: Article 26."], watch: [], gs: ["GS2"], by: "gemini-2.5-flash", day: "2026-09-26" },
+      timeline: [tl("w4", "2026-09-27", "SC reserves verdict <b>", true), tl("w2", "2026-09-24", "SC hears the challenge", false), tl("w1", "2026-09-17", "Lok Sabha passes the Bill", false)] },
+    { key: "manipur", name: "Manipur violence", first_day: "2026-09-20", last_day: "2026-09-25", n: 2, days: 2, fresh: true, summary: null,
+      timeline: [tl("m2", "2026-09-25", "Curfew relaxed", true), tl("m1", "2026-09-20", "Fresh clashes", true)] }] };
+  let h = C.dossiersHtml(data, { follow: C.follows.get() });
+  assert.ok(h.includes("2 running stories") && h.indexOf("Waqf") < h.indexOf("Manipur"), "the latest first");
+  assert.ok(h.includes("SC reserved its verdict on 27 Sep.") && h.includes("3 reports on 3 days") && h.includes("GS2"), "the lead line is the story so far's last point");
+  assert.ok(h.includes("Curfew relaxed") && !h.includes("ds-new"), "no summary: the latest headline; nothing followed, nothing new");
+  C.follows.toggle("manipur", "2026-09-20");  // followed when it was last seen on the 20th
+  h = C.dossiersHtml(data, { follow: C.follows.get() });
+  assert.ok(h.indexOf("Manipur") < h.indexOf("Waqf") && h.includes('<span class="ds-new">New</span>') && h.includes("Following · 1"), "followed first, new since");
+  C.follows.seen("manipur", "2026-09-25");
+  assert.ok(!C.dossiersHtml(data, { follow: C.follows.get() }).includes("ds-new"), "opened: no longer new");
+  assert.ok(!C.dossiersHtml(data, { follow: C.follows.get(), only: "follow" }).includes("Waqf"), "the Following filter");
+  const f = C.dossiersHtml(data, { q: "lok sabha" });
+  assert.ok(f.includes("Waqf") && !f.includes("Manipur"), "the filter reads the headlines too");
+  const d = C.dossierHtml(data.dossiers[0], { canOpen: true });
+  assert.ok(d.includes("The story so far") && d.includes("<li>Passed on 17 Sep.</li>") && d.includes("UPSC angle") && !d.includes("What to watch"));
+  assert.ok(d.includes("Newer reports have landed since") && d.includes("SC reserves verdict &lt;b&gt;"), "not fresh; titles escaped");
+  assert.strictEqual((d.match(/data-ds-read=/g) || []).length, 1, "only a brief card opens in the brief");
+  assert.ok(C.dossierHtml(data.dossiers[1], {}).includes("written by the AI on a coming run") && !C.dossierHtml(data.dossiers[1], {}).includes("data-ds-read"));
+  assert.strictEqual(C.dossierChips([]), "");
+  assert.ok(C.dossierChips([{ k: "waqf", n: "Waqf <Act>" }]).includes('data-ds-open="waqf">Waqf &lt;Act&gt; ›'));
+});
+
+test("Places map: the period filters reports; India by state, the world by country", () => {
+  const data = { to: "2026-09-27", stories: { a: { day: "2026-09-27" }, b: { day: "2026-09-24" }, c: { day: "2026-09-05" }, d: { day: "2026-09-26" } },
+    places: [
+      { k: "kerala|india", name: "Kerala", kind: "state", country: "India", state: "Kerala", lat: 10.5, lon: 76.3, ids: ["a", "b", "c"] },
+      { k: "kochi|india", name: "Kochi", kind: "city", country: "India", state: "Kerala", lat: 9.93, lon: 76.26, ids: ["b"] },
+      { k: "india|india", name: "India", kind: "country", country: "India", state: "", lat: 22, lon: 79, ids: ["d"] },
+      { k: "gaza|palestine", name: "Gaza", kind: "region", country: "Palestine", state: "", lat: 31.5, lon: 34.47, ids: ["c"] },
+      { k: "bad|x", name: "Bad", kind: "city", country: "X", state: "", lat: null, lon: 3, ids: ["a"] }] };
+  const today = C.placesIn(data, 1);
+  assert.deepStrictEqual(today.places.map((p) => p.name), ["Kerala"]);
+  assert.deepStrictEqual(today.places[0].ids, ["a"]);
+  const week = C.placesIn(data, 7);
+  assert.deepStrictEqual(week.places.map((p) => [p.name, p.ids.length]), [["Kerala", 2], ["India", 1], ["Kochi", 1]]);
+  assert.deepStrictEqual(week.india.map(([k, ps]) => [k, ps.length]), [["Kerala", 2], ["All India", 1]]);
+  assert.strictEqual(week.world.length, 0);
+  assert.strictEqual(week.stories, 3);
+  const month = C.placesIn(data, 30);
+  assert.deepStrictEqual(month.world.map(([k]) => k), ["Palestine"]);
+  assert.ok(!month.places.some((p) => p.name === "Bad"), "a place without coordinates is left out");
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

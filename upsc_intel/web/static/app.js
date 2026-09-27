@@ -303,6 +303,8 @@
       ["explained", "Explained", nEx],
       ["videos", "Videos", nVid],
       ["practice", "Practice", ""],
+      ["dossiers", "Dossiers", ""],
+      ["map", "Map", ""],
       ["ranks", "India's Ranks", ""],
       ["everything", "Everything", S.tab === "everything" ? briefingPool().filter((s) => passes(s)).length : ""],
       ["starred", "Starred", Object.values(S.marks).filter((x) => x.starred).length],
@@ -451,6 +453,7 @@
         <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button>
       </div>
       ${alsoReported(s)}
+      ${CORE.dossierChips(s.topics)}
       ${open ? explainBody(s) : ""}
     </article>`;
   }
@@ -874,6 +877,8 @@
     if (S.tab === "videos") return renderVideosTab();
     if (S.tab === "practice") return renderPractice();
     if (S.tab === "ranks") return renderRanks();
+    if (S.tab === "dossiers") return renderDossiers();
+    if (S.tab === "map") return renderMap();
     if (S.tab === "everything") return renderEverything();
     if (S.tab === "starred") return renderStarred();
     if (S.tab === "library") return renderLibrary();
@@ -1044,6 +1049,33 @@
     el.innerHTML = '<div id="rkRoot" class="rk-root"></div>';
     RK.el = $("#rkRoot");
     CORE.mountRanks(RK.el, { load: () => RK.data || (RK.data = api.json(STATIC ? `data/rankings.json?v=${encodeURIComponent(S.meta.built_at || "")}` : "api/rankings").catch((e) => { RK.data = null; throw e; })) });
+  }
+
+  // Dossiers (data/dossiers.json): running stories with their timeline and story so far; Map (data/places.json):
+  // the places of the last month's cards. A report opens in its day's brief.
+  const dataUrl = (file, route) => (STATIC ? `data/${file}?v=${encodeURIComponent(S.meta.built_at || "")}` : route);
+  async function openInBrief(id, day) {
+    S.openCards.add(id);
+    await go({ view: "day", anchor: day || S.anchor, tab: "brief" });
+    const c = $(`.bcard[data-id="${id}"]`); if (c) c.scrollIntoView({ block: "center" });
+  }
+  const DS = { el: null, w: null, data: null, key: null };
+  function renderDossiers() {
+    const el = $("#content");
+    if (DS.el && el.contains(DS.el)) { if (DS.key !== DS.w.key) DS.w.show(DS.key); return; }
+    el.innerHTML = '<div id="dsRoot" class="ds-root"></div>';
+    DS.el = $("#dsRoot");
+    DS.w = CORE.mountDossiers(DS.el, { key: DS.key, open: openInBrief, onShow: (k) => { DS.key = k; },
+      load: () => DS.data || (DS.data = api.json(dataUrl("dossiers.json", "api/dossiers")).catch((e) => { DS.data = null; throw e; })) });
+  }
+  const MP = { el: null, data: null };
+  function renderMap() {
+    const el = $("#content");
+    if (MP.el && el.contains(MP.el)) return;
+    el.innerHTML = '<div id="mpRoot" class="mp-root"></div>';
+    MP.el = $("#mpRoot");
+    CORE.mountMap(MP.el, { base: "static/", open: openInBrief,
+      load: () => MP.data || (MP.data = api.json(dataUrl("places.json", "api/places")).catch((e) => { MP.data = null; throw e; })) });
   }
 
   // ─────────────────────────── export ───────────────────────────
@@ -1252,6 +1284,7 @@
     if (t.dataset.tab) return switchTab(t.dataset.tab);
     if (t.dataset.tabGo) return switchTab(t.dataset.tabGo);
     if (t.dataset.jump) { const target = document.getElementById(t.dataset.jump); if (target) target.scrollIntoView({ behavior: "smooth", block: "start" }); closeDrawer(); return; }
+    if (t.dataset.dsOpen) { DS.key = t.dataset.dsOpen; return switchTab("dossiers"); }  // a card's running story
     if (t.dataset.openCard) {
       S.openCards.add(t.dataset.openCard); await switchTab("brief");
       const c = $(`.bcard[data-id="${t.dataset.openCard}"]`); if (c) c.scrollIntoView({ block: "center" });

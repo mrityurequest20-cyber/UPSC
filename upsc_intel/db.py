@@ -216,13 +216,39 @@ CREATE TABLE IF NOT EXISTS index_checks (
     found TEXT
 );
 
+-- places in the news (pipeline/glossary.py): each place once, with its coordinates; key: name|country in lower case
+CREATE TABLE IF NOT EXISTS places (
+    key TEXT PRIMARY KEY,
+    name TEXT,
+    kind TEXT,
+    country TEXT,
+    state TEXT,
+    lat REAL,
+    lon REAL,
+    at TEXT
+);
+
+-- running topics (pipeline/glossary.py names them, pipeline/dossiers.py builds each one's timeline and story so far)
+CREATE TABLE IF NOT EXISTS topics (
+    key TEXT PRIMARY KEY,
+    name TEXT,
+    query TEXT,
+    first_day TEXT,
+    last_day TEXT,
+    n INTEGER DEFAULT 0,
+    sig TEXT,
+    summary TEXT,
+    summarized_sig TEXT,
+    at TEXT
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );
 """
 
 JSON_COLS_ITEMS = {"tokens", "subjects", "tags", "watch", "extra"}
-JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi", "triage", "terms"}
+JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi", "triage", "terms", "extras"}
 MIGRATIONS = [  # (table, column, type): added when missing, so old databases keep working
     ("stories", "video", "TEXT"),
     ("stories", "video_checked_at", "TEXT"),
@@ -236,6 +262,7 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("stories", "triage", "TEXT"),  # Gemini's verdict for the brief: {upsc 0-3, subject, gs, prelims, why, t}
     ("stories", "terms", "TEXT"),  # the card's glossary keys (pipeline/glossary.py); [] when it has none
     ("stories", "ranking", "TEXT"),  # read for India's rank (pipeline/rankings.py): {key, rank}, or {} when it has none
+    ("stories", "extras", "TEXT"),  # the card's places and running topics (pipeline/glossary.py): {places: [keys], topics: [keys]}
 ]
 
 
