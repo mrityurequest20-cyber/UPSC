@@ -92,6 +92,7 @@
     ext: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>',
     chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>',
     ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12z"/><path d="M9 10h6M9 14h4"/></svg>',
+    dl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M12 11v7m0 0-3-3m3 3 3-3"/></svg>',
   };
 
   const TIER_GROUPS = [
@@ -298,6 +299,7 @@
       ["editorials", "Editorials", nEd],
       ["explained", "Explained", nEx],
       ["videos", "Videos", nVid],
+      ["practice", "Practice", ""],
       ["everything", "Everything", S.tab === "everything" ? briefingPool().filter((s) => passes(s)).length : ""],
       ["starred", "Starred", Object.values(S.marks).filter((x) => x.starred).length],
       ...(STATIC ? [] : [["library", "Library", S.meta.counts.library || 0]]),
@@ -841,6 +843,7 @@
     if (S.tab === "editorials") return renderKindTab("editorials");
     if (S.tab === "explained") return renderKindTab("explained");
     if (S.tab === "videos") return renderVideosTab();
+    if (S.tab === "practice") return renderPractice();
     if (S.tab === "everything") return renderEverything();
     if (S.tab === "starred") return renderStarred();
     if (S.tab === "library") return renderLibrary();
@@ -973,7 +976,50 @@
     if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // ─────────────────────────── practice (the shared widget in intel-core.js) ───────────────────────────
+  const PX = { el: null, w: null };
+  const practiceDays = () => (STATIC ? (S.meta.practice_days || []) : (S.meta.day_files || briefDays())).slice().sort().reverse();
+  function practiceDay() {  // the open day, or the newest day with questions before it
+    const want = S.view === "day" ? S.anchor : periodRange(S.view, S.anchor)[1];
+    const have = practiceDays();
+    return !STATIC || have.includes(want) ? want : (have.find((d) => d <= want) || have[0] || want);
+  }
+  const pxHost = {
+    day: practiceDay,
+    days: practiceDays,
+    load: (d) => api.json(STATIC ? `data/practice/${d}.json?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/practice/${d}`),
+    label: (d) => `${dayShort(d)}${d === todayIST() ? " (today)" : ""}`,
+    subject: (k) => (S.meta.labels.subjects || {})[k] || k,
+    claude: (prompt) => CORE.openClaude(prompt),
+  };
+  function renderPractice() {
+    const el = $("#content");
+    if (PX.el && el.contains(PX.el)) { PX.w.setDay(practiceDay()); return; }  // keep a set in progress across refreshes
+    el.innerHTML = '<div id="pxRoot"></div>';
+    PX.el = $("#pxRoot"); PX.w = CORE.mountPractice(PX.el, pxHost);
+  }
+
   // ─────────────────────────── export ───────────────────────────
+  // The Daily Brief PDF is built with the site (export_pdf.py): the menu links the day's file (a week or month
+  // lists its days'); "My notes" is the Markdown export, the one that carries your notes and stars.
+  const pdfHref = (d) => (STATIC ? `data/pdf/brief-${d}.pdf?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/pdf/${d}`);
+  const hasPdf = (d) => !STATIC || (S.meta.pdf_days || []).includes(d);
+  function toggleExportMenu(btn) {
+    const m = $("#exportMenu");
+    if (!m.hidden) { m.hidden = true; return; }
+    const [from, to] = periodRange(S.view, S.anchor);
+    const days = []; for (let d = to; d >= from; d = addDays(d, -1)) if (d <= todayIST()) days.push(d);
+    const pdfs = days.filter(hasPdf);
+    const item = (d) => `<a class="exm-item" href="${esc(pdfHref(d))}" download="upsc-daily-brief-${d}.pdf" data-exp="pdf">${ICON.dl}<span><b>Daily Brief PDF</b><small>${esc(dayShort(d))}${d === todayIST() ? " · today, so far" : ""} · must-know notes, Prelims facts, editorials' arguments, source links</small></span></a>`;
+    m.innerHTML = `${S.view === "day" ? (pdfs.length ? item(pdfs[0]) : `<div class="exm-none">No PDF for ${esc(dayShort(S.anchor))} yet: it is built with the day's brief.</div>`)
+      : pdfs.length ? `<div class="exm-h">PDF of each day in this ${S.view}</div><div class="exm-days">${pdfs.map((d) => `<a href="${esc(pdfHref(d))}" download="upsc-daily-brief-${d}.pdf" data-exp="pdf">${esc(dayShort(d))}</a>`).join("")}</div>`
+      : `<div class="exm-none">No PDFs for this ${S.view} yet.</div>`}
+      <button class="exm-item exm-md" data-exp="md"><span><b>My notes (.md)</b><small>this view as Markdown, with your notes and stars</small></span></button>`;
+    const r = btn.getBoundingClientRect();
+    m.style.top = `${Math.round(r.bottom + 6)}px`;
+    m.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+    m.hidden = false;
+  }
   function exportMarkdown() {
     const labels = S.meta.labels.subjects;
     let md = `# UPSC Intel · ${periodLabel(S.view, S.anchor)}\n\n_exported ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST_\n`;
@@ -1119,8 +1165,9 @@
     const b = $(`#calendar [data-day="${d}"]`);
     if (b) b.focus();
   }
-  document.addEventListener("click", (e) => {  // a click anywhere else closes the calendar
+  document.addEventListener("click", (e) => {  // a click anywhere else closes the calendar and the export menu
     if (!$("#calendar").hidden && !e.target.closest(".datepick")) closeCalendar();
+    if (!$("#exportMenu").hidden && !e.target.closest("#exportMenu, #exportBtn")) $("#exportMenu").hidden = true;
   }, true);
   document.addEventListener("change", (e) => {
     const sel = e.target.closest && e.target.closest("#calendar select");
@@ -1149,7 +1196,8 @@
       try { localStorage.setItem("upsc-theme", next); } catch (err) { /* ignore */ }
       return;
     }
-    if (t.id === "exportBtn") return exportMarkdown();
+    if (t.id === "exportBtn") return toggleExportMenu(t);
+    if (t.dataset.exp) { $("#exportMenu").hidden = true; if (t.dataset.exp === "md") exportMarkdown(); return; }
     if (t.id === "newbanner") return applyPending();
     if (t.id === "filtersBtn") { $("#side").classList.add("open"); $("#scrim").hidden = false; return; }
     if (t.id === "refreshBtn") return refreshNow(t);

@@ -984,11 +984,193 @@
     };
   }
 
+  // ─────────────────────────── Practice: the day's UPSC-style MCQs (data/practice/<day>.json) ───────────────────────────
+  // One widget for the dashboard and the app: pick a day, a set of 10/15/20, practice (answer shown after each) or exam
+  // (answers at the end); swap any question for one never seen; a result with UPSC marking and every answer's source.
+  // What you've seen and your scores stay on this device (shared by the dashboard and the app).
+  const PX_KEY = "upsc-practice";
+  const pxStore = {
+    get() { try { const v = JSON.parse(localStorage.getItem(PX_KEY) || "{}") || {}; return { seen: v.seen || {}, attempts: v.attempts || [] }; } catch (e) { return { seen: {}, attempts: [] }; } },
+    set(v) {
+      const seen = Object.entries(v.seen).sort((a, b) => b[1] - a[1]).slice(0, 3000);
+      try { localStorage.setItem(PX_KEY, JSON.stringify({ seen: Object.fromEntries(seen), attempts: v.attempts.slice(-80) })); } catch (e) { /* private mode or full */ }
+    },
+  };
+  const PX_TYPE = { statements: "Statements", pairs: "Match the pairs", fact: "Fact", figure: "Figure", claude: "By Claude" };
+  const PX_MARK = { right: 2, wrong: -0.66 };
+  const PX_QUOTA = { pairs: 0.08, statements: 0.5, fact: 0.25, figure: 0.17, claude: 1 };
+  function pxSeed(t) { let h = 2166136261; for (const c of String(t)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h; }
+  // A set of n: questions never seen first, one per story before a second, about half statements, one pairs at most.
+  function pxPick(pool, n, seen, exclude = new Set()) {
+    const avail = pool.filter((q) => !exclude.has(q.id));
+    const fresh = avail.filter((q) => !seen[q.id]); const old = avail.filter((q) => seen[q.id]);
+    const out = []; const stories = new Map(); const count = {};
+    const room = (q) => (count[q.type] || 0) < Math.max(1, Math.round((PX_QUOTA[q.type] || 0.2) * n)) && (q.type !== "pairs" || !count.pairs);
+    const take = (q) => { out.push(q); stories.set(q.story_id, (stories.get(q.story_id) || 0) + 1); count[q.type] = (count[q.type] || 0) + 1; };
+    for (const list of [fresh, old]) {
+      for (const pass of [0, 1, 2]) {
+        for (const q of list) {
+          if (out.length >= n) break;
+          if (out.includes(q) || (q.type === "pairs" && count.pairs)) continue;
+          if (pass === 0 && (stories.get(q.story_id) || !room(q))) continue;
+          if (pass === 1 && (stories.get(q.story_id) || 0) >= 1 && !room(q)) continue;
+          take(q);
+        }
+      }
+    }
+    const seed = pxSeed(out.map((q) => q.id).join());  // types interleaved, the same order every time for this set
+    return out.map((q, i) => [pxSeed(q.id + seed), q, i]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  }
+  function practiceStats() {  // for the app's Insights: accuracy by subject over your attempts
+    const st = pxStore.get(); const subj = {};
+    for (const a of st.attempts) for (const [k, [r, t]] of Object.entries(a.subj || {})) { subj[k] = subj[k] || [0, 0]; subj[k][0] += r; subj[k][1] += t; }
+    const tot = st.attempts.reduce((x, a) => [x[0] + a.right, x[1] + a.n], [0, 0]);
+    return { attempts: st.attempts, subj, accuracy: tot[1] ? Math.round((tot[0] * 100) / tot[1]) : null, seen: Object.keys(st.seen).length };
+  }
+
+  // host: { day() → "YYYY-MM-DD", days() → recent days, newest first, load(day) → Promise<{questions}>, label(day) → text,
+  //         subject(key) → name, claude(prompt) }
+  function mountPractice(el, host) {
+    const P = { view: "setup", day: host.day(), size: 15, mode: "practice", pool: null, loading: false, err: "", s: null };
+    const L = (k) => (host.subject ? host.subject(k) : k) || k;
+    async function load(day) {
+      P.day = day; P.pool = null; P.loading = true; P.err = ""; render();
+      try { const x = await host.load(day); P.pool = (x && x.questions) || []; } catch (e) { P.pool = []; P.err = "No practice questions for this day yet."; }
+      P.loading = false; render();
+    }
+    function start(qs) {
+      const st = pxStore.get(); const now = Date.now();
+      P.s = { day: P.day, qs, i: 0, ans: {}, checked: {}, mode: P.mode, t0: now, swapped: 0 };
+      if (qs[0]) st.seen[qs[0].id] = now;
+      pxStore.set(st); P.view = "quiz"; render();
+    }
+    async function swap() {
+      const S = P.s; const cur = S.qs[S.i]; const st = pxStore.get();
+      const inSet = new Set(S.qs.map((q) => q.id));
+      let next = pxPick(P.pool, 1, st.seen, inSet).find((q) => !st.seen[q.id]);
+      if (!next) {  // this day's pool is used up: the days before it
+        for (const d of (host.days() || []).filter((x) => x < S.day).slice(0, 7)) {
+          try { const x = await host.load(d); next = pxPick((x && x.questions) || [], 1, st.seen, inSet).find((q) => !st.seen[q.id]); } catch (e) { next = null; }
+          if (next) break;
+        }
+      }
+      if (!next) { toastIn("No unseen question left for this day or the week before it."); return; }
+      st.seen[next.id] = Date.now(); pxStore.set(st);
+      S.qs[S.i] = next; delete S.ans[cur.id]; delete S.checked[cur.id]; S.swapped += 1; render();
+    }
+    function finish() {
+      const S = P.s; const st = pxStore.get();
+      let right = 0; let wrong = 0; const subj = {};
+      for (const q of S.qs) {
+        const a = S.ans[q.id]; const k = q.subject || "other"; subj[k] = subj[k] || [0, 0]; subj[k][1] += 1;
+        if (a == null) continue;
+        if (a === q.answer) { right += 1; subj[k][0] += 1; } else wrong += 1;
+      }
+      const res = { day: S.day, n: S.qs.length, right, wrong, skipped: S.qs.length - right - wrong,
+        score: Math.round((right * PX_MARK.right + wrong * PX_MARK.wrong) * 100) / 100, max: S.qs.length * PX_MARK.right,
+        secs: Math.round((Date.now() - S.t0) / 1000), at: Date.now(), subj, mode: S.mode };
+      st.attempts.push(res); pxStore.set(st);
+      S.result = res; P.view = "result"; render();
+    }
+    let toastMsg = "";
+    function toastIn(m) { toastMsg = m; render(); setTimeout(() => { toastMsg = ""; render(); }, 3500); }
+    const optLabel = (i) => "abcd"[i];
+    function qHtml(q, S, review = false) {
+      const a = S.ans[q.id]; const shown = review || S.checked[q.id];
+      const items = q.items && q.items.length ? (q.type === "fact" || q.type === "figure"
+        ? `<blockquote class="px-sent">${esc(q.items[0])}</blockquote>`
+        : `<ol class="px-items">${q.items.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>`) : "";
+      const opts = q.options.map((o, i) => {
+        const cls = shown ? (i === q.answer ? " right" : i === a ? " wrong" : "") : i === a ? " sel" : "";
+        return `<button class="px-opt${cls}" data-px="pick" data-i="${i}"${shown ? " disabled" : ""}><b>(${optLabel(i)})</b> ${esc(o)}</button>`;
+      }).join("");
+      const verdict = a == null ? "Not answered" : a === q.answer ? "Correct" : "Incorrect";
+      const why = shown ? `<div class="px-why ${a === q.answer ? "ok" : a == null ? "" : "bad"}"><p><b>${verdict}</b> · answer (${optLabel(q.answer)}) ${esc(q.options[q.answer])}</p>
+        ${q.why ? `<p>${esc(q.why)}</p>` : ""}<p class="px-src">${q.url ? `<a href="${esc(safeUrl(q.url))}" target="_blank" rel="noopener">Source: ${esc(q.src || domainOf(q.url))} ↗</a> · ` : ""}${esc(q.title)}</p></div>` : "";
+      return `<article class="px-q"><div class="px-tags"><span class="px-type">${esc(PX_TYPE[q.type] || q.type)}</span><span>${esc(L(q.subject))}</span>${(q.gs || []).map((g) => `<span>${esc(g)}</span>`).join("")}</div>
+        <p class="px-stem">${esc(q.q)}</p>${items}${q.ask ? `<p class="px-ask">${esc(q.ask)}</p>` : ""}<div class="px-opts">${opts}</div>${why}</article>`;
+    }
+    function setupHtml() {
+      const st = pxStore.get(); const pool = P.pool || [];
+      const unseen = pool.filter((q) => !st.seen[q.id]).length;
+      const days = [...new Set([P.day, ...(host.days() || [])])].sort().reverse().slice(0, 14);
+      const stats = practiceStats(); const last = st.attempts.slice(-4).reverse();
+      const subj = Object.entries(stats.subj).filter(([, [, t]]) => t >= 3).map(([k, [r, t]]) => [k, Math.round((r * 100) / t), t]).sort((a, b) => a[1] - b[1]).slice(0, 5);
+      const n = Math.min(P.size, pool.length);
+      return `<section class="px">
+        <header class="px-head"><div class="px-eyebrow">Practice · ${esc(host.label(P.day))}</div>
+          <h2>${P.loading ? "Loading the questions…" : pool.length ? `${pool.length} questions from this day's brief` : "No practice questions for this day yet"}</h2>
+          <p>${pool.length ? `${unseen} you haven't seen yet · statements, match the pairs, facts and figures · UPSC marking: +2 right, −0.66 wrong` : esc(P.err || "They are built with each day's brief: try another day.")}</p></header>
+        <div class="px-row"><span class="px-lab">Day</span><select class="px-day" data-px-day aria-label="Day">${days.map((d) => `<option value="${d}"${d === P.day ? " selected" : ""}>${esc(host.label(d))}</option>`).join("")}</select></div>
+        <div class="px-row"><span class="px-lab">Questions</span>${[10, 15, 20].map((k) => `<button class="px-chip${P.size === k ? " on" : ""}" data-px="size" data-n="${k}">${k}</button>`).join("")}</div>
+        <div class="px-row"><span class="px-lab">Mode</span><button class="px-chip${P.mode === "practice" ? " on" : ""}" data-px="mode" data-m="practice">Practice · answer after each</button><button class="px-chip${P.mode === "exam" ? " on" : ""}" data-px="mode" data-m="exam">Exam · answers at the end</button></div>
+        <button class="px-go" data-px="start"${n ? "" : " disabled"}>Start ${n} question${n === 1 ? "" : "s"}</button>
+        ${last.length ? `<div class="px-hist"><h3>Your last attempts</h3><ul>${last.map((a) => `<li><b>${a.score} / ${a.max}</b> · ${a.right} right, ${a.wrong} wrong, ${a.skipped} skipped · ${esc(host.label(a.day))}</li>`).join("")}</ul>
+          ${subj.length ? `<p class="px-fine">Weakest areas so far: ${subj.map(([k, pc, t]) => `${esc(L(k))} ${pc}% (${t} Qs)`).join(" · ")}</p>` : ""}</div>` : ""}
+        <p class="px-fine">Every question comes from the day's reports, and every answer shows its source line. Want more? <button class="px-link" data-px="claude">Make 10 more with Claude ↗</button></p>
+        ${toastMsg ? `<p class="px-toast">${esc(toastMsg)}</p>` : ""}</section>`;
+    }
+    function quizHtml() {
+      const S = P.s; const q = S.qs[S.i]; const n = S.qs.length; const last = S.i === n - 1;
+      const answered = S.ans[q.id] != null; const done = Object.keys(S.ans).length;
+      const nextLabel = S.mode === "exam" ? (last ? "Submit" : "Next") : last ? "Finish" : answered ? "Next" : "Skip";
+      return `<section class="px"><div class="px-top"><span>Q ${S.i + 1} of ${n}</span><div class="px-bar"><i style="width:${Math.round((done * 100) / n)}%"></i></div>
+          <span class="px-fine">${done} answered</span><button class="px-link" data-px="end">End</button></div>
+        ${qHtml(q, S)}
+        <div class="px-nav"><button class="px-btn" data-px="swap" title="Replace it with a question you haven't seen"${S.checked[q.id] ? " disabled" : ""}>↻ Swap question</button>
+          <span class="px-sp"></span>${S.i > 0 ? `<button class="px-btn" data-px="prev">Back</button>` : ""}<button class="px-btn primary" data-px="next">${nextLabel}</button></div>
+        ${toastMsg ? `<p class="px-toast">${esc(toastMsg)}</p>` : ""}</section>`;
+    }
+    function resultHtml() {
+      const S = P.s; const r = S.result; const acc = r.right + r.wrong ? Math.round((r.right * 100) / (r.right + r.wrong)) : 0;
+      const bars = Object.entries(r.subj).sort((a, b) => b[1][1] - a[1][1]).map(([k, [rt, t]]) => `<div class="px-sbar"><span>${esc(L(k))}</span><div><i style="width:${Math.round((rt * 100) / t)}%"></i></div><b>${rt}/${t}</b></div>`).join("");
+      const wrongN = S.qs.filter((q) => S.ans[q.id] != null && S.ans[q.id] !== q.answer).length;
+      return `<section class="px"><header class="px-res"><div class="px-eyebrow">Result · ${esc(host.label(S.day))} · ${S.mode === "exam" ? "exam" : "practice"} mode</div>
+          <div class="px-score">${r.score} <small>/ ${r.max}</small></div>
+          <p>${r.right} right · ${r.wrong} wrong · ${r.skipped} skipped · ${acc}% accuracy · ${Math.floor(r.secs / 60)} min ${r.secs % 60} s</p></header>
+        <div class="px-sbars">${bars}</div>
+        <div class="px-nav"><button class="px-btn primary" data-px="again">New set (questions you haven't seen)</button>${wrongN ? `<button class="px-btn" data-px="retry">Retry the ${wrongN} wrong</button>` : ""}<button class="px-btn" data-px="setup">Back</button></div>
+        <h3 class="px-rh">Review</h3>${S.qs.map((q, i) => `<div class="px-rev"><p class="px-fine">Q${i + 1}</p>${qHtml(q, S, true)}</div>`).join("")}</section>`;
+    }
+    function render() {
+      el.innerHTML = P.view === "quiz" && P.s ? quizHtml() : P.view === "result" && P.s ? resultHtml() : setupHtml();
+      const sel = el.querySelector("[data-px-day]");
+      if (sel) sel.onchange = () => load(sel.value);
+    }
+    el.onclick = async (ev) => {
+      const t = ev.target.closest("[data-px]"); if (!t || !el.contains(t)) return;
+      const a = t.dataset.px; const S = P.s;
+      if (a === "size") { P.size = Number(t.dataset.n); render(); }
+      else if (a === "mode") { P.mode = t.dataset.m; render(); }
+      else if (a === "start" || a === "again") { const st = pxStore.get(); const qs = pxPick(P.pool || [], P.size, st.seen); if (qs.length) start(qs); }
+      else if (a === "retry") { const qs = S.qs.filter((q) => S.ans[q.id] != null && S.ans[q.id] !== q.answer); if (qs.length) start(qs); }
+      else if (a === "setup") { P.view = "setup"; render(); }
+      else if (a === "pick" && S) {
+        const q = S.qs[S.i]; if (S.checked[q.id]) return;
+        S.ans[q.id] = Number(t.dataset.i);
+        if (S.mode === "practice") S.checked[q.id] = true;
+        render();
+      } else if (a === "next" && S) {
+        if (S.i >= S.qs.length - 1) { finish(); return; }
+        S.i += 1; const st = pxStore.get(); st.seen[S.qs[S.i].id] = Date.now(); pxStore.set(st); render();
+      } else if (a === "prev" && S) { S.i = Math.max(0, S.i - 1); render(); }
+      else if (a === "swap" && S) await swap();
+      else if (a === "end" && S) finish();
+      else if (a === "claude") {
+        const facts = (P.pool || []).filter((q) => q.why).slice(0, 25).map((q, i) => `${i + 1}. ${q.title}: ${q.why.replace(/^The report says: /, "")}`.slice(0, 400));
+        host.claude(`Make 10 new UPSC Prelims-style MCQs (statement-based "consider the following statements", "how many pairs are correctly matched", and direct questions), each with four options, the answer and a one-line explanation, from these news facts of ${host.label(P.day)}:\n${facts.join("\n")}`);
+      }
+    };
+    load(P.day);
+    return { setDay: (d) => { if (d && d !== P.day && P.view === "setup") load(d); }, render };
+  }
+
   root.UPSCCore = Object.freeze({
     STOPW, stem, words, sentencesOf, FURNITURE, overlap, rank, summarize, brief, termOf, termFrom, searchQuery, esc, safeUrl,
     makeBot, intentOf, clozes, toHindi, cleanText, localPoints, WEAK,
     summaryNow, summaryFor, sourceHtml, prefetch, onSummary, readerLoad,
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
+    mountPractice, practiceStats, pxPick,
   });
 })(window);

@@ -5,6 +5,8 @@ const VERSION = "__BUILD__";  // the export stamps each build, so a new build in
 const SHELL = `upsc-app-shell-${VERSION}`;
 const DATA = "upsc-app-data";
 const DATA_MAX = 30;  // day, month and meta files kept for offline use
+const PDF = "upsc-app-pdf";
+const PDF_MAX = 3;    // Daily Brief PDFs kept for offline reading
 const FILES = ["./", "index.html", "app.css", "app.js", "../static/intel-core.js", "manifest.webmanifest", "icon.svg",
   "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
 
@@ -33,13 +35,15 @@ self.addEventListener("fetch", (event) => {
 
 async function fresh(req, url) {
   const key = url.origin + url.pathname;  // the ?v= and ?t= stamps change every build: keep one copy per file
-  const cache = await caches.open(DATA);
+  const pdf = url.pathname.endsWith(".pdf");  // Daily Brief PDFs: the last few opened, apart from the data files
+  const cache = await caches.open(pdf ? PDF : DATA);
   try {
     const res = await fetch(req);
     if (res.ok) {
       await cache.put(key, res.clone());
       const keys = await cache.keys();
-      for (const old of keys.slice(0, Math.max(0, keys.length - DATA_MAX))) await cache.delete(old);
+      const max = pdf ? PDF_MAX : DATA_MAX;
+      for (const old of keys.slice(0, Math.max(0, keys.length - max))) await cache.delete(old);
     }
     return res;
   } catch (err) {

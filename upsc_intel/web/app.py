@@ -342,6 +342,41 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         clf, _ = classifier()
         return brief_payload(settings, db, clf, a, b, include_private=not public_only)
 
+    @app.get("/api/practice/{day}")
+    def practice(day: str):
+        """The day's practice questions (pipeline/practice.py), as the static site's data/practice/<day>.json."""
+        from ..pipeline.practice import build_practice, week_before
+        d = _valid_date(day, "day")
+        clf, _ = classifier()
+        payload = brief_payload(settings, db, clf, d, d, include_private=not public_only, full=True)
+        v = (payload["days"].get(d) or {})
+        ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v.get(k) or []]
+        paras = {k: a["paragraphs"] for k, a in db.articles(ids).items() if a["paragraphs"]}
+        week = []
+        for w in week_before(d):
+            wp = brief_payload(settings, db, clf, w, w, include_private=not public_only, full=False)
+            week += [x for x in wp["stories"] if any(x["id"] in (vv.get("news") or []) + (vv.get("prelims") or [])
+                                                     for vv in wp["days"].values())]
+        return build_practice(payload, d, paras, week)
+
+    @app.get("/api/pdf/{day}")
+    def pdf(day: str):
+        """The day's brief as a PDF (export_pdf.py), as the static site's data/pdf/brief-<day>.pdf."""
+        import tempfile
+
+        from fastapi.responses import Response
+
+        from ..export_pdf import build_day_pdf
+        d = _valid_date(day, "day")
+        clf, _ = classifier()
+        payload = brief_payload(settings, db, clf, d, d, include_private=not public_only, full=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = build_day_pdf(payload, d, clf.labels(), Path(tmp) / f"brief-{d}.pdf",
+                                reported=db.date_counts(days=400).get(d), site_url=settings.site_url)
+            data = out.read_bytes()
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="upsc-daily-brief-{d}.pdf"'})
+
     @app.post("/api/stories/by_ids")
     def stories_by_ids(payload: dict = Body(...)):
         ids = [i for i in (payload.get("ids") or []) if isinstance(i, str)][:1000]

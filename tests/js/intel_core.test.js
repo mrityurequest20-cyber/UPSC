@@ -276,6 +276,43 @@ test("an editorial's summary gives the argument, not the opening anecdote", () =
   assert.ok(!pts.includes(sents[0].text) && pts.some((p) => /must|needs to|way forward/.test(p)), pts.join(" | "));
 });
 
+const pxq = (id, story, type = "statements", subject = "polity") => ({ id, story_id: story, type, subject, gs: ["GS2"], q: `Q ${id}`, items: ["a", "b"],
+  ask: "Which is correct?", options: ["1 only", "2 only", "Both", "Neither"], answer: 2, why: "The report says so.", src: "PIB", url: "https://pib.gov.in/x", title: `Story ${story}` });
+
+test("practice sets: unseen first, one pairs question at most, a story once before twice", () => {
+  const pool = [pxq("p1", "s1", "pairs"), pxq("p2", "s2", "pairs"), ...Array.from({ length: 12 }, (_, i) => pxq(`q${i}`, `s${i % 6}`, ["statements", "fact", "figure"][i % 3]))];
+  const set = C.pxPick(pool, 6, { q0: 1, q1: 1 });
+  assert.strictEqual(set.length, 6);
+  assert.ok(set.filter((q) => q.type === "pairs").length <= 1);
+  assert.ok(!set.some((q) => q.id === "q0" || q.id === "q1"), "questions seen before wait until the unseen ones run out");
+  assert.strictEqual(new Set(set.map((q) => q.story_id)).size, 6, "six different stories");
+  assert.deepStrictEqual(C.pxPick(pool, 6, { q0: 1, q1: 1 }).map((q) => q.id), set.map((q) => q.id), "the same set in the same order");
+});
+
+test("practice widget: a set start to finish, with a swap and a UPSC-marked result", async () => {
+  const mem = {}; global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
+  const pools = { "2026-09-26": Array.from({ length: 8 }, (_, i) => pxq(`d26-${i}`, `s${i}`)), "2026-09-25": [pxq("d25-0", "t0")] };
+  const el = { innerHTML: "", querySelector: () => null, contains: () => true };
+  C.mountPractice(el, { day: () => "2026-09-26", days: () => ["2026-09-26", "2026-09-25"], load: async (d) => ({ questions: pools[d] || [] }),
+    label: (d) => d, subject: (k) => k, claude: () => {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(el.innerHTML.includes("8 questions from this day's brief"), el.innerHTML.slice(0, 300));
+  const click = async (px, data = {}) => el.onclick({ target: { closest: () => ({ dataset: { px, ...data } }) } });
+  await click("size", { n: "10" });
+  await click("start");
+  assert.ok(el.innerHTML.includes("Q 1 of 8"));
+  await click("swap");  // an unseen question from this day replaces it... none left here, so the day before gives one
+  assert.ok(!el.innerHTML.includes("No unseen question"), "a swap found a question");
+  for (let i = 0; i < 8; i += 1) { await click("pick", { i: i < 5 ? "2" : "0" }); await click("next"); }
+  const st = JSON.parse(mem["upsc-practice"]);
+  const a = st.attempts[st.attempts.length - 1];
+  assert.strictEqual(a.right + a.wrong + a.skipped, 8);
+  assert.strictEqual(a.score, Math.round((a.right * 2 - a.wrong * 0.66) * 100) / 100);
+  assert.ok(el.innerHTML.includes(`${a.score} <small>/ 16</small>`) && el.innerHTML.includes("Retry the"));
+  assert.ok(Object.keys(st.seen).length >= 8);
+  assert.strictEqual(C.practiceStats().attempts.length, st.attempts.length);
+});
+
 test("the Claude prompt carries the story and the question", () => {
   const p = C.claudePrompt({ title: "RBI keeps repo rate unchanged", date: "2026-09-26", explain: { why_in_news: "The MPC held the rate." }, sources: [{ u: "https://www.rbi.org.in/x" }] }, "What is the MPC?");
   assert.ok(p.includes("RBI keeps repo rate unchanged") && p.includes("The MPC held the rate.") && p.includes("https://www.rbi.org.in/x") && p.endsWith("MY QUESTION: What is the MPC?"));

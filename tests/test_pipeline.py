@@ -174,6 +174,11 @@ def test_api_and_marks(settings, db, fake_env):
         assert "Indian Express" in meta["explained_sources"]
         ramsar = next(s for s in brief["stories"] if "Ramsar" in s["title"])
         assert ramsar["video"] and ramsar["video"]["id"] == "abcDEF12345"  # matched from the library
+        px = c.get(f"/api/practice/{today}").json()
+        assert px["day"] == today and all(0 <= q["answer"] < 4 and len(q["options"]) == 4 for q in px["questions"])
+        pdf = c.get(f"/api/pdf/{today}")
+        assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf" and pdf.content[:5] == b"%PDF-"
+        assert c.get("/api/pdf/not-a-day").status_code == 400
         srcs = c.get("/api/sources").json()["sources"]
         assert {s["id"] for s in srcs} >= {"hindu", "flaky"}
         assert c.get("/").status_code == 200
@@ -285,6 +290,10 @@ def test_export_labels_match_briefs_and_cli_checkpoints(settings, db, fake_env, 
     assert cards <= picked and all("more" not in day for m in months for day in m["days"].values())
     meta = json.loads((data / "meta.json").read_text())
     assert meta["day_files"] and all((data / "day" / f"{d}.json").is_file() for d in meta["day_files"])
+    # each day's brief as a PDF, and its practice questions
+    assert meta["pdf_days"] == meta["day_files"] and meta["practice_days"] == meta["day_files"]
+    assert all((data / "pdf" / f"brief-{d}.pdf").read_bytes()[:5] == b"%PDF-" for d in meta["pdf_days"])
+    assert all("questions" in json.loads((data / "practice" / f"{d}.json").read_text()) for d in meta["practice_days"])
 
 
 def test_old_items_are_dropped(settings, db, fake_env, monkeypatch):
