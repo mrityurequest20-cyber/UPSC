@@ -23,7 +23,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..config import Settings
 from ..db import DB, iso
@@ -34,6 +34,8 @@ log = logging.getLogger("upsc_intel.triage")
 
 BATCH = 40        # stories per call
 MAX_CALLS = 8     # per run: up to 320 stories (a first run's backlog takes a few runs)
+MIN_BATCH = 10    # a quiet run with fewer new stories waits for the next, unless one has waited WAIT_MIN
+WAIT_MIN = 60
 TEXT_CHARS = 220  # of each story's text
 
 SYSTEM = """You triage Indian and world news for a UPSC Civil Services (CSE) aspirant's daily current-affairs brief.
@@ -89,7 +91,7 @@ def _kind(r) -> str:
 def _todo(db: DB, days: list[str]) -> list:
     """The days' stories without a verdict for their current headline, best-scored first."""
     rows = db.q(
-        f"SELECT id, title, COALESCE(summary,'') AS summary, publishers, is_editorial, is_explained, triage, score "
+        f"SELECT id, title, COALESCE(summary,'') AS summary, publishers, is_editorial, is_explained, triage, score, first_seen "
         f"FROM stories WHERE date_ist IN ({','.join('?' * len(days))}) AND is_library=0 AND is_private=0 "
         f"ORDER BY score DESC", days)
     out = []
@@ -125,13 +127,16 @@ def verdicts(reply: dict, batch: list, subjects: set[str]) -> dict[str, dict]:
 
 
 def triage(settings: Settings, db: DB, clf: Classifier, days: list[str], http=None, pause: float = GEMINI_PAUSE,
-           max_calls: int = MAX_CALLS) -> dict:
+           max_calls: int = MAX_CALLS, min_batch: int = MIN_BATCH) -> dict:
     """Grades the days' stories that have no verdict yet. → {"graded", "calls", "left", ...}"""
     if mode(settings) == "off" or not settings.gemini_api_key or not days:
         return {"enabled": False}
     todo = _todo(db, days)
     if not todo:
         return {"enabled": True, "graded": 0, "calls": 0, "left": 0}
+    waited = iso(datetime.now(timezone.utc) - timedelta(minutes=WAIT_MIN))
+    if len(todo) < min_batch and not any((r["first_seen"] or "") < waited for r in todo):
+        return {"enabled": True, "graded": 0, "calls": 0, "left": len(todo), "waiting": True}  # a call for a few: later
     subjects = set(clf.subject_meta)
     system = SYSTEM.format(subjects="\n".join(f"- {k}: {v['label']}" for k, v in clf.subject_meta.items()))
     gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http)

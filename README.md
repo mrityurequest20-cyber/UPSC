@@ -295,7 +295,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 188 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 190 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -324,12 +324,13 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
    - whether it holds a **Prelims fact**
    - a few words on **why**
 
-   It costs about 15 calls a day. Grades are kept per story and asked again only when the headline changes. `UPSC_AI_TRIAGE` in the workflow sets how the brief uses them:
-   - **`shadow`** (the start): grades are kept, the brief stays on the rules, and the export writes `data/triage.json`. That file shows, for today and yesterday, what the AI would move: to and from Must-know, cards added or dropped, subject changes, each with Gemini's reason.
+   Grades are kept per story and asked again only when the headline changes. A quiet run with fewer than 10 new stories waits for the next, unless one has waited an hour. `UPSC_AI_TRIAGE` in the workflow sets how the brief uses them (it is **on**):
+   - **`shadow`:** grades are kept and the brief stays on the rules. In both modes the export writes `data/triage.json`. That file shows, for today and yesterday, what the AI would move: to and from Must-know, cards added or dropped, subject changes, each with Gemini's reason.
    - **`on`:**
      - A 0 leaves the brief.
      - A 3 is a Must-know card, up to `must_know_max` (25); the rest step down to facts or lines.
-     - A 2 is a Prelims-facts card when it holds a checkable fact, else a line.
+     - On a light day, Must-know is topped up to `must_know_min` (8) with the rules' Must-know stories that Gemini rates 2.
+     - A 2 is a Prelims-facts card when it holds a checkable fact and the rules take the story too, else a line. There are at most `prelims_max` (30) such cards, strongest first.
      - A 1 is a line if the rules take it.
      - Gemini's subject and GS papers lead the card.
      - A story without a grade (quota out) keeps the rules.

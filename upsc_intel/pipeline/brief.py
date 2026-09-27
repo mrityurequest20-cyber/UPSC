@@ -163,36 +163,45 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
     news.sort(key=lambda it: -it["bs"])
     picked: list[dict] = []
     for i, it in enumerate(news):  # 1. the bar and the tiers
-        bar = it["bs"] >= b["also"] or (i < b["floor_total"] and it["bs"] >= b["floor_min"])  # 2. floor_total
-        if it["ai"] is not None:  # Gemini's verdict
-            if it["ai"] == 3:
-                it["tier"] = "top"
-            elif it["ai"] == 2:
-                it["tier"] = "prelims" if it["ai_fact"] or it["fact"] else "more"
-            elif bar:
-                it["tier"] = "more"
-            else:
-                continue
-            picked.append(it)
-            continue
-        if bar:
+        rule = None
+        if it["bs"] >= b["also"] or (i < b["floor_total"] and it["bs"] >= b["floor_min"]):  # 2. floor_total
             if it["bs"] >= b["must_know"] and it["note"]:
-                it["tier"] = "top"
+                rule = "top"
             elif it["bs"] >= b["must_know"] and it["fact"]:
-                it["tier"] = "prelims"
+                rule = "prelims"
             else:
-                it["tier"] = "more"
+                rule = "more"
+        it["rule_tier"] = rule
+        tier = rule
+        if it["ai"] is not None:  # Gemini's verdict. A 3 is Must-know and a 2 at least a line, taken or not by the
+            # rules; a Prelims-facts card needs a story the rules take as well, so a card is never an evergreen post
+            if it["ai"] == 3:
+                tier = "top"
+            elif it["ai"] == 2:
+                tier = "prelims" if rule and (it["ai_fact"] or it["fact"]) else "more"
+            else:
+                tier = "more" if rule else None
+        if tier:
+            it["tier"] = tier
             picked.append(it)
-    if use_ai:  # a heavy day: past must_know_max, the lesser Must-know stories become facts or lines
+    if use_ai:
+        by_bs = lambda it: -it["bs"]
+        # a light day for Gemini: the rules' Must-know stories that it rates useful fill Must-know to must_know_min
+        need = int(b.get("must_know_min", 8)) - sum(1 for it in picked if it["tier"] == "top")
+        for it in sorted((it for it in picked if it["ai"] == 2 and it["rule_tier"] == "top"), key=by_bs)[:max(0, need)]:
+            it["tier"] = "top"
+        # a heavy day: past must_know_max the lesser Must-know stories become facts or lines; past prelims_max, lines
         tops = sorted((it for it in picked if it["tier"] == "top"),
                       key=lambda it: (-(it["ai"] if it["ai"] is not None else 2.5), -it["bs"]))
         for it in tops[int(b.get("must_know_max", 25)):]:
             it["tier"] = "prelims" if it["ai_fact"] or it["fact"] else "more"
+        for it in sorted((it for it in picked if it["tier"] == "prelims"), key=by_bs)[int(b.get("prelims_max", 30)):]:
+            it["tier"] = "more"
     cards = sum(1 for it in picked if it["tier"] != "more")
-    for it in picked:  # 2. a light day: the best remaining facts become cards
+    for it in picked:  # 2. a light day: the best remaining facts become cards (not one Gemini rates marginal)
         if cards >= b["floor_cards"]:
             break
-        if it["tier"] == "more" and it["fact"] and it["bs"] >= b["floor_min"]:
+        if it["tier"] == "more" and it["fact"] and it["bs"] >= b["floor_min"] and (it["ai"] is None or it["ai"] >= 2):
             it["tier"] = "prelims"
             cards += 1
     covered = {p["subject"] for p in picked}
@@ -236,9 +245,9 @@ def audit_day(db: DB, clf: Classifier, day: str) -> dict | None:
     if not verdict:
         return None
 
-    def tiers(use_ai: bool) -> dict[str, str]:
-        return {sid: (tier if kind == "news" else kind) for sid, kind, _, tier, lead in select_day(db, clf, day, use_ai=use_ai)
-                if lead is None}
+    def tiers(use_ai: bool) -> dict[str, str]:  # (a report folded into another's card: "folded")
+        return {sid: "folded" if lead else tier if kind == "news" else kind
+                for sid, kind, _, tier, lead in select_day(db, clf, day, use_ai=use_ai)}
     rules, ai = tiers(False), tiers(True)
 
     def row(sid: str) -> dict:
