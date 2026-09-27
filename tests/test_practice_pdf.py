@@ -77,6 +77,17 @@ def test_pairs_use_partner_countries_and_count_right():
     assert q["options"][q["answer"]] == {1: "Only one", 2: "Only two", 3: "All three", 0: "None"}[right]
 
 
+def test_pairs_skip_multinational_exercises():
+    week = [story("t", "Exercise ‘Tarang Shakti’ 2026 and Mission Pégase 2026",
+                  paras=["The French Air and Space Force will take part in the IAF-hosted air exercise in Jodhpur."]),
+            story("a", "Exercise VARUNA 2026", paras=VARUNA),
+            story("b", "Indian, Mongolian troops conduct drills during Exercise NOMADIC ELEPHANT"),
+            story("c", "SkyStriker drones test-fired in Exercise Yudh Abhyas 2026")]
+    qs = P.pairs_q(week, {x["id"]: " ".join(x["sum"]["points"]) for x in week}, "2026-09-27")
+    assert qs and not any(x.startswith("Tarang Shakti") for q in qs for x in q["items"])
+    assert "Tarang Shakti" not in qs[0]["why"]
+
+
 def test_pool_is_stable_and_balanced():
     stories = [story("v1", "Exercise VARUNA 2026", paras=VARUNA), story("p1", "Parliament passes Transgender Bill", "polity", paras=PARL)]
     a = P.build_practice(payload(stories), "2026-09-26", {"v1": VARUNA, "p1": PARL}, week=[])

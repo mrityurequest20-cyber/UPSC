@@ -293,7 +293,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 170 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 171 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
