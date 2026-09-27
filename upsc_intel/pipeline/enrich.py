@@ -58,6 +58,15 @@ Fields:
 - where: the place(s) involved ("" if none).
 - who: the key people and bodies involved, with their role ("" if none).
 - video_query: the best YouTube search query (5-9 words) to find an explainer video on this exact topic.
+- flashcards: 3-4 revision flashcards. q: a short question on one checkable fact from the text (who, what,
+  where, which body or Article, how much, when); a: the answer in at most 15 words, from the text.
+- mcqs: 2 UPSC Prelims-style questions on this story. At least one statement-based: q introduces them
+  ("Consider the following statements about …:"), statements lists 2-3 statements (correct ones from the text,
+  incorrect ones plausibly altered), ask is the question ("Which of the statements given above is/are
+  correct?" or "How many of the above statements are correct?"), options are four UPSC-style choices ("1 only",
+  "1 and 2 only", … or "Only one", "Only two", "All three", "None"). The other may be a direct question with no
+  statements (statements [] and ask ""). answer: the index (0-3) of the right option; why: one line explaining
+  it from the text. Never make a question whose answer isn't settled by the text.
 - insufficient: true when the text did not carry enough substance.
 
 For an EDITORIAL / opinion piece: "what" is the core argument, "why_in_news" is the news peg,
@@ -83,9 +92,15 @@ SCHEMA = {
         "who": {"type": "string"},
         "video_query": {"type": "string"},
         "insufficient": {"type": "boolean"},
+        "flashcards": {"type": "array", "items": {"type": "object", "properties": {"q": {"type": "string"}, "a": {"type": "string"}},
+                                                  "required": ["q", "a"], "additionalProperties": False}},
+        "mcqs": {"type": "array", "items": {"type": "object", "properties": {
+            "q": {"type": "string"}, "statements": {"type": "array", "items": {"type": "string"}}, "ask": {"type": "string"},
+            "options": {"type": "array", "items": {"type": "string"}}, "answer": {"type": "integer"}, "why": {"type": "string"}},
+            "required": ["q", "statements", "ask", "options", "answer", "why"], "additionalProperties": False}},
     },
     "required": ["headline", "points", "what", "why_in_news", "background", "significance", "prelims", "mains",
-                 "gs", "keywords", "when", "where", "who", "video_query", "insufficient"],
+                 "gs", "keywords", "when", "where", "who", "video_query", "insufficient", "flashcards", "mcqs"],
     "additionalProperties": False,
 }
 
@@ -328,12 +343,24 @@ def supported(line: str, source: str) -> bool:
 
 
 def guard(data: dict, source: str) -> dict:
-    """Drops summary lines and Prelims facts whose figures the text doesn't carry."""
+    """Drops summary lines, Prelims facts and flashcards whose figures the text doesn't carry, and MCQs that
+    aren't well formed (four distinct options, an answer among them). (An MCQ's wrong statements are wrong on
+    purpose, so its figures aren't checked.)"""
     for k in ("points", "prelims"):
         kept = [x for x in data.get(k) or [] if x and supported(x, source)]
         if len(kept) < len(data.get(k) or []):
             log.info("AI notes: dropped %d %s line(s) with figures not in the text", len(data[k]) - len(kept), k)
         data[k] = kept
+    data["flashcards"] = [{"q": str(c["q"]).strip(), "a": str(c["a"]).strip()} for c in data.get("flashcards") or []
+                          if isinstance(c, dict) and c.get("q") and c.get("a") and supported(f"{c['q']} {c['a']}", source)][:4]
+    mcqs = []
+    for m in data.get("mcqs") or []:
+        opts = [str(o).strip() for o in (m.get("options") or [])] if isinstance(m, dict) else []
+        if (len(opts) == 4 and len(set(opts)) == 4 and all(opts) and isinstance(m.get("answer"), int) and 0 <= m["answer"] < 4
+                and str(m.get("q") or "").strip()):
+            mcqs.append({"q": str(m["q"]).strip(), "statements": [str(x).strip() for x in m.get("statements") or [] if str(x).strip()][:4],
+                         "ask": str(m.get("ask") or "").strip(), "options": opts, "answer": m["answer"], "why": str(m.get("why") or "").strip()})
+    data["mcqs"] = mcqs[:2]
     return data
 
 
@@ -464,9 +491,12 @@ def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int =
         ai = json.loads(r["ai"]) if r["ai"] else None
         a = arts.get(r["id"])
         upgrade = bool(ai and ai.get("src") == "reports" and a and not a["miss"])  # the full article came in since
-        if (has_ai_explainer(ai) and not upgrade) or (ai and ai.get("skipped")) or (ai and ai.get("source") == "claude-notes"):
+        # a Gemini note from before flashcards and MCQs: written again once (the recent days only, new cards first)
+        older = bool(gemini and ai and ai.get("by") == "Gemini" and "mcqs" not in ai)
+        if (has_ai_explainer(ai) and not upgrade and not older) or (ai and ai.get("skipped")) or (ai and ai.get("source") == "claude-notes"):
             continue
-        todo.append(({"id": r["id"], "title": r["title"], "dates": json.loads(r["dates"] or "[]")}, r["kind"]))
+        todo.append(({"id": r["id"], "title": r["title"], "dates": json.loads(r["dates"] or "[]")}, r["kind"], older))
+    todo = [(s, k) for s, k, _ in sorted(todo, key=lambda x: x[2])]  # (a stable sort: new cards keep their order, first)
     todo = _unique(todo)[:limit]  # a story can sit in two days' briefs
     if not todo:
         return {"enabled": True, "provider": settings.ai_provider, "enriched": 0}

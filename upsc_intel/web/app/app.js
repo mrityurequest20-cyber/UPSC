@@ -325,7 +325,7 @@
       <div class="hero-n">${plural(L.news.length, "must-know story", "must-know stories")}</div>
       <div class="hero-sub">${L.news.length ? "make notes on each" : "none yet"}${L.prelims.length ? ` · +${plural(L.prelims.length, "Prelims fact")}, a quick read` : ""} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}${L.more.length ? ` · +${L.more.length} one-liners` : ""}</div>
       <div class="hero-prog"><div class="track"><div style="width:${pct}%"></div></div><span>${done} of ${all.length} done</span></div>
-      <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}Export as PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button></div>
+      <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}Export as PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button>${CORE.listen.supported && L.news.length ? '<button class="hbtn ghost" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen</button>' : ""}</div>
     </section>`;
     const count = (g) => L.news.concat(L.prelims, L.more).filter((s) => g === "All" || (s.gs || []).includes(g)).length;
     const chips = `<div class="chips nosb">${["All", ...PAPERS].map((g) => `<button class="chip${A.gs === g ? " on" : ""}" data-gs="${g}">${g}${g !== "All" ? `<span class="c">${count(g)}</span>` : ""}</button>`).join("")}</div>`;
@@ -706,6 +706,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     log.innerHTML = botLogHtml();
     log.scrollTop = log.scrollHeight;
   }
+  CORE.listen.provider(() => { const L = lists(); return CORE.listenItems(L.news, L.prelims); });  // 🎧 Listen: the open day's cards
   CORE.gemini.bind((r) => {  // switched on or off: the confirmation takes the key form's place (an error goes under it)
     const L = A.bot.log; const i = L.map((m) => /gem-box/.test(m.html)).lastIndexOf(true);
     if (r.ok && i >= 0) L[i] = { me: false, html: r.html }; else L.push({ me: false, html: r.html });
@@ -818,6 +819,9 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     label: (d) => `${dayShort(d)}${d === todayIST() ? " (today)" : ""}`,
     subject: (k) => subjName(k),
     claude: (prompt) => CORE.openClaude(prompt),
+    cardDays: () => (STATIC ? ((A.meta && A.meta.cards_days) || []) : practiceDays()).slice().sort().reverse(),
+    loadCards: (d) => api.json(STATIC ? `../data/cards/${d}.json?v=${api.stamp()}` : `../api/cards/${d}`),
+    loadDay: (d) => api.json(STATIC ? `../data/day/${d}.json?v=${api.stamp()}` : `../api/brief?from=${d}&to=${d}`),
   };
   function renderPractice() {
     const scr = $("#screen");

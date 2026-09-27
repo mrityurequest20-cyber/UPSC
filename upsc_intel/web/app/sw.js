@@ -4,7 +4,7 @@
 const VERSION = "__BUILD__";  // the export stamps each build, so a new build installs a fresh shell
 const SHELL = `upsc-app-shell-${VERSION}`;
 const DATA = "upsc-app-data";
-const DATA_MAX = 30;  // day, month and meta files kept for offline use
+const DATA_MAX = 90;  // day, practice, flashcard, month and meta files kept for offline use
 const PDF = "upsc-app-pdf";
 const PDF_MAX = 3;    // Daily Brief PDFs kept for offline reading
 const FILES = ["./", "index.html", "app.css", "app.js", "../static/intel-core.js", "manifest.webmanifest", "icon.svg",

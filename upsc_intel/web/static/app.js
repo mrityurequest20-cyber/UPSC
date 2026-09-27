@@ -491,7 +491,7 @@
       ? `${news.length ? "Must-know: make notes on each" : "No must-know story yet"}${facts.length ? " · Prelims facts: a quick read for the key fact" : ""} · covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
       : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported${nMore() ? ` · ${nMore()} more are listed in the daily briefs` : ""}`;
     return `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
-      <div class="bhero-side">${progress(all)}${gsChips()}</div></header>`;
+      <div class="bhero-side">${progress(all)}${gsChips()}${S.view === "day" && CORE.listen.supported && news.length ? '<button class="chip lsn-go" data-listen="start" title="Read the must-know stories and Prelims facts aloud">🎧 Listen to the brief</button>' : ""}</div></header>`;
   }
   function briefVolume() {
     const [from, to] = periodRange(S.view, S.anchor); const today = todayIST();
@@ -991,6 +991,9 @@
     label: (d) => `${dayShort(d)}${d === todayIST() ? " (today)" : ""}`,
     subject: (k) => (S.meta.labels.subjects || {})[k] || k,
     claude: (prompt) => CORE.openClaude(prompt),
+    cardDays: () => (STATIC ? (S.meta.cards_days || []) : practiceDays()).slice().sort().reverse(),
+    loadCards: (d) => api.json(STATIC ? `data/cards/${d}.json?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/cards/${d}`),
+    loadDay: (d) => api.json(STATIC ? `data/day/${d}.json?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/brief?${new URLSearchParams({ from: d, to: d })}`),
   };
   function renderPractice() {
     const el = $("#content");
@@ -1291,6 +1294,7 @@
   // the story and the question on the viewer's own Claude plan.
   const LOGO = '<svg class="bot-logo" viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1c5cab"/><path d="M15 17v9a9 9 0 0 0 18 0v-9" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><circle cx="33" cy="8.5" r="3.6" fill="#fab219"/></svg>';
   const BOT = { id: null, log: [], busy: false, step: "", last: "", partial: "" };
+  CORE.listen.provider(() => CORE.listenItems(briefList("news"), briefList("prelims")));  // 🎧 Listen: the open day's cards
   const bot = CORE.makeBot({
     labels: () => S.meta && S.meta.labels,
     folded: (id) => foldedOf(id),

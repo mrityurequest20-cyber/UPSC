@@ -415,6 +415,129 @@ test("Gemini's Markdown is rendered safely", () => {
   assert.ok(!/<img|href="javascript/.test(h), h);
 });
 
+// ── Practice hub: revision, mistakes, the weekly mock, Mains ──
+function memStore(init = {}) { const mem = { ...init }; global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } }; return mem; }
+function hub(host) {
+  const el = { innerHTML: "", querySelector: () => null, contains: () => true };
+  const w = C.mountPractice(el, { day: () => "2026-09-26", days: () => ["2026-09-26"], load: async () => ({ questions: [] }), label: (d) => d,
+    subject: (k) => k, claude: () => {}, cardDays: () => [], loadCards: async () => ({ cards: [] }), loadDay: async () => ({ days: {}, stories: [] }), ...host });
+  const click = async (px, data = {}) => el.onclick({ target: { closest: () => ({ dataset: { px, ...data } }) } });
+  return { el, w, click, tick: () => new Promise((r) => setTimeout(r, 5)) };
+}
+
+test("spaced repetition: intervals grow with each recall and reset on a lapse", () => {
+  const t = 20000;
+  let c = C.srsNext(null, 3, t); assert.deepStrictEqual([c.ivl, c.due, c.reps], [1, t + 1, 1]);
+  c = C.srsNext(c, 3, t); assert.strictEqual(c.ivl, 3);
+  c = C.srsNext(c, 3, t); assert.strictEqual(c.ivl, 8);
+  const easy = C.srsNext(c, 4, t); assert.ok(easy.ivl > 8 * 2.5 && easy.ease > c.ease);
+  const lapse = C.srsNext(c, 1, t); assert.deepStrictEqual([lapse.ivl, lapse.lapses, lapse.reps], [0, 1, 0]);
+  assert.strictEqual(C.srsNext(null, 4, t).ivl, 3);
+});
+
+test("revise: today's cards, graded, come back on schedule", async () => {
+  const mem = memStore();
+  const cards = [1, 2, 3].map((i) => ({ id: `fc${i}`, story_id: `s${i}`, q: `Question ${i}?`, a: `Answer ${i}`, day: "2026-09-26", subject: "polity", url: "https://pib.gov.in/x", title: "T" }));
+  const H = hub({ cardDays: () => ["2026-09-26"], loadCards: async () => ({ cards }) });
+  await H.click("tab", { t: "revise" }); await H.tick(); await H.tick();
+  assert.ok(H.el.innerHTML.includes("3 cards for today"), H.el.innerHTML.slice(0, 400));
+  await H.click("rv-start");
+  assert.ok(H.el.innerHTML.includes("Question") && H.el.innerHTML.includes("Show answer"));
+  for (let i = 0; i < 3; i += 1) { await H.click("rv-flip"); assert.ok(H.el.innerHTML.includes("Answer")); await H.click("rv-grade", { g: "3" }); }
+  assert.ok(H.el.innerHTML.includes("Done for now"), H.el.innerHTML.slice(0, 300));
+  const st = JSON.parse(mem["upsc-srs"]);
+  assert.strictEqual(Object.keys(st.cards).length, 3); assert.strictEqual(st.fresh, 3);
+  assert.ok(Object.values(st.cards).every((c) => c.due === C.dayNo() + 1));
+});
+
+test("mistakes: a wrong answer is kept until it's answered right", async () => {
+  const mem = memStore();
+  const qs = Array.from({ length: 3 }, (_, i) => pxq(`m${i}`, `s${i}`));
+  const H = hub({ load: async () => ({ questions: qs }) }); await H.tick();
+  await H.click("size", { n: "10" }); await H.click("start");
+  const first = H.el.innerHTML.match(/class="px-stem">Q (m\d)</)[1];  // (a set is shuffled: whichever comes first)
+  for (let i = 0; i < 3; i += 1) { await H.click("pick", { i: i === 0 ? "0" : "2" }); await H.click("next"); }  // the first wrong
+  let st = JSON.parse(mem["upsc-practice"]);
+  assert.deepStrictEqual(Object.keys(st.wrong), [first]);
+  await H.click("setup"); await H.click("tab", { t: "mistakes" });
+  assert.ok(H.el.innerHTML.includes("1 question to get right"), H.el.innerHTML.slice(0, 400));
+  await H.click("mistakes"); await H.click("pick", { i: "2" }); await H.click("next");
+  st = JSON.parse(mem["upsc-practice"]);
+  assert.deepStrictEqual(st.wrong, {});
+});
+
+test("weekly mock: fifty questions from the week, on the clock, in exam mode", async () => {
+  memStore();
+  const days = ["2026-09-26", "2026-09-25", "2026-09-24", "2026-09-23", "2026-09-22", "2026-09-21", "2026-09-20", "2026-09-19"];
+  const byDay = Object.fromEntries(days.map((d, k) => [d, Array.from({ length: 12 }, (_, i) => pxq(`${d}-${i}`, `${d}-s${i}`))]));
+  const loaded = [];
+  const H = hub({ days: () => days, load: async (d) => { loaded.push(d); return { questions: byDay[d] || [] }; } }); await H.tick();
+  await H.click("tab", { t: "mock" });
+  assert.ok(H.el.innerHTML.includes("50 questions from the last seven days"));
+  await H.click("mock");
+  assert.ok(H.el.innerHTML.includes("Q 1 of 50") && H.el.innerHTML.includes("px-timer") && H.el.innerHTML.includes(">60:00<"), H.el.innerHTML.slice(0, 300));
+  assert.ok(!loaded.includes("2026-09-19"), "only the last seven days");
+  await H.click("pick", { i: "1" });
+  assert.ok(!H.el.innerHTML.includes("px-why"), "exam mode: no answer shown");
+  await H.click("end");
+  assert.ok(H.el.innerHTML.includes("/ 100") && H.el.innerHTML.includes("Weekly mock"));
+});
+
+test("Mains: an answer is evaluated by Intel AI and kept in the history", async () => {
+  const mem = memStore({ "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash"]) });
+  const story = { id: "tn", title: "Tamil Nadu exempts department from RTI", gs: ["GS2"], subjects: ["polity"], sum: { text: "Section 24(4) of the RTI Act.", domain: "toi.com" },
+    explain: { mains: "Discuss the scope of exemptions under Section 24 of the RTI Act. (15 marks, 250 words)", why_in_news: "A Gazette notification." } };
+  const verdict = { transcript: "", score: 6.7, verdict: "A fair answer that misses the judicial angle.", rubric: { demand: 6, content: 5, dimensions: 4, structure: 7, substantiation: 3, presentation: 6 },
+    strengths: ["Clear introduction"], improve: ["Cite the CIC's rulings"], missed: ["Federal angle"], keywords: ["Section 24(4)", "proviso"], examples: ["2019 amendment"],
+    better_intro: "The RTI Act, 2005…", better_conclusion: "Transparency and security…", outline: ["Intro: Section 24", "Body: scope", "Way forward"] };
+  let sent = null;
+  const prev = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    if (!String(url).includes(":generateContent")) return prev(url, init);
+    sent = { url: String(url), init };
+    return new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(verdict) }] } }] }), { status: 200 });
+  };
+  try {
+    const H = hub({ loadDay: async (d) => ({ days: { [d]: { news: ["tn"] } }, stories: [story] }) });
+    await H.click("tab", { t: "mains" }); await H.tick(); await H.tick();
+    assert.ok(H.el.innerHTML.includes("1 Mains question from this day's brief"), H.el.innerHTML.slice(0, 500));
+    await H.click("mn-pick", { id: "tn" });
+    assert.ok(H.el.innerHTML.includes("Discuss the scope") && H.el.innerHTML.includes("0 / 250 words"));
+    H.el.oninput({ target: { matches: (sel) => sel === "[data-mn-text]", value: "The RTI Act 2005 lets states exempt intelligence bodies under Section 24(4) but corruption information must still be given." } });
+    assert.ok(JSON.parse(mem["upsc-mains-draft"]).tn.startsWith("The RTI Act"), "the draft is kept");
+    await H.click("mn-eval");
+    const body = JSON.parse(sent.init.body);
+    assert.ok(sent.url.includes("gemini-2.5-flash:generateContent") && sent.init.headers["x-goog-api-key"] && !sent.url.includes("key="));
+    assert.ok(body.generationConfig.responseMimeType === "application/json" && body.contents[0].parts[0].text.includes("QUESTION (15 marks, 250 words)"));
+    assert.ok(H.el.innerHTML.includes("6.5 <small>/ 15</small>") && H.el.innerHTML.includes("Model answer outline") && H.el.innerHTML.includes("Cite the CIC"), H.el.innerHTML.slice(0, 400));
+    const hist = JSON.parse(mem["upsc-mains"]);
+    assert.strictEqual(hist[0].score, 6.5); assert.strictEqual(hist[0].story_id, "tn");
+  } finally { global.fetch = prev; }
+});
+
+test("listen: the brief is read aloud a few sentences at a time, with next, pause and stop", () => {
+  const spoken = []; let current = null;
+  global.SpeechSynthesisUtterance = function (text) { this.text = text; };
+  global.speechSynthesis = { speak: (u) => { spoken.push(u); current = u; }, cancel: () => { current = null; }, getVoices: () => [{ lang: "en-US" }, { lang: "en-IN", name: "India" }] };
+  try {
+    const items = C.listenItems([{ id: "a", title: "Cabinet approves ECLGS 5.0", sum: { points: ["The scheme gives ₹2 lakh crore of guaranteed credit.", "It runs until March 2027."] } },
+      { id: "b", title: "Delhi HC on POCSO", explain: { why_in_news: "Personal law is no shield against POCSO." } }], [{ id: "c", title: "Exercise Varuna begins", explain: { what: "India and France hold the naval drill." } }]);
+    assert.strictEqual(items.length, 3);
+    assert.ok(items[0].text.startsWith("Story 1. Cabinet approves ECLGS 5.0.") && items[0].text.includes("rupees 2 lakh crore"));
+    assert.ok(items[2].text.startsWith("Prelims facts. Exercise Varuna begins."));
+    assert.ok(C.listen.supported && C.listen.play(items));
+    assert.strictEqual(spoken[0].voice.lang, "en-IN");
+    const first = spoken.length;
+    current.onend();  // the story's text ends: the next story
+    assert.ok(spoken.length > first && C.listen.state().i === 1, JSON.stringify(C.listen.state()));
+    C.listen.toggle(); assert.ok(C.listen.state().paused);
+    const n = spoken.length; C.listen.toggle(); assert.ok(!C.listen.state().paused && spoken.length === n + 1, "play restarts the sentence");
+    const stale = spoken[spoken.length - 2]; const before = spoken.length; stale.onend(); assert.strictEqual(spoken.length, before, "a cancelled sentence's end is ignored");
+    C.listen.next(); assert.strictEqual(C.listen.state().i, 2);
+    current.onend(); assert.ok(!C.listen.state().on, "the last one ends the brief");
+  } finally { delete global.speechSynthesis; delete global.SpeechSynthesisUtterance; }
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

@@ -362,6 +362,14 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         clf, _ = classifier()
         return brief_payload(settings, db, clf, a, b, include_private=not public_only)
 
+    @app.get("/api/cards/{day}")
+    def cards(day: str):
+        """The day's revision flashcards, as the static site's data/cards/<day>.json."""
+        from ..pipeline.practice import flashcards
+        d = _valid_date(day, "day")
+        clf, _ = classifier()
+        return flashcards(brief_payload(settings, db, clf, d, d, include_private=not public_only, full=True), d)
+
     @app.get("/api/practice/{day}")
     def practice(day: str):
         """The day's practice questions (pipeline/practice.py), as the static site's data/practice/<day>.json."""

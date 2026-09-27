@@ -149,3 +149,54 @@ def test_a_refused_request_stops_the_run_without_marking_cards(db, settings):
             return Resp(200, {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": '{"headline": "cut'}]}}]})
     res = E._enrich_gemini(settings, db, [(story, "news")], pause=0, http=Garbled())
     assert res["skipped"] == 1 and json.loads(db.q("SELECT ai FROM stories")[0]["ai"])["skipped"] == "bad reply (max_tokens)"
+
+
+FLASH = [{"q": "Under which section was the department exempted?", "a": "Section 24(4) of the RTI Act"},
+         {"q": "How many other bodies were exempted before?", "a": "17 other bodies"},
+         {"q": "How many applications are pending?", "a": "About 9,999 applications"}]  # not in the article: dropped
+MCQS = [{"q": "Consider the following statements about the Tamil Nadu RTI exemption:",
+         "statements": ["It was made under Section 24(4) of the RTI Act.", "It covers information on corruption allegations."],
+         "ask": "Which of the statements given above is/are correct?", "options": ["1 only", "2 only", "Both 1 and 2", "Neither 1 nor 2"],
+         "answer": 0, "why": "Section 24(4) applies; corruption information must still be given."},
+        {"q": "Bad one", "statements": [], "ask": "", "options": ["a", "a", "b", "c"], "answer": 1, "why": ""}]  # repeated option
+
+
+def test_notes_carry_guarded_flashcards_and_well_formed_mcqs(db, settings):
+    story = card(db)
+    settings.gemini_api_key = "test-key"
+    E._enrich_gemini(settings, db, [(story, "news")], pause=0, http=FakeGemini(reply={**NOTE, "flashcards": FLASH, "mcqs": MCQS}))
+    ai = json.loads(db.q("SELECT ai FROM stories WHERE id='tn'")[0]["ai"])
+    assert [c["a"] for c in ai["flashcards"]] == ["Section 24(4) of the RTI Act", "17 other bodies"]
+    assert len(ai["mcqs"]) == 1 and ai["mcqs"][0]["statements"][0].startswith("It was made under")
+
+
+def test_practice_and_flashcards_files_use_the_notes(db, settings, clf):
+    from upsc_intel.pipeline.practice import build_practice, flashcards
+    from upsc_intel.web.app import brief_payload
+    card(db)
+    db.set_story_ai("tn", {**NOTE, "points": NOTE["points"][:4], "by": "Gemini", "src": "article", "flashcards": FLASH[:2], "mcqs": MCQS[:1]})
+    db.commit()
+    p = brief_payload(settings, db, clf, "2026-09-27", "2026-09-27")
+    q = [x for x in build_practice(p, "2026-09-27", {"tn": ARTICLE})["questions"] if x["type"] == "upsc"]
+    assert len(q) == 1 and q[0]["items"][1] == "It covers information on corruption allegations." and q[0]["answer"] == 0
+    assert q[0]["ask"].startswith("Which of the statements") and q[0]["url"].startswith("https://")
+    fc = flashcards(p, "2026-09-27")
+    assert fc["n"] == 2 and fc["cards"][0]["story_id"] == "tn" and fc["cards"][0]["q"].startswith("Under which section")
+
+
+def test_older_gemini_notes_are_written_again_once_after_new_cards(db, settings):
+    from upsc_intel.pipeline import enrich as EN
+    old = card(db, "old")
+    card(db, "new")
+    db.save_brief("2026-09-27", [("old", "news", 1, "top", None), ("new", "news", 2, "top", None)])
+    db.set_story_ai("old", {**NOTE, "by": "Gemini", "src": "article"})  # a note from before flashcards and MCQs
+    db.commit()
+    settings.gemini_api_key = "test-key"
+    seen = []
+    real = EN._enrich_gemini
+    EN._enrich_gemini = lambda s, d, todo, **kw: seen.extend(x[0]["id"] for x in todo) or {"enriched": 0}
+    try:
+        EN.enrich_top(settings, db, days=400)
+    finally:
+        EN._enrich_gemini = real
+    assert seen == ["new", "old"]

@@ -30,7 +30,7 @@ from .export_pdf import build_day_pdf
 from .pipeline.brief import audit_day, ensure_range, recent_days
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
-from .pipeline.practice import build_practice
+from .pipeline.practice import build_practice, flashcards
 from .web.app import APP_DIR, STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
 
 log = logging.getLogger("upsc_intel.export")
@@ -71,12 +71,6 @@ def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: st
     recent: list[tuple[str, list[dict]]] = []  # the last days' cards, for the week's "pairs" questions
     for d in sorted(db.brief_dates(lo, hi)):
         day = brief_payload(settings, db, clf, d, d, include_private=include_private, full=True)
-        _write_json(out / "data" / "day" / f"{d}.json", {"day": d, **day})
-        try:  # the day's brief as a PDF (export_pdf.py): a quarter of a second a day
-            build_day_pdf(day, d, clf.labels(), out / "data" / "pdf" / f"brief-{d}.pdf", reported=(reported or {}).get(d),
-                          site_url=settings.site_url, built_at=day.get("generated_at"))
-        except Exception:
-            log.exception("PDF for %s failed", d)
         v0 = (day.get("days") or {}).get(d) or {}
         card_ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v0.get(k) or []]
         try:  # the day's practice questions (pipeline/practice.py)
@@ -85,6 +79,18 @@ def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: st
             _write_json(out / "data" / "practice" / f"{d}.json", build_practice(day, d, paras, week))
         except Exception:
             log.exception("practice for %s failed", d)
+        fc = flashcards(day, d)  # the day's revision flashcards, from the AI notes
+        if fc["cards"]:
+            _write_json(out / "data" / "cards" / f"{d}.json", fc)
+        for s in day.get("stories") or []:  # they live in their own files: the day file stays light
+            if s.get("explain"):
+                s["explain"] = {k: v for k, v in s["explain"].items() if k not in ("mcqs", "flashcards")}
+        _write_json(out / "data" / "day" / f"{d}.json", {"day": d, **day})
+        try:  # the day's brief as a PDF (export_pdf.py): a quarter of a second a day
+            build_day_pdf(day, d, clf.labels(), out / "data" / "pdf" / f"brief-{d}.pdf", reported=(reported or {}).get(d),
+                          site_url=settings.site_url, built_at=day.get("generated_at"))
+        except Exception:
+            log.exception("PDF for %s failed", d)
         by_id0 = {x["id"]: x for x in day.get("stories") or []}
         recent = recent[-6:] + [(d, [by_id0[i] for i in card_ids[:40] if i in by_id0])]
         month["generated_at"] = day["generated_at"]
@@ -125,7 +131,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
                   archive: str | Path | None = None) -> Path:
     out = Path(out)
     (out / "static").mkdir(parents=True, exist_ok=True)
-    for sub in ("day", "pdf", "practice"):
+    for sub in ("day", "pdf", "practice", "cards"):
         (out / "data" / sub).mkdir(parents=True, exist_ok=True)
     for name in ASSETS:
         shutil.copyfile(STATIC_DIR / name, out / "static" / name)
@@ -224,6 +230,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         "day_files": sorted(f.stem for f in (out / "data" / "day").glob("*.json")),
         "pdf_days": sorted(f.stem.removeprefix("brief-") for f in (out / "data" / "pdf").glob("brief-*.pdf")),
         "practice_days": sorted(f.stem for f in (out / "data" / "practice").glob("*.json")),
+        "cards_days": sorted(f.stem for f in (out / "data" / "cards").glob("*.json")),
         "built_at": iso(datetime.now(timezone.utc)),
         "sources": sources_out(settings, db, public_only=not include_private),
         "exported_stories": total,
