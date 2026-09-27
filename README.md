@@ -133,7 +133,7 @@ Week and Month views recap everything the daily briefs covered.
       - fact and figure blanks
       - Claude-written ones, when a study note has them
     - **A set:** pick the day, 10, 15 or 20 questions, and **Practice** (answer and explanation after each) or **Exam** (answers at the end). **↻ Swap** replaces a question with one you've never seen (from that day, then the week before). Questions you've seen wait until the unseen ones run out.
-    - **Result:** UPSC marking (+2 right, −0.66 wrong), accuracy, time, a subject breakdown, a review with every answer's source line and link, **New set** and **Retry the wrong ones**. The app's Insights shows your practice accuracy by subject.
+    - **Result:** UPSC marking (+2 right, −0.66 wrong), accuracy, time, a subject breakdown, a review with every answer's source line and link, **New set** and **Retry the wrong ones**. The app's Progress tab shows your practice accuracy by subject.
   - **Revise (spaced-repetition flashcards):** each Intel AI note carries 3-4 flashcards (a crisp question, a one-line answer from the article). The deck grows with every day's notes.
     - Tap a card to flip it, then grade yourself: **Again / Hard / Good / Easy**. Each button shows when you'll see the card next. Intervals work like Anki: a card you know drifts to days, weeks and months; one you miss comes back tomorrow.
     - Each day: the cards that are due, plus up to 20 new ones. The header counts due, new and learned.
@@ -160,7 +160,7 @@ Week and Month views recap everything the daily briefs covered.
       - This is the default for Hinglish when Intel AI is on.
       - The voice uses the key's free text-to-speech quota, which is smaller than the text quota. When it runs out, the device's voice takes over and the player says so.
   - Your language, voice and speed are remembered on this device.
-- **India's Ranks (a website tab; in the app, Read → India's Ranks):** India's position in 39 global indices and rankings, from the Human Development Index and Global Hunger Index to Press Freedom, Passport, Innovation, Global Peace and SIPRI.
+- **India's Ranks (website: Trackers → India's Ranks; app: Track → India's Ranks):** India's position in 39 global indices and rankings, from the Human Development Index and Global Hunger Index to Press Freedom, Passport, Innovation, Global Peace and SIPRI.
   - **Each card shows:**
     - India's latest rank (of how many), the edition and the score
     - the change from the previous edition, with ▲/▼ coloured by which way is better for that index (for the Global Terrorism, Climate Risk and air-pollution rankings, 1st is the worst hit; size rankings like GDP or military spending stay neutral)
@@ -186,7 +186,7 @@ Week and Month views recap everything the daily briefs covered.
     - A card is asked once (`stories.terms`; `[]` when it has none).
     - Each day's file carries its cards' terms (`days[d].glossary`). Older days aren't backfilled.
     - The same call also names each card's **places** and **running story** (below), so neither costs an extra call. A card read before these were asked for is asked once more.
-- **Dossiers (a website tab; in the app, Read → Dossiers):** the running stories of the news (the Waqf Act, India–Canada relations, Manipur, a Parliament session…), each on one page.
+- **Dossiers (website: Trackers → Dossiers; app: Track → Dossiers):** the running stories of the news (the Waqf Act, India–Canada relations, Manipur, a Parliament session…), each on one page.
   - **Each dossier has:**
     - **the timeline:** its reports from the last 45 days, the latest first, with the date, grade, source and one line. A report that was a brief card opens in its day's brief.
     - **the story so far:** 3–6 points in order, then the **UPSC angle** (GS paper, provisions, bodies, a likely Mains angle) and **what to watch** next. Intel AI writes it from the timeline's dated lines, and rewrites it only when a new report lands (at most every 6 hours per dossier, to save quota). Until then the dossier says the newer reports aren't in it yet.
@@ -199,7 +199,7 @@ Week and Month views recap everything the daily briefs covered.
   - **How the timeline is built:** a topic's tagged cards, plus every story whose headline carries all its words (a full-text search of everything stored). A story found that way counts only if it's worth reading (Intel AI's 2–3, or the rules' Must-know and Quick read). A report republished under the same headline counts once. Private and subscriber-only stories never appear.
   - A topic becomes a dossier once it has reports on 2 days, the latest in the last 30 days. Two dossiers sharing most of their reports are one (the bigger stays). Up to 50 are shown, the latest in the news first.
   - Pipeline: `pipeline/dossiers.py`, the `topics` table and `data/dossiers.json` (`/api/dossiers` on the local server). It runs in the notes step: at most 2 calls a run, 3 dossiers a call.
-- **Map (a website tab; in the app, Read → Map):** the places in the news, on a map, for the Prelims map questions.
+- **Map (website: Trackers → Map; app: Track → Map):** the places in the news, on a map, for the Prelims map questions.
   - A dot per place: blue for India, orange for the world, bigger with more reports. Tap a dot for its reports; each opens in its day's brief.
   - **Today / 7 days / 30 days**, and an **India** view (the whole country, as in the exam's maps) or **World** view.
   - Below the map: India's places by state, and the world's by country. Tap one to find it on the map.
@@ -217,10 +217,11 @@ Week and Month views recap everything the daily briefs covered.
   - **Screens:**
     - Brief: week strip, the day's hero, GS chips, then the day by grade: Must-know, Quick read (Prelims facts and more), Background and Low
     - Read: editorials by GS paper, explainers
-    - Insights: streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
+    - Track: dossiers, the places map and India's ranks
     - Practice: MCQs, Revise, Mains, Weekly mock and Mistakes
-    - Review: week and month
+    - Progress: My 30 days (streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, a 30-min catch-up plan), and the week or month in review
     - Saved: stars and notes, PDF
+  - **Kept uncluttered:** a brief card shows one row of labels (rank, GS paper, subject; its section is its grade) and the write-up's short headline. A story without a matched video gets a YouTube search link with its sources instead of an empty video box. The website groups Dossiers, Map and India's Ranks under one **Trackers** tab, and old links to those tabs (and the app's old Insights and Review links) still land in the right place.
   - **Story view:** the article's 8-point summary (read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
   - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded (and the last three Daily Brief PDFs you opened).
   - **Synced with the dashboard:** stars, done ticks and notes are the same on the dashboard and in the app, as long as both use the same browser.
