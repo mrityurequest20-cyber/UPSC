@@ -62,6 +62,18 @@ class Http:
                     continue
         raise FetchError(f"{type(last).__name__}: {last}" if last else "request failed")
 
+    def post(self, url: str, data: dict | None = None, headers: dict | None = None) -> httpx.Response:
+        """One POST, no retries."""
+        host = urlsplit(url).hostname or ""
+        try:
+            with self._sem(host):
+                resp = self.client.post(url, data=data, headers=headers)
+        except httpx.HTTPError as exc:
+            raise FetchError(f"{type(exc).__name__}: {exc}") from exc
+        if resp.status_code >= 400:
+            raise FetchError(f"HTTP {resp.status_code}")
+        return resp
+
     def head_html(self, url: str, max_bytes: int = 300_000, timeout: float = 8) -> str:
         """Download a page only up to its </head> (for meta tags); one short attempt, no retries."""
         host = urlsplit(url).hostname or ""

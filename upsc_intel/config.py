@@ -52,6 +52,8 @@ class Settings:
     port: int = field(default_factory=lambda: _env_int("UPSC_PORT", 8000))
     browser_fallback: bool = field(default_factory=lambda: _env_bool("UPSC_BROWSER_FALLBACK", True))
     browser_executable: str | None = field(default_factory=lambda: _env("UPSC_BROWSER_EXECUTABLE"))
+    # the published site's address (the PDFs link back to it); the Pages workflow sets it
+    site_url: str = field(default_factory=lambda: _env("UPSC_SITE_URL", "") or "")
     # premium: IMAP
     imap_host: str | None = field(default_factory=lambda: _env("IMAP_HOST"))
     imap_port: int = field(default_factory=lambda: _env_int("IMAP_PORT", 993))

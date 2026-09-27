@@ -92,6 +92,8 @@ jobs:
 
       # before saving: the export builds briefs for days that don't have one yet, and they must persist
       - name: Build static site
+        env:
+          UPSC_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
         run: python -m upsc_intel export-static --out site --days 62 --archive archive/data
 
       - name: Save newly finished months to the archive

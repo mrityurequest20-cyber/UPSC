@@ -160,7 +160,23 @@ def main_text(html: str) -> list[str]:
         else:
             runs.append([k])
     best = max(runs, key=lambda r: sum(x[2] for x in r), default=[])
+    if len(best) >= 2:
+        return [x[1] for x in best][:MAX_PARAS]
+    # some sites (WordPress themes, government portals) put the text in plain <div>s: read the article container
+    for sel in CONTAINERS:
+        box = soup.select_one(sel)
+        if not box:
+            continue
+        lines = [re.sub(r"\s+", " ", x).strip() for x in box.get_text("\n").split("\n")]
+        paras = [x for x in lines if len(x.split()) >= 12 and re.search(r"[.!?\"”’)]$", x)
+                 and not FURNITURE.search(x) and not BOILER.match(x) and not is_teaser(x)]
+        if paras:
+            return paras[:MAX_PARAS]
     return [x[1] for x in best][:MAX_PARAS]
+
+
+CONTAINERS = ("[itemprop=articleBody]", ".entry-content", ".post-content", ".article-content", ".story-content",
+              ".story_details", ".article-body", ".td-post-content", "article")
 
 
 COMMON = {"gover", "state", "minis", "centr", "india", "offic", "peopl", "year", "years", "month", "today", "new"}
@@ -295,6 +311,42 @@ def same_story(paras: list[str], tw: list[str]) -> bool:
     return sum(1 for w in tw if w in pw) / (len(tw) or 1) >= 0.5
 
 
+# Google News links hide the outlet's own URL behind a redirect that the link page resolves with a signed call
+# to Google. The build makes the same call, but only for an item whose outlet (its feed's source site) is
+# free to read, at most GNEWS_BUDGET times a run, and not again in a run after Google refuses one.
+GNEWS = re.compile(r"^https?://news\.google\.[^/]+/(?:rss/)?articles/([A-Za-z0-9_-]+)")
+GNEWS_BUDGET = 25
+
+
+class GnewsResolver:
+    def __init__(self, budget: int = GNEWS_BUDGET):
+        self.left, self.stopped = budget, False
+
+    def __call__(self, http: Http, url: str) -> str:
+        m = GNEWS.match(url)
+        if not m or self.stopped or self.left <= 0:
+            return ""
+        self.left -= 1
+        aid = m.group(1)
+        try:
+            page = BeautifulSoup(http.get(f"https://news.google.com/articles/{aid}").text, "html.parser")
+            tag = page.select_one("[data-n-a-sg][data-n-a-ts]")
+            if not tag:
+                return ""
+            inner = ["garturlreq", [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1, None, None, None, None, None, 0, 1],
+                                    "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0], aid, int(tag["data-n-a-ts"]), tag["data-n-a-sg"]]
+            resp = http.post("https://news.google.com/_/DotsSplashUi/data/batchexecute",
+                             data={"f.req": json.dumps([[["Fbv4je", json.dumps(inner), None, "generic"]]])},
+                             headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"})
+        except Exception as exc:
+            if re.search(r"HTTP (403|429)", str(exc)):
+                self.stopped = True  # Google said no: leave its links alone for this run
+            log.debug("resolving %s: %s", url[:60], exc)
+            return ""
+        m2 = re.search(r'garturlres\\+",\\+"(https?://[^"\\]+)', resp.text)
+        return m2.group(1) if m2 else ""
+
+
 # MSN carries licensed, free-to-read copies of Indian outlets' stories (India Today, HT, PTI…). Its pages load
 # the text from a public content API, which is read only when the item has no subscription or rendering
 # restriction. The API only answers msn.com pages in a browser, so only the build reads it.
@@ -330,7 +382,7 @@ def read_page(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str]:
     return main_text(resp.text), url
 
 
-def read_story(http: Http, fr: FreeReading, story: dict) -> dict | None:
+def read_story(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver | None = None) -> dict | None:
     """story: {title, summary, date, editorial, opinion, sources: [{u, p}]} → {url, domain, via, paragraphs, points}
     or None. opinion (an editorial or explainer): a free copy must carry a near-identical headline."""
     tw = words(story["title"])
@@ -352,7 +404,14 @@ def read_story(http: Http, fr: FreeReading, story: dict) -> dict | None:
         return {"url": url, "domain": fr.domain(url), "via": via, "paragraphs": text,
                 "points": summarize(sents, POINTS, editorial=bool(story.get("editorial")))}
 
-    for u in [s["u"] for s in story.get("sources") or [] if s.get("u") and fr.is_open(s["u"])][:3]:
+    own = []
+    for src in story.get("sources") or []:
+        u = src.get("u") or ""
+        if resolve and GNEWS.match(u) and src.get("origin") and fr.is_open(src["origin"]):
+            u = resolve(http, u) or u  # the outlet's own page, when its site is free to read
+        if u and fr.is_open(u) and u not in own:
+            own.append(u)
+    for u in own[:3]:
         tried.add(u)
         try:
             paras, cite = read_page(http, fr, u)
@@ -419,13 +478,15 @@ def read_brief_articles(db: DB, topics: dict, days: list[str], limit: int = MAX_
     if not todo:
         return {"read": 0, "missed": 0}
     for st in todo:
-        st["sources"] = [{"u": r["url"], "p": r["publisher"] or ""} for r in db.q(
-            "SELECT url, publisher FROM items WHERE story_id=? AND is_private=0 ORDER BY tier='official' DESC", (st["id"],))]
+        st["sources"] = [{"u": r["url"], "p": r["publisher"] or "", "origin": (json.loads(r["extra"] or "{}") or {}).get("origin") or ""}
+                         for r in db.q("SELECT url, publisher, extra FROM items WHERE story_id=? AND is_private=0 "
+                                       "ORDER BY tier='official' DESC", (st["id"],))]
     own = http is None
     http = http or Http(timeout=15, retries=1)
+    resolve = GnewsResolver()
     try:
         with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-            results = list(ex.map(lambda st: (st, _safe_read(http, fr, st)), todo))
+            results = list(ex.map(lambda st: (st, _safe_read(http, fr, st, resolve)), todo))
     finally:
         if own:
             http.close()
@@ -441,9 +502,9 @@ def read_brief_articles(db: DB, topics: dict, days: list[str], limit: int = MAX_
     return {"read": n_read, "missed": len(results) - n_read}
 
 
-def _safe_read(http: Http, fr: FreeReading, story: dict) -> dict | None:
+def _safe_read(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver | None = None) -> dict | None:
     try:
-        return read_story(http, fr, story)
+        return read_story(http, fr, story, resolve)
     except Exception:  # one story never stops the rest
         log.exception("reading %s failed", story["id"])
         return None
