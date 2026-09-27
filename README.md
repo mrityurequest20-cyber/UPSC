@@ -124,9 +124,16 @@ Week and Month views recap everything the daily briefs covered.
     - Insights: streak, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
     - Review: week and month
     - Saved: stars and notes, PDF
-  - **Story view:** summary, "Summarise the full article from the web", video, 5 Ws, Prelims facts, Mains question, sources, your note, and Ask Intel.
+  - **Story view:** the article's 8-point summary (read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
   - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded.
   - **Synced with the dashboard:** stars, done ticks and notes are the same on the dashboard and in the app, as long as both use the same browser.
+- **Summaries on every card:**
+  - Opening a brief card, on the website or in the app, shows **Summary · 8 points** of the actual article. It's read from the story's own site when that's free, or from a free report of the same story when the original is paywalled, and says where the lines came from.
+  - Until then, and when no free copy exists, the card shows the key lines of the outlets' reports.
+  - Cards on screen are summarised in the background, a few a minute, within the free reader's limit. A card you open goes first.
+  - Summaries are kept on your device and shared between the website and the app.
+  - The When / Where / Who and syllabus rows fold under **Details**.
+- **Grade labels in words:** every brief card is must-know; its label says how deeply to study it. **Make notes** is NOTE (high yield), **Quick read** is SKIM (know the key facts), and **Background** is READ.
 - **Everything tab:** the full graded firehose, with:
   - filters (paper, subject, grade, source type)
   - the syllabus-coverage radar

@@ -85,7 +85,7 @@
     open: null, sheet: null, calMonth: null,
     exp: { scope: "brief", story: null, busy: false, opts: store.get("upsc-app-pdf", { sum: true, vid: true, links: true, mains: true, notes: true, eds: true }) },
     bot: { ctx: null, log: [], busy: false, step: "", last: "" },
-    web: new Map(), webSum: store.get("upsc-app-sum", {}),
+    sumStep: new Map(),
     marks: {}, saved: store.get("upsc-app-saved", {}), log: store.get("upsc-app-log", {}),
     search: { q: "", results: [], busy: false, wide: false },
   };
@@ -176,14 +176,7 @@
   const subjOf = (s) => ((s.subjects || []).length ? subjName(s.subjects[0]) : s.editorial ? "Editorial" : s.explained ? "Explained" : "General");
   const tagOf = (s) => (s.tags || [])[0] || "";
   const srcName = (s) => (s.sources && s.sources[0] && s.sources[0].p) || "Source";
-  // the pipeline's placeholders ("Reported on 26 Sep by …", "Explainer by …, open it for the full piece")
-  const WEAK = /^(reported (on|by) |(opinion piece|explainer)\b.*open it for the full (argument|piece)\.?$)/i;
-  function cleanText(t) {  // a report minus feed furniture ("Source: The post … has been created based on …")
-    const x = String(t || "").replace(/\s+/g, " ").trim();
-    if (!x || WEAK.test(x)) return "";
-    if (!CORE.FURNITURE.test(x)) return x;
-    return CORE.sentencesOf(x).filter((y) => !CORE.FURNITURE.test(y) && !/^upsc syllabus/i.test(y)).join(" ");
-  }
+  const cleanText = CORE.cleanText;  // a report minus the pipeline's placeholders and feed furniture
   function whyOf(s, max = 260) {  // the card's one-liner: the write-up's "why in news", else the report itself
     const e = s.explain || {};
     for (const t of [e.why_in_news, e.what, s.summary, ...(s.texts || []).map((x) => x.x)]) {
@@ -208,25 +201,42 @@
   }
   const paperOf = (s) => (s.gs || []).find((g) => /^GS[1-4]$/.test(g)) || ((s.gs || []).includes("Prelims") ? "Prelims" : "Other");
 
-  // Summary points: Claude's note when the notes routine wrote one, else the full article read from a free
-  // site (once asked), else the key lines of what the outlets published.
-  function localPoints(s) {
-    const e = s.explain || {}; const seen = new Set(); const sents = [];
-    for (const p0 of [e.why_in_news, e.what, ...(s.texts || []).map((t) => t.x), s.summary]) {
-      const p = cleanText(p0); if (!p) continue;
-      for (const t of CORE.sentencesOf(p)) {
-        if (CORE.FURNITURE.test(t)) continue;
-        const k = t.slice(0, 60).toLowerCase(); if (seen.has(k)) continue; seen.add(k); sents.push({ text: t });
-      }
-    }
-    return CORE.summarize(sents, 8).map((x) => x.text);
-  }
+  // Summary points (shared with the website, kept on the device): Claude's note when the notes routine wrote one,
+  // else the full article read from a free copy (as soon as the story opens, or in the background for cards on
+  // screen), else until then the key lines of what the outlets published.
   function pointsFor(s) {
-    const n = noteOf(s);
-    if (n && n.points && n.points.length) return { points: n.points, from: "note", line: "Claude's study note" };
-    const w = A.webSum[s.id];
-    if (w && w.points.length) return { points: w.points, from: "web", line: w.line };
-    return { points: localPoints(s), from: "brief", line: "Key lines from the outlets' reports" };
+    const P = CORE.summaryNow(s);
+    const line = P.from === "note" ? "Claude's study note."
+      : P.from === "web" ? `${CORE.sourceHtml(P.src)} Lines are quoted from it.`
+        : P.miss ? `No free copy of the full article could be read${(P.src && P.src.closed || []).length ? ` (the original on ${esc(P.src.closed.join(", "))} is subscriber-only)` : ""}: these are the key lines from the outlets' reports.`
+          : "Key lines from the outlets' reports.";
+    return { ...P, line };
+  }
+  function startSummary(s) {  // the open story reads its article now, ahead of the background queue
+    const P = CORE.summaryNow(s);
+    if (P.from !== "brief" || P.miss) return;
+    A.sumStep.set(s.id, "Finding the full article…"); paintSum(s);
+    CORE.summaryFor(s, { onStep: (m) => { A.sumStep.set(s.id, m); paintSum(s); } })
+      .catch((e) => toast(e.message || "Couldn't reach the web just now."))
+      .finally(() => { A.sumStep.delete(s.id); paintSum(s); });
+  }
+  function sumBoxInner(s) {
+    const P = pointsFor(s); const step = A.sumStep.get(s.id) || (P.from === "brief" && P.busy ? "Reading the full article…" : "");
+    return `<div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
+      ${P.points.length ? `<ul class="pts">${P.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="rt" style="margin:0;font-size:14px">The outlets carried only the headline.</p>`}
+      <div class="sumsrc">${step ? `<span class="sumstep">${esc(step)}</span>` : P.line}</div>`;
+  }
+  function paintSum(s) { const box = $("#sumbody"); if (box && A.open === s.id) box.innerHTML = sumBoxInner(s); }
+  CORE.onSummary((id) => { const s = findStory(id); if (s) paintSum(s); });
+  let cardWatch = null;
+  function watchCards() {  // cards on screen get their summaries in the background, nearest first
+    if (cardWatch) cardWatch.disconnect();
+    if (!("IntersectionObserver" in window)) return;
+    cardWatch = new IntersectionObserver((entries) => {
+      const seen = entries.filter((x) => x.isIntersecting).map((x) => findStory(x.target.dataset.open)).filter(Boolean);
+      if (seen.length) CORE.prefetch(seen);
+    }, { rootMargin: "400px 0px" });
+    document.querySelectorAll("#screen .card[data-open], #screen .pcard[data-open]").forEach((el) => cardWatch.observe(el));
   }
 
   // marks, the per-device activity log (streaks, time read) and saved copies (the Saved tab works offline)
@@ -257,7 +267,11 @@
     const langs = v.map(([, l]) => (l === "English" ? "EN" : l)).join(" · ");
     return `<a class="vpill" href="${esc(safeUrl(v[0][0].url))}" target="_blank" rel="noopener" aria-label="Watch the video">${I.play}${esc(langs)}</a>`;
   }
-  const gradePill = (s) => `<span class="grade g-${esc(s.grade)}">${esc(s.grade)}</span>`;
+  // how deep to study it (the grader's NOTE / SKIM / READ, in words): every brief card is must-know, this says how much
+  const GRADE_LABEL = { NOTE: "Make notes", SKIM: "Quick read", READ: "Background", LOW: "Low" };
+  const GRADE_HELP = { NOTE: "High yield: make notes on it", SKIM: "Know the key facts: a quick read is enough", READ: "Background only", LOW: "Probably not examinable" };
+  const gradeName = (g) => GRADE_LABEL[g] || g;
+  const gradePill = (s) => `<span class="grade g-${esc(s.grade)}" title="${esc(GRADE_HELP[s.grade] || "")}">${esc(gradeName(s.grade))}</span>`;
   const gsPills = (s) => (s.gs || []).map((g) => `<span class="gsp">${esc(g)}</span>`).join("");
   function card(s, rank) {
     const done = isDone(s); const star = isStar(s); const tag = tagOf(s); const why = whyOf(s);
@@ -306,7 +320,7 @@
     const hero = `<section class="hero">
       <div class="eyebrow">Daily Brief · ${esc(dayLabel(d))}</div>
       <div class="hero-n">${plural(L.news.length, "must-know story", "must-know stories")}</div>
-      <div class="hero-sub">${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}${L.more.length ? ` · +${L.more.length} one-liners` : ""}</div>
+      <div class="hero-sub">${L.news.some((x) => x.grade === "NOTE") ? `${L.news.filter((x) => x.grade === "NOTE").length} to make notes on, the rest a quick read` : "each a quick read"} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}${L.more.length ? ` · +${L.more.length} one-liners` : ""}</div>
       <div class="hero-prog"><div class="track"><div style="width:${pct}%"></div></div><span>${done} of ${all.length} done</span></div>
       <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}Export as PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button></div>
     </section>`;
@@ -471,7 +485,7 @@
 
   // ─────────────────────────── the story view ───────────────────────────
   function renderStory(s) {
-    const e = s.explain || {}; const m = mark(s.id); const P = pointsFor(s); const busy = A.web.get(s.id);
+    const e = s.explain || {}; const m = mark(s.id); const P = pointsFor(s);
     const vids = storyVideos(s); const folded = foldedOf(s.id);
     const rows = [
       ["What happened", e.what && e.what !== e.why_in_news ? cleanText(e.what) : ""],
@@ -484,7 +498,6 @@
     const facts = e.prelims || [];
     const vcard = vids.length ? `<a class="vcard" href="${esc(safeUrl(vids[0][0].url))}" target="_blank" rel="noopener"><div class="vthumb"><img src="${esc(ytThumb(vids[0][0]))}" alt="" loading="lazy"><span class="play">${I.play}</span></div><div style="min-width:0"><b>${esc(vids[0][0].title)}</b><small>${esc(vids.map(([, l]) => l).join(" · "))} · ${esc(vids[0][0].channel || "YouTube")}</small></div></a>`
       : `<a class="vcard" href="${esc(ytSearch(s))}" target="_blank" rel="noopener"><div class="vthumb"><span class="play">${I.play}</span></div><div style="min-width:0"><b>Search YouTube: ${esc((s.video && s.video.query) || s.title)}</b><small>No confident video match yet</small></div></a>`;
-    const sumBtn = P.from === "brief" ? (busy ? `<button class="sumbtn" disabled>${esc(busy)}</button>` : `<button class="sumbtn" data-act="websum">${I.spark}Summarise the full article from the web</button>`) : "";
     const pw = (u) => CORE.web.paywalled(CORE.web.domainOf(u));
     return `<div class="story fixed-col" role="dialog" aria-label="${esc(s.title)}">
       <div class="story-bar"><button class="back" data-act="close">${I.back}${esc((TABS.find((x) => x.key === A.tab) || TABS[0]).title)}</button><span class="sp"></span>
@@ -494,9 +507,7 @@
         <div class="card-meta">${gradePill(s)}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span>${tagOf(s) ? `<span class="tag">${esc(tagOf(s))}</span>` : ""}</div>
         <h1>${esc(s.title)}</h1>
         <div class="story-meta">${esc(srcName(s))}${(s.n_pub || 1) > 1 ? ` and ${plural(s.n_pub - 1, "more outlet")}` : ""}${s.first_seen ? ` · first seen ${esc(clockIST(s.first_seen))} IST${s.date && s.date !== todayIST() ? `, ${esc(dayShort(s.date))}` : ""}` : ""} · ${minutesOf(s)} min read</div>
-        <section class="sumbox" id="sumbox"><div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
-          ${P.points.length ? `<ul class="pts">${P.points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="rt" style="margin:0;font-size:14px">The outlets carried only the headline.</p>`}
-          <div class="sumsrc">${P.from === "web" ? P.line : esc(P.line)}</div>${sumBtn}
+        <section class="sumbox" id="sumbox"><div id="sumbody">${sumBoxInner(s)}</div>
           <div class="qchips nosb">${QUICK.map((q) => `<button class="qchip" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}<button class="qchip claude" data-act="claude">Ask Claude ↗</button></div></section>
         ${vcard}
         <div class="rows">
@@ -513,25 +524,6 @@
         <button class="bigdone${m.read ? " on" : ""}" data-act="done" data-id="${esc(s.id)}">${I.check}${m.read ? "Done · tap to undo" : "Mark done"}</button></div>
     </div>`;
   }
-  async function webSummary(s) {
-    if (A.web.has(s.id)) return;
-    A.web.set(s.id, "Finding a free copy of the article…"); renderLayer(true);
-    const step = (m) => { A.web.set(s.id, m); const b = $("#sumbox .sumbtn"); if (b) b.textContent = m; };
-    try {
-      const g = await CORE.web.gather(s, { onStep: step });
-      if (g.read.length) {
-        const page = g.read[0]; const closed = g.closed.filter(CORE.web.paywalled);
-        const points = CORE.summarize(CORE.web.sentencesFrom(page), 8).map((x) => x.text);
-        const line = `From the full article on <a href="${esc(safeUrl(page.url))}" target="_blank" rel="noopener">${esc(page.domain)}</a>${page.via === "search" ? ", a free report of the same story" : ""}${closed.length ? ` (the original on ${esc(closed.join(", "))} is subscriber-only, so it wasn't opened)` : ""}. Lines are quoted from it.`;
-        A.webSum[s.id] = { points, line, at: Date.now() };
-        const keys = Object.keys(A.webSum); if (keys.length > 150) keys.sort((a, b) => A.webSum[a].at - A.webSum[b].at).slice(0, keys.length - 150).forEach((k) => delete A.webSum[k]);
-        store.set("upsc-app-sum", A.webSum);
-      } else toast(`No free copy of this story could be read${g.closed.filter(CORE.web.paywalled).length ? ` (${g.closed.filter(CORE.web.paywalled).join(", ")} is subscriber-only)` : ""}. Ask Intel → “Search the web” lists other reports.`);
-    } catch (err) { toast(err.message || "Couldn't reach the web just now."); }
-    A.web.delete(s.id);
-    if (A.open === s.id) renderLayer(true);
-  }
-
   // ─────────────────────────── sheets ───────────────────────────
   function renderCal() {
     const t = todayIST(); const has = (A.meta && A.meta.brief_days) || {}; const months = (A.meta && A.meta.months) || [t.slice(0, 7)];
@@ -655,13 +647,17 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     if (!same) {
       A.bot.ctx = ctx; A.bot.log = [];
       const s = ctx.kind === "story" ? findStory(ctx.id) : null;
-      const hello = s ? `<p>I've got this story and its coverage across ${plural(s.n_pub || 1, "outlet")}. Ask for a summary of the full article (I find a free copy when the original is paywalled), background, MCQs, a Mains outline, Hindi, or anything in it.</p>`
+      const hello = s ? ""
         : ctx.kind === "insights" ? "<p>I can see your last 30 days: what you've finished, by paper and subject. Want a catch-up plan for your blind spots?</p>"
           : `<p>I have the full brief for ${esc(dayLabel(A.briefDay || A.day))}. Ask what to read first, one GS paper, or a topic like “RBI”.</p>`;
-      A.bot.log.push({ me: false, html: hello });
+      if (hello) A.bot.log.push({ me: false, html: hello });
     }
     openSheet("bot");
-    if (first) setTimeout(() => botAsk(first), 60);
+    const s = ctx.kind === "story" && !same ? findStory(ctx.id) : null;
+    setTimeout(async () => {
+      if (s) await botAsk("Summary", { auto: true });  // a story's summary comes first, without asking
+      if (first) botAsk(first);
+    }, 60);
   }
   function renderBot() {
     const B = A.bot; const s = botCtxStory();
@@ -720,7 +716,8 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const B = A.bot; if (B.busy) return;
     const s = botCtxStory();
     if (!opts.url && bot.intentOf(q) === "claude") { askClaude(""); return; }
-    B.log.push({ me: true, html: `<p>${esc(opts.label || q)}</p>` }); B.busy = true; B.step = "";
+    if (!opts.auto) B.log.push({ me: true, html: `<p>${esc(opts.label || q)}</p>` });
+    B.busy = true; B.step = "";
     if (!opts.url) B.last = q;
     paintBot();
     const onStep = (m) => { B.step = m; paintBot(); };
@@ -740,6 +737,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     A.sheet = null; A.open = id;
     if (fromSheet && history.state && history.state.layer) history.replaceState({ layer: "story" }, ""); else history.pushState({ layer: "story" }, "");
     renderLayer();
+    startSummary(s);  // the article's summary, without asking
   }
   function openSheet(kind) { A.sheet = kind; history.pushState({ layer: kind }, ""); renderLayer(); }
   function closeTop() { if (history.state && history.state.layer) history.back(); else { if (A.sheet) A.sheet = null; else A.open = null; renderLayer(); } }
@@ -774,6 +772,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const html = A.tab === "read" ? renderRead() : A.tab === "insights" ? renderInsights() : A.tab === "review" ? renderReview() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
     renderTabs();
+    watchCards();
   }
   function rerenderCard(id) {  // a star or tick on a list: repaint in place, keep the scroll
     renderScreen();
@@ -856,7 +855,6 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
       case "askstory": openBot({ kind: "story", id: A.open }); break;
       case "claude": A.bot.ctx = null; openBot({ kind: "story", id: A.open }); askClaude(""); break;
       case "plan": A.bot.ctx = null; openBot({ kind: "insights", subj: t.dataset.subj || null }, t.dataset.subj ? `Catch-up plan: ${subjName(t.dataset.subj)}` : "30-min catch-up plan"); break;
-      case "websum": { const s = findStory(A.open); if (s) webSummary(s); break; }
       case "moreall": A.moreOpen = true; renderScreen(); break;
       default: break;
     }

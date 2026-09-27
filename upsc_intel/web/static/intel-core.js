@@ -134,12 +134,25 @@
     return !!d && !PREMIUM_PATH.test(u) && !/(^|\.)news\.google\./.test(d) && OPEN_DOMAINS.some((x) => d === x || d.endsWith("." + x));
   }
   const fail = (code, message) => Object.assign(new Error(message), { code });
+  // The free reader allows about 20 pages a minute per device: every call waits for a slot in one shared budget,
+  // so background summaries never starve what you asked for (they only run while the budget has room).
+  const RATE = { max: 18, win: 60000, stamps: [] };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const readerLoad = () => { const now = Date.now(); RATE.stamps = RATE.stamps.filter((t) => now - t < RATE.win); return RATE.stamps.length; };
+  async function slot() {
+    while (readerLoad() >= RATE.max) await sleep(RATE.win - (Date.now() - RATE.stamps[0]) + 50);
+    RATE.stamps.push(Date.now());
+  }
   async function viaReader(url, signal) {
+    await slot();
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30000);
     if (signal) signal.addEventListener("abort", () => ctl.abort());
     try {
       const r = await fetch(READER + url, { headers: { Accept: "application/json", "X-Retain-Images": "none" }, signal: ctl.signal });
-      if (r.status === 429) throw fail("rate", "The free reader is busy: try again in a minute.");
+      if (r.status === 429) {  // over the limit anyway: pause every caller for a minute
+        const now = Date.now(); RATE.stamps = Array(RATE.max).fill(now);
+        throw fail("rate", "The free reader is busy: try again in a minute.");
+      }
       if (!r.ok) throw fail("http", `The page couldn't be read (${r.status}).`);
       return ((await r.json()).data || {});
     } catch (e) {
@@ -291,6 +304,94 @@
   }
   const sentencesFrom = (page) => page.paragraphs.flatMap((p) => sentencesOf(p).map((text) => ({ text, src: page.domain, url: page.url })));
 
+  // ─────────────────────────── summaries: one per story, shared by every screen, kept on the device ───────────────────────────
+  // the pipeline's placeholder lines: "Reported on 26 Sep by …", "Explainer by …, 26 Sep. Open it for the full piece."
+  const WEAK = /^(reported (on|by) |(opinion piece|explainer)\b.*open it for the full (argument|piece)\.?$)/i;
+  function cleanText(t) {  // a report minus feed furniture ("Source: The post … has been created based on …")
+    const x = String(t || "").replace(/\s+/g, " ").trim();
+    if (!x || WEAK.test(x)) return "";
+    if (!FURNITURE.test(x)) return x;
+    return sentencesOf(x).filter((y) => !FURNITURE.test(y) && !/^upsc syllabus/i.test(y)).join(" ");
+  }
+  function localPoints(story, n = 8) {  // the key lines of what the brief holds (write-up, each outlet's text)
+    const e = story.explain || {}; const seen = new Set(); const sents = [];
+    for (const p0 of [e.why_in_news, e.what, ...(story.texts || []).map((t) => t.x), story.summary]) {
+      const p = cleanText(p0); if (!p) continue;
+      for (const t of sentencesOf(p)) {
+        if (FURNITURE.test(t)) continue;
+        const k = t.slice(0, 60).toLowerCase(); if (seen.has(k)) continue; seen.add(k); sents.push({ text: t });
+      }
+    }
+    return summarize(sents, n).map((x) => x.text);
+  }
+  const SUM_KEY = "upsc-sum"; const SUM_MAX = 250; const MISS_RETRY = 6 * 3600 * 1000;
+  const sumStore = {
+    get() { try { return JSON.parse(localStorage.getItem(SUM_KEY) || localStorage.getItem("upsc-app-sum") || "{}") || {}; } catch (e) { return {}; } },
+    set(v) { try { localStorage.setItem(SUM_KEY, JSON.stringify(v)); } catch (e) { /* private mode or full */ } },
+  };
+  let SUMS = null;
+  const sums = () => (SUMS = SUMS || sumStore.get());
+  const inflight = new Map(); const listeners = [];
+  const noteOf = (s) => (s && s.ai && s.ai.source === "claude-notes" ? s.ai : null);
+  // What a screen shows right now: Claude's note, the full article's summary (once read), or the brief's key lines.
+  function summaryNow(story) {
+    const n = noteOf(story);
+    if (n && n.points && n.points.length) return { from: "note", points: n.points };
+    const w = sums()[story.id];
+    if (w && w.points && w.points.length) return { from: "web", points: w.points, src: w };
+    return { from: "brief", points: localPoints(story), miss: !!(w && w.miss && Date.now() - w.at < MISS_RETRY), busy: inflight.has(story.id), src: w };
+  }
+  // The full article's 8-point summary, read from a free copy (once per story, kept on the device).
+  // → {points, src} or {miss, hits, closed}
+  function summaryFor(story, { onStep } = {}) {
+    const w = sums()[story.id];
+    if (w && w.points && w.points.length) return Promise.resolve({ points: w.points, src: w });
+    if (!inflight.has(story.id)) {
+      const p = gather(story, { onStep }).then((g) => {
+        const all = sums();
+        if (g.read.length) {
+          const page = g.read[0];
+          all[story.id] = { points: summarize(sentencesFrom(page), 8).map((x) => x.text), url: page.url, domain: page.domain, via: page.via || "", closed: g.closed.filter(paywalled), at: Date.now() };
+        } else all[story.id] = { miss: true, closed: g.closed.filter(paywalled), at: Date.now() };
+        const keys = Object.keys(all);
+        if (keys.length > SUM_MAX) keys.sort((a, b) => all[a].at - all[b].at).slice(0, keys.length - SUM_MAX).forEach((k) => delete all[k]);
+        sumStore.set(all);
+        const out = g.read.length ? { points: all[story.id].points, src: all[story.id] } : { miss: true, hits: g.hits, closed: all[story.id].closed };
+        listeners.forEach((fn) => { try { fn(story.id, out); } catch (e) { /* one screen's handler */ } });
+        return out;
+      });
+      inflight.set(story.id, p);
+      p.catch(() => {}).finally(() => inflight.delete(story.id));
+    }
+    return inflight.get(story.id);
+  }
+  // Where a summary came from, as HTML for a source line.
+  function sourceHtml(src) {
+    if (!src || !src.domain) return "";
+    const a = `<a href="${esc(safeUrl(src.url))}" target="_blank" rel="noopener">${esc(src.domain)}</a>`;
+    const closed = (src.closed || []).length ? ` The original on ${esc(src.closed.join(", "))} is subscriber-only, so it wasn't opened.` : "";
+    return src.via === "search" ? `Summarised from ${a}, a free report of the same story.${closed}` : `Summarised from the full article on ${a}.`;
+  }
+  // Background summaries for the cards on screen: one story at a time, and only while the reader budget has room.
+  const PF = { queue: [], running: false, pause: 0 };
+  function prefetch(stories) {
+    const want = stories.filter((x) => x && x.id && !noteOf(x) && summaryNow(x).from === "brief" && !summaryNow(x).miss);
+    PF.queue = want.concat(PF.queue.filter((x) => !want.some((y) => y.id === x.id))).slice(0, 40);
+    if (!PF.running) runPrefetch();
+  }
+  async function runPrefetch() {  // up to two stories at a time, leaving ~6 pages a minute for what you tap
+    PF.running = true;
+    while (PF.queue.length) {
+      if (readerLoad() > 12 || inflight.size >= 2 || PF.pause > Date.now()) { await sleep(2000); continue; }
+      const x = PF.queue.shift();
+      if (summaryNow(x).from !== "brief") continue;
+      summaryFor(x).catch((e) => { if (e.code === "rate") PF.pause = Date.now() + 30000; });
+      await sleep(800);
+    }
+    PF.running = false;
+  }
+  const onSummary = (fn) => { listeners.push(fn); };
+
   // ─────────────────────────── Wikipedia ───────────────────────────
   const wikiCache = new Map();
   // → {title, desc, extract, url, others, fit} or null. With context (the story's words), the hit that shares
@@ -389,15 +490,13 @@
   const cite = (o) => `<li>${esc(o.text)} <span class="bot-src">— ${esc(o.src)}</span></li>`;
   const sub = (t, note) => `<p class="bot-sub">${esc(t)}${note ? ` <span class="bot-src">${esc(note)}</span>` : ""}</p>`;
   const NOTE_TAG = "Claude's study note";
-  // the pipeline's placeholder lines: "Reported on 26 Sep by …", "Explainer by …, 26 Sep. Open it for the full piece."
-  const WEAK = /^(reported (on|by) |(opinion piece|explainer)\b.*open it for the full (argument|piece)\.?$)/i;
-
-  const STORY_CHIPS = ["Summary", "60-word summary", "5W", "Static background", "Make 2 Prelims MCQs", "Mains answer outline",
-    "हिंदी में समझाएं", "Link to syllabus", "Prelims facts", "Search the web", "Other outlets", "Related stories", "Videos", "Ask Claude ↗"];
+  const STORY_CHIPS = ["60-word summary", "Static background", "Make 2 Prelims MCQs", "Mains answer outline", "हिंदी में समझाएं",
+    "Link to syllabus", "Summary", "Search the web", "5W", "Prelims facts", "Other outlets", "Related stories", "Videos", "Ask Claude ↗"];
   const DAY_CHIPS = ["Top stories", "GS1", "GS2", "GS3", "GS4", "Prelims", "Ask Claude ↗"];
   function intentOf(q) {
     const t = String(q || "").toLowerCase().trim();
     if (/claude/.test(t)) return "claude";
+    if (/^summari[sz]e the full article/.test(t)) return "websummary";
     if (/\bhindi\b|हिंदी|हिन्दी/.test(t)) return "hindi";
     if (/\bmcqs?\b|quiz|test me/.test(t)) return "mcq";
     if (/outline|mains answer|answer writing|structure (an|the|my) answer/.test(t)) return "outline";
@@ -578,14 +677,13 @@
     async function storyAnswer(s, q, { onStep, deep } = {}) {
       const e = s.explain || {}; const n = noteOf(s); const intent = deep ? "deep" : intentOf(q);
       const corpus = corpusOf(s);
-      if (intent === "summary") {
-        if (n && n.points && n.points.length) return `${sub(`Summary · ${n.points.length} points`, NOTE_TAG)}${list(n.points.map(esc), "ol")}<p class="bot-src">${btn("chip", "Summarise the full article from the web", { q: "Read the full article" })}</p>`;
-        const r = await fromWeb(s, onStep);
-        if (r.g && r.g.read.length) {
-          const pts = summarize(sentencesFrom(r.g.read[0]), 8);
-          return `${sub(`Summary · ${pts.length} points`)}${list(pts.map((x) => esc(x.text)), "ol")}<p class="bot-src">${sourceLine(r.g)}</p>`;
-        }
-        return `${sub("Summary from the brief")}${quickSummary(s) || "<p>The outlets carried only the headline.</p>"}${othersSay(r.g)}${webFail(r)}${claudeBtn("Summarise this story for UPSC")}`;
+      if (intent === "summary" || intent === "websummary") {  // the shared summary: instant when a card already read it
+        if (intent === "summary" && n && n.points && n.points.length) return `${sub(`Summary · ${n.points.length} points`, NOTE_TAG)}${list(n.points.map(esc), "ol")}<p class="bot-src">${btn("chip", "Summarise the full article from the web", { q: "Summarise the full article from the web" })}</p>`;
+        let r;
+        try { r = await summaryFor(s, { onStep }); } catch (err) { r = { miss: true, err }; }
+        if (r.points) return `${sub(`Summary · ${r.points.length} points`)}${list(r.points.map(esc), "ol")}<p class="bot-src">${sourceHtml(r.src)} Lines are quoted from it.</p>`;
+        return `${sub("Summary from the brief")}${quickSummary(s) || "<p>The outlets carried only the headline.</p>"}${othersSay({ hits: r.hits || [] })}
+          <p class="bot-src">${r.err ? esc(r.err.message) : `No free copy of this story could be read${(r.closed || []).length ? ` (the original on ${esc(r.closed.join(", "))} is subscriber-only)` : ""}.`}</p>${claudeBtn("Summarise this story for UPSC")}`;
       }
       if (intent === "s60") {
         if (n && n.summary60) return `${sub("In 60 words", NOTE_TAG)}${para(n.summary60)}`;
@@ -771,7 +869,8 @@
 
   root.UPSCCore = Object.freeze({
     STOPW, stem, words, sentencesOf, FURNITURE, overlap, rank, summarize, brief, termOf, termFrom, searchQuery, esc, safeUrl,
-    makeBot, intentOf, clozes, toHindi,
+    makeBot, intentOf, clozes, toHindi, cleanText, localPoints, WEAK,
+    summaryNow, summaryFor, sourceHtml, prefetch, onSummary, readerLoad,
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
   });

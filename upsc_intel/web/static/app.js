@@ -4,6 +4,7 @@
   "use strict";
 
   const STATIC = !!window.UPSC_STATIC;
+  const CORE = window.UPSCCore;  // the Ask bot's engine and the shared summaries (static/intel-core.js)
   const SNAPSHOT = !!window.UPSC_SNAPSHOT; // frozen export: no polling, no downloads
   const POLL_MS = STATIC ? 300000 : 60000;
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -103,7 +104,10 @@
   ];
   const tierGroup = (t) => (TIER_GROUPS.find((g) => g[2].includes(t)) || ["news"])[0];
   const GRADES = ["NOTE", "SKIM", "READ"];
-  const GRADE_HELP = { NOTE: "High yield: make notes", SKIM: "Worth knowing", READ: "Background only", LOW: "Probably not examinable" };
+  const GRADE_HELP = { NOTE: "High yield: make notes on it", SKIM: "Know the key facts: a quick read is enough", READ: "Background only", LOW: "Probably not examinable" };
+  // how deep to study it (the grader's NOTE / SKIM / READ, in words): every brief card is must-know, this says how much
+  const GRADE_LABEL = { NOTE: "Make notes", SKIM: "Quick read", READ: "Background", LOW: "Low" };
+  const gradeName = (g) => GRADE_LABEL[g] || g;
   const PAPERS = ["GS1", "GS2", "GS3", "GS4", "Prelims"];
   const BRIEF_TABS = new Set(["brief", "editorials", "explained", "videos"]);
   // how each kind of piece is labelled on its card
@@ -338,28 +342,71 @@
       <span class="thumb"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy" onerror="this.remove()"><span class="playbadge">${ICON.play}</span></span>
       <span class="vmeta"><b>${esc(v.title)}</b><small>${lang} · ${esc(v.channel || "")}${v.published ? " · " + esc(shortTime(v.published)) : ""}</small></span></a>`).join("");
   }
+  // Summary box: Claude's note, the full article read from a free copy (fetched when the card opens, or in the
+  // background for cards on screen), or until then the key lines of the outlets' reports.
+  const SUMSTEP = new Map();
+  function summaryBox(s) {
+    const P = CORE.summaryNow(s); const step = SUMSTEP.get(s.id);
+    const src = P.from === "web" ? `${CORE.sourceHtml(P.src)} Lines are quoted from it.`
+      : P.from === "note" ? "Claude's study note."
+      : step || P.busy ? `<span class="sumstep">${esc(step || "Reading the full article…")}</span>`
+      : P.miss ? `No free copy of the full article could be read${(P.src && P.src.closed || []).length ? ` (the original on ${esc(P.src.closed.join(", "))} is subscriber-only)` : ""}: these are the key lines from the outlets' reports.`
+      : "Key lines from the outlets' reports.";
+    return `<section class="sumbox" data-sum="${esc(s.id)}"><div class="sumh"><span class="adot"></span>Summary · ${plural(P.points.length, "point")}</div>
+      ${P.points.length ? `<ul class="pts">${P.points.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="pts-none">The outlets carried only the headline.</p>'}
+      <p class="sumsrc">${src}</p></section>`;
+  }
+  function patchSummary(id) {
+    const s = findStory(id); if (!s) return;
+    const sel = window.CSS && CSS.escape ? CSS.escape(id) : id;
+    $$(`.sumbox[data-sum="${sel}"]`).forEach((el) => { el.outerHTML = summaryBox(s); });
+  }
+  function startSummary(s) {  // an opened card reads its article now, ahead of the background queue
+    const P = CORE.summaryNow(s);
+    if (P.from !== "brief" || P.miss) return;
+    SUMSTEP.set(s.id, "Finding the full article…"); patchSummary(s.id);
+    CORE.summaryFor(s, { onStep: (m) => { SUMSTEP.set(s.id, m); patchSummary(s.id); } })
+      .catch((e) => toast(esc(e.message || "Couldn't reach the web just now.")))
+      .finally(() => { SUMSTEP.delete(s.id); patchSummary(s.id); });
+  }
+  CORE.onSummary((id) => patchSummary(id));
+  let cardWatch = null;
+  function watchCards() {  // cards on screen get their summaries in the background, nearest first
+    if (cardWatch) cardWatch.disconnect();
+    if (!("IntersectionObserver" in window)) return;
+    cardWatch = new IntersectionObserver((entries) => {
+      const seen = entries.filter((x) => x.isIntersecting).map((x) => findStory(x.target.dataset.id)).filter(Boolean);
+      if (seen.length) CORE.prefetch(seen);
+    }, { rootMargin: "400px 0px" });
+    $$("#content .bcard[data-id]").forEach((el) => cardWatch.observe(el));
+  }
+  const QUICK = ["60-word summary", "Static background", "Make 2 Prelims MCQs", "Mains answer outline", "हिंदी में समझाएं", "Link to syllabus"];
   function explainBody(s) {
     const e = s.explain || {};
     const labels = S.meta.labels.subjects;
     const li = (arr) => `<ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
-    const rows = [];
-    if (e.what) rows.push([WHAT_LABEL[kindOf(s)], `<p>${esc(e.what)}</p>`]);
-    if (e.when) rows.push(["When", `<p>${esc(e.when)}</p>`]);
-    if (e.where) rows.push(["Where", `<p>${esc(e.where)}</p>`]);
-    if (e.who) rows.push(["Who", `<p>${esc(e.who)}</p>`]);
-    if (e.background) rows.push(["Background", `<p>${esc(e.background)}</p>`]);
-    if (e.significance && e.significance.length) rows.push([SIG_LABEL[kindOf(s)], li(e.significance)]);
-    if (e.prelims && e.prelims.length) rows.push(["Prelims facts", li(e.prelims)]);
-    if (e.mains) rows.push(["Mains question", `<p class="mq">${esc(e.mains)}</p>`]);
-    if (e.keywords && e.keywords.length) rows.push(["Keywords", `<p class="kw">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</p>`]);
+    const study = []; const details = [];
+    const what = CORE.cleanText(e.what);
+    if (what && !e.auto) study.push([WHAT_LABEL[kindOf(s)], `<p>${esc(what)}</p>`]); else if (what) details.push([WHAT_LABEL[kindOf(s)], `<p>${esc(what)}</p>`]);
+    if (e.when) details.push(["When", `<p>${esc(e.when)}</p>`]);
+    if (e.where) details.push(["Where", `<p>${esc(e.where)}</p>`]);
+    if (e.who) details.push(["Who", `<p>${esc(e.who)}</p>`]);
+    if (e.background) (e.auto ? details : study).push(["Background", `<p>${esc(e.background)}</p>`]);
+    if (e.significance && e.significance.length) (e.auto ? details : study).push([SIG_LABEL[kindOf(s)], li(e.significance)]);
+    if (e.prelims && e.prelims.length) study.push(["Prelims facts", li(e.prelims)]);
+    if (e.mains) study.push(["Mains question", `<p class="mq">${esc(e.mains)}</p>`]);
+    if (e.keywords && e.keywords.length) study.push(["Keywords", `<p class="kw">${e.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</p>`]);
     const srcs = (s.sources || []).slice(0, 6).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}${x.s ? ` · ${esc(x.s)}` : ""}</a>`).join("");
-    rows.push(["Read the original", `<p class="srcs">${srcs}${s.n_src > 6 ? `<span>+${s.n_src - 6} more</span>` : ""}</p>`]);
     const subj = s.subjects.map((x) => labels[x] || x).join(" · ");
+    const dl = (rows) => `<dl class="explain">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>`;
     return `<div class="bbody">
-      <dl class="explain">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join("")}</dl>
+      ${summaryBox(s)}
+      <div class="qchips">${QUICK.map((q) => `<button class="chip qchip" data-act="askq" data-q="${esc(q)}">${esc(q)}</button>`).join("")}<button class="chip qchip claude" data-act="askclaude" title="Opens Claude with this story, on your own Claude account">Ask Claude ↗</button></div>
+      ${study.length ? dl(study) : ""}
       ${videoBlock(s)}
-      ${e.auto ? `<p class="autonote">Auto write-up from what ${s.n_pub > 1 ? `the ${s.n_pub} outlets` : "the outlet"} published; names, places and dates are only those in the text. ${S.meta.ai_enabled ? "Full AI notes are on the way for this story." : "Add an AI key to get full notes: background, Mains question and keywords."}</p>` : ""}
-      <p class="meta-line">${esc(subj)}${s.n_pub > 1 ? ` · reported by ${s.n_pub} outlets` : ""}${s.dates.length > 1 ? ` · in the news since ${esc(dayShort(s.dates[0]))}` : ""}</p>
+      <p class="srcs-line"><b>Read the original:</b> <span class="srcs">${srcs}${s.n_src > 6 ? `<span>+${s.n_src - 6} more</span>` : ""}</span></p>
+      ${details.length || subj ? `<details class="details5w"><summary>Details: when, where, who and the syllabus</summary>${details.length ? dl(details) : ""}
+        <p class="meta-line">${esc(subj)}${s.n_pub > 1 ? ` · reported by ${s.n_pub} outlets` : ""}${s.dates.length > 1 ? ` · in the news since ${esc(dayShort(s.dates[0]))}` : ""}</p></details>` : ""}
       ${S.noteOpen.has(s.id) || mark(s).note ? `<div class="note"><textarea data-act="notetext" placeholder="Your notes for revision…" aria-label="Note">${esc(mark(s).note)}</textarea></div>` : ""}
     </div>`;
   }
@@ -367,7 +414,7 @@
     const mk = mark(s); const e = s.explain || {};
     const open = S.openCards.has(s.id);
     const headline = e.headline || s.title;
-    const why = e.why_in_news || e.what || s.summary || "";
+    const why = CORE.cleanText(e.why_in_news) || CORE.cleanText(e.what) || CORE.cleanText(s.summary) || "";
     const labels = S.meta.labels.subjects;
     const firstSrc = (s.sources[0] && s.sources[0].p) || "Source";
     return `<article class="bcard ${open ? "open" : ""} ${mk.read ? "read" : ""} ${opts.compact ? "compact" : ""}" data-id="${s.id}"${opts.rank ? ` data-rank="${opts.rank}"` : ""}${opts.day ? ` data-day="${opts.day}"` : ""}${opts.showSubject ? " data-subj=\"1\"" : ""}>
@@ -376,7 +423,7 @@
           ${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}
           ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
           ${opts.day ? `<span class="pill daychip">${esc(dayShort(opts.day))}</span>` : ""}
-          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span>
+          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${gradeName(s.grade)}</span>
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${opts.showSubject && s.subjects[0] ? `<span class="pill subj">${esc(labels[s.subjects[0]] || s.subjects[0])}</span>` : ""}
           ${s.tags.filter((t) => t !== "Data/Stats").slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
@@ -389,7 +436,7 @@
       <div class="bactions">
         ${videoChip(s)}
         <a class="vchip ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${ICON.ext}<span>${esc(firstSrc)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></a>
-        <button class="vchip ask" data-act="ask" title="Ask for a summary, the 5 Ws, Prelims facts or background">${ICON.ask}<span>Ask</span></button>
+        <button class="vchip ask" data-act="ask" title="Ask Intel: a summary, MCQs, a Mains outline, Hindi, background…"><span class="adot"></span><span>Ask Intel</span></button>
         <span class="spacer"></span>
         <button class="icon" data-act="star" aria-pressed="${mk.starred}" title="Star for revision" aria-label="Star">${mk.starred ? ICON.starOn : ICON.star}</button>
         <button class="icon" data-act="note" aria-pressed="${!!mk.note}" title="Add a note" aria-label="Note">${ICON.note}</button>
@@ -403,10 +450,10 @@
     const mk = mark(s); const open = S.openCards.has(s.id);
     const pub = (s.sources[0] && s.sources[0].p) || "";
     return `<li class="mrow ${open ? "open" : ""} ${mk.read ? "read" : ""}" data-id="${s.id}">
-      <button class="mhead" data-act="toggle" aria-expanded="${open}"><span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span><span class="mtitle">${esc(s.title)}</span><span class="msrc">${esc(pub)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></button>
-      ${open ? `<div class="mbody">${s.summary ? `<p>${esc(s.summary)}</p>` : ""}
+      <button class="mhead" data-act="toggle" aria-expanded="${open}"><span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${gradeName(s.grade)}</span><span class="mtitle">${esc(s.title)}</span><span class="msrc">${esc(pub)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></button>
+      ${open ? `<div class="mbody">${summaryBox(s)}
         <p class="srcs">${(s.sources || []).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}</a>`).join("")}</p>
-        <div class="bactions">${videoChip(s)}<button class="vchip ask" data-act="ask" title="Ask for a summary, the 5 Ws or background">${ICON.ask}<span>Ask</span></button><span class="spacer"></span>
+        <div class="bactions">${videoChip(s)}<button class="vchip ask" data-act="ask" title="Ask Intel"><span class="adot"></span><span>Ask Intel</span></button><span class="spacer"></span>
           <button class="icon" data-act="star" aria-pressed="${mk.starred}" title="Star for revision" aria-label="Star">${mk.starred ? ICON.starOn : ICON.star}</button>
           <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button></div></div>` : ""}
     </li>`;
@@ -439,7 +486,7 @@
     const title = S.view === "day" ? `${plural(news.length, "must-know story", "must-know stories")}${more.length ? ` + ${more.length} more` : ""} · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`
       : `${plural(news.length, "story", "stories")} covered · ${plural(eds.length, "editorial")} · ${plural(exps.length, "explainer")}`;
     const sub = S.view === "day"
-      ? `Covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
+      ? `${news.some((x) => x.grade === "NOTE") ? `${plural(news.filter((x) => x.grade === "NOTE").length, "story", "stories")} to make notes on, the rest a quick read` : "Each one a quick read"} · covers ${areas} of ${Object.keys(S.meta.labels.subjects).length} syllabus areas · about ${minutes} min for the cards · picked from ${plural(totalReported, "story", "stories")} reported · no fixed limit: every story that clears the bar is here`
       : `Across ${areas} syllabus areas · from ${plural(briefDays().length, "daily brief")}${to > todayIST() ? " so far" : ""} · picked from ${plural(totalReported, "story", "stories")} reported${nMore() ? ` · ${nMore()} more are listed in the daily briefs` : ""}`;
     return `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${esc(eyebrow)}</div><h1>${esc(title)}</h1><p>${esc(sub)}</p></div>
       <div class="bhero-side">${progress(all)}${gsChips()}</div></header>`;
@@ -613,7 +660,7 @@
     $("#side").innerHTML = `
       <div class="fgroup"><h3>Paper</h3><div class="chips">${PAPERS.map((g) => `<button class="chip" data-f="gs" data-v="${g}" aria-pressed="${S.f.gs.has(g)}" title="${esc(m.gs_papers[g] || "Prelims facts")}">${g} <span class="n">${gsCounts[g] || 0}</span></button>`).join("")}</div></div>
       <div class="fgroup"><h3>Revision grade</h3>
-        <div class="chips">${GRADES.map((g) => `<button class="chip" data-f="grade" data-v="${g}" aria-pressed="${S.f.grades.has(g)}" title="${GRADE_HELP[g]}">${g}</button>`).join("")}</div>
+        <div class="chips">${GRADES.map((g) => `<button class="chip" data-f="grade" data-v="${g}" aria-pressed="${S.f.grades.has(g)}" title="${GRADE_HELP[g]}">${gradeName(g)}</button>`).join("")}</div>
         <label class="toggle" title="${GRADE_HELP.LOW}. Nothing is ever deleted: switch this on to see everything."><input type="checkbox" data-f="low" ${S.f.low ? "checked" : ""}> Show LOW too (everything)</label></div>
       <div class="fgroup"><h3>Subject</h3><ul class="flist">${Object.entries(labels).map(([k, l]) => `<li><button data-f="subject" data-v="${k}" aria-pressed="${S.f.subjects.has(k)}"><span>${esc(l)}<span class="gs">${esc(gsOf[k] || "")}</span></span><span class="n">${subjCounts[k] || 0}</span></button></li>`).join("")}</ul></div>
       <div class="fgroup"><h3>Source type</h3><ul class="flist">${TIER_GROUPS.map(([k, l]) => `<li><button data-f="tier" data-v="${k}" aria-pressed="${S.f.tiers.has(k)}"><span>${esc(l)}</span><span class="n">${tierCounts[k] || 0}</span></button></li>`).join("")}</ul></div>
@@ -663,7 +710,7 @@
       <div class="card-top">
         <div class="pills">
           ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
-          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${s.grade}</span>
+          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${gradeName(s.grade)}</span>
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${s.subjects.slice(0, 2).map((x) => `<span class="pill subj">${esc(labels[x] || x)}</span>`).join("")}
           ${s.tags.slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
@@ -775,6 +822,10 @@
   }
 
   function renderAll() {
+    renderScreen();
+    watchCards();
+  }
+  function renderScreen() {
     renderPeriod(); renderLive(); renderTabs(); setLayout();
     if (S.search) return renderSearch();
     if (S.tab === "brief") return renderBrief();
@@ -919,7 +970,7 @@
     let md = `# UPSC Intel · ${periodLabel(S.view, S.anchor)}\n\n_exported ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST_\n`;
     const block = (s) => {
       const e = s.explain || {};
-      let out = `\n### ${e.headline || s.title}\n\`${s.grade}\` ${s.gs.join(" ")}${s.tags.length ? " · " + s.tags.join(", ") : ""}${S.view !== "day" && s._day ? " · " + s._day : ""}\n\n`;
+      let out = `\n### ${e.headline || s.title}\n\`${gradeName(s.grade)}\` ${s.gs.join(" ")}${s.tags.length ? " · " + s.tags.join(", ") : ""}${S.view !== "day" && s._day ? " · " + s._day : ""}\n\n`;
       if (e.why_in_news) out += `- **Why in news:** ${e.why_in_news}\n`;
       if (e.what) out += `- **What happened:** ${e.what}\n`;
       if (e.when) out += `- **When:** ${e.when}\n`;
@@ -945,7 +996,7 @@
       const exps = briefList("explained").filter(briefPasses);
       if (exps.length) md += `\n## Explained\n` + exps.map(block).join("");
     } else {
-      for (const s of sortStories(briefingPool().filter((x) => passes(x)))) md += `\n- **${s.title}** \`${s.grade}\` ${s.gs.join(" ")} · [${(s.sources[0] || {}).p || "source"}](${s.url})`;
+      for (const s of sortStories(briefingPool().filter((x) => passes(x)))) md += `\n- **${s.title}** \`${gradeName(s.grade)}\` ${s.gs.join(" ")} · [${(s.sources[0] || {}).p || "source"}](${s.url})`;
     }
     const blob = new Blob([md], { type: "text/markdown" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
@@ -1111,10 +1162,15 @@
     }
     const cardEl = t.closest(".card, .bcard, .mrow"); if (!cardEl) return;
     const id = cardEl.dataset.id;
-    if (t.dataset.act === "toggle" || t.dataset.act === "expand") { toggleSet(S.openCards, id); rerenderCard(cardEl); }
+    if (t.dataset.act === "toggle" || t.dataset.act === "expand") {
+      toggleSet(S.openCards, id); rerenderCard(cardEl);
+      if (S.openCards.has(id)) { const s = findStory(id); if (s) startSummary(s); }
+    }
     else if (t.dataset.act === "star") { await api.setMark(id, { starred: !mark({ id }).starred }); renderTabs(); rerenderCard(cardEl); }
     else if (t.dataset.act === "read") { await api.setMark(id, { read: !mark({ id }).read }); rerenderCard(cardEl); }
     else if (t.dataset.act === "ask") botOpen(id);
+    else if (t.dataset.act === "askq") botOpen(id, t.dataset.q);
+    else if (t.dataset.act === "askclaude") { botOpen(id); askClaude(""); }
     else if (t.dataset.act === "note") {
       toggleSet(S.noteOpen, id); S.openCards.add(id); rerenderCard(cardEl);
       const ta = $(`[data-id="${id}"] textarea`); if (ta) ta.focus();
@@ -1174,7 +1230,7 @@
   // reads the full article from a free-to-read site (finding one through a news search when the original is
   // paywalled), and looks up background on Wikipedia. No key and no server. "Ask Claude" opens Claude with
   // the story and the question on the viewer's own Claude plan.
-  const CORE = window.UPSCCore;
+  const LOGO = '<svg class="bot-logo" viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1c5cab"/><path d="M15 17v9a9 9 0 0 0 18 0v-9" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><circle cx="33" cy="8.5" r="3.6" fill="#fab219"/></svg>';
   const BOT = { id: null, log: [], busy: false, step: "", last: "" };
   const bot = CORE.makeBot({
     labels: () => S.meta && S.meta.labels,
@@ -1187,9 +1243,9 @@
   function botEnsure() {
     if ($("#bot")) return;
     document.body.insertAdjacentHTML("beforeend", `
-      <button id="botFab" class="bot-fab" data-bot="open" aria-label="Ask about the news" title="Ask about a story or the day">${ICON.ask}<span>Ask</span></button>
+      <button id="botFab" class="bot-fab" data-bot="open" aria-label="Ask Intel" title="Ask about a story or the day"><span class="adot"></span><span>Ask Intel</span></button>
       <section id="bot" class="bot" hidden role="dialog" aria-labelledby="botTitle">
-        <header class="bot-h"><div class="bot-t"><b id="botTitle">Ask</b><small id="botCtx"></small></div>
+        <header class="bot-h">${LOGO}<div class="bot-t"><b id="botTitle">Ask Intel</b><small id="botCtx"></small></div>
           <button class="bot-x" data-bot="day" title="Ask about the whole day instead">Whole day</button>
           <button class="bot-x" data-bot="close" aria-label="Close">✕</button></header>
         <div id="botLog" class="bot-log" aria-live="polite"></div>
@@ -1209,13 +1265,16 @@
       + (BOT.busy ? `<div class="bot-msg from-bot typing" aria-label="Working">${BOT.step ? `<span class="bot-step">${esc(BOT.step)}</span>` : "…"}</div>` : "");
     $("#botLog").scrollTop = $("#botLog").scrollHeight;
   }
-  function botOpen(id) {
+  async function botOpen(id, first) {  // a story: its summary comes first, without asking
     botEnsure();
     const s = id ? findStory(id) : null;
     const next = s ? s.id : null;
-    if (next !== BOT.id || !BOT.log.length) { BOT.id = next; BOT.log.push({ who: "from-bot", html: bot.welcome(s) }); }
+    const fresh = next !== BOT.id || !BOT.log.length;
+    if (fresh) { BOT.id = next; BOT.log = []; if (!s) BOT.log.push({ who: "from-bot", html: bot.welcome(null) }); }
     $("#bot").hidden = false; $("#botFab").hidden = true;
     botRender(); $("#botQ").focus();
+    if (fresh && s) await botAsk("Summary", { auto: true });
+    if (first) botAsk(first);
   }
   function botClose() { $("#bot").hidden = true; $("#botFab").hidden = false; $("#botFab").focus(); }
   function askClaude(q) {  // must run inside the click: a new tab opened after an await is blocked as a pop-up
@@ -1227,7 +1286,8 @@
   async function botAsk(q, opts = {}) {
     if (!opts.url && bot.intentOf(q) === "claude") { BOT.log.push({ who: "from-me", html: `<p>${esc(q)}</p>` }); return askClaude(""); }
     const s = BOT.id ? findStory(BOT.id) : null;
-    BOT.log.push({ who: "from-me", html: `<p>${esc(opts.label || q)}</p>` }); BOT.busy = true; BOT.step = ""; botRender();
+    if (!opts.auto) BOT.log.push({ who: "from-me", html: `<p>${esc(opts.label || q)}</p>` });
+    BOT.busy = true; BOT.step = ""; botRender();
     if (!opts.url) BOT.last = q;
     const onStep = (m) => { BOT.step = m; botRender(); };
     let html;

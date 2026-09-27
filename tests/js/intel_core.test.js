@@ -175,6 +175,26 @@ test("the bot's summary reads the free copy and says where it came from", async 
   assert.ok(qa.includes("restructuring of crop loans"));
 });
 
+test("one summary per story, shared by every screen: the brief's lines, then the free full article", async () => {
+  PAGES.BING = BING;
+  PAGES["https://www.deccanchronicle.com/nation/drought-265-talukas-1"] = ARTICLE;
+  const story = { id: "s9", title: "Maharashtra govt declares 265 of 358 talukas drought-affected", sources: [{ p: "The Hindu", u: "https://www.thehindu.com/news/x.ece" }],
+    explain: { why_in_news: "Reported on 26 Sep by The Hindu.", auto: true }, summary: "Source: The post has been created based on the article. The state declared 265 talukas drought-affected on Saturday after a weak monsoon." };
+  const before = C.summaryNow(story);
+  assert.strictEqual(before.from, "brief");
+  assert.ok(before.points.length === 1 && before.points[0].startsWith("The state declared"));  // placeholder and furniture dropped
+  const heard = [];
+  C.onSummary((id, out) => heard.push([id, !!out.points]));
+  const [a, b] = await Promise.all([C.summaryFor(story), C.summaryFor(story)]);  // asked twice, read once
+  assert.strictEqual(a, b);
+  const now = C.summaryNow(story);
+  assert.strictEqual(now.from, "web");
+  assert.strictEqual(now.src.domain, "deccanchronicle.com");
+  assert.ok(now.points[0].startsWith("The Maharashtra government"));
+  assert.ok(C.sourceHtml(now.src).includes("free report of the same story") && C.sourceHtml(now.src).includes("thehindu.com"));
+  assert.deepStrictEqual(heard, [["s9", true]]);
+});
+
 test("background picks the Wikipedia page that fits the story", async () => {
   const bot = C.makeBot({});
   const story = { id: "s3", title: "Do not spread fears over ESA notification: Minister", grade: "SKIM", gs: ["GS3"], subjects: ["environment"], tags: [], sources: [],
