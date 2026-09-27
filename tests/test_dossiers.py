@@ -151,3 +151,34 @@ def test_the_api_and_the_brief_link_dossiers(db, settings, clf):
     with TestClient(create_app(settings, scheduler=False)) as c:
         assert [d["key"] for d in c.get("/api/dossiers").json()["dossiers"]] == ["waqf"]
         assert c.get("/api/places").json()["places"] == []
+
+
+def test_listed_issues_make_dossiers_without_ai(db, settings):
+    story(db, "m1", "Naga leaders agree to open key Manipur highway", ago(1))
+    story(db, "m2", "AFSPA extended in Manipur and Nagaland", ago(4), grade="SKIM")
+    story(db, "m3", "Manipur: a football final", ago(2), grade="READ")                   # not worth reading
+    story(db, "c1", "India and China resume border trade", ago(1))
+    story(db, "c2", "China's exports slow", ago(3))                                       # the headline lacks "India"
+    story(db, "c3", "India, China hold corps commander talks", ago(6))
+    story(db, "o1", "Cheetah cubs born in Kuno", ago(40)); story(db, "o2", "Cheetah moved to Gandhi Sagar", ago(38))  # not recent
+    db.commit()
+    p = D.dossiers_payload(settings, db, DAY)
+    by = {d["name"]: d for d in p["dossiers"]}
+    assert set(by) == {"Manipur crisis", "India–China relations"}
+    assert [x["id"] for x in by["Manipur crisis"]["timeline"]] == ["m1", "m2"] and by["Manipur crisis"]["gs"] == ["GS2", "GS3"]
+    assert [x["id"] for x in by["India–China relations"]["timeline"]] == ["c1", "c3"] and by["Manipur crisis"]["seed"]
+    # an AI topic on the same story is one dossier with the listed one (the bigger stays)
+    story(db, "m4", "Centre, Naga groups sign deal on Manipur highway", DAY, topics=["manipur-highway-talks"])
+    story(db, "m5", "Highway reopens after talks", DAY, topics=["manipur-highway-talks"])
+    topic(db, "manipur-highway-talks", "Manipur highway talks", "Manipur highway", ago(1), DAY)
+    db.commit()
+    names = [d["name"] for d in D.dossiers_payload(settings, db, DAY)["dossiers"]]
+    assert names.count("Manipur crisis") + names.count("Manipur highway talks") == 1
+
+
+def test_a_republished_report_counts_once(db, settings):
+    story(db, "g1", "Inflation clouds outlook", ago(1)); story(db, "g2", "Inflation clouds outlook", ago(1))
+    story(db, "g3", "Retail inflation rises in August", ago(5))
+    db.commit()
+    d = {d["name"]: d for d in D.dossiers_payload(settings, db, DAY)["dossiers"]}["Inflation"]
+    assert d["n"] == 2 and d["days"] == 2

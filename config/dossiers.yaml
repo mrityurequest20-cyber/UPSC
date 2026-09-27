@@ -1,0 +1,63 @@
+# Running stories a UPSC aspirant follows (pipeline/dossiers.py): each becomes a dossier while it is in the news.
+# A topic's timeline is every story worth reading whose headline carries ALL its query words (a full-text search of
+# everything stored), so a topic shows only when it has reports on two days in the last month. Intel AI adds more
+# topics as it reads the brief's cards, reusing these names when one fits; the story so far is written by Intel AI.
+#   name · query (1-3 words every headline on it has; prefixes count: "Naxal" finds "Naxalism") · gs
+topics:
+  # ── polity and governance ──
+  - {name: "Waqf (Amendment) Act", query: "Waqf", gs: [GS2]}
+  - {name: "Manipur crisis", query: "Manipur", gs: [GS2, GS3]}
+  - {name: "Census and caste enumeration", query: "Census", gs: [GS1, GS2]}
+  - {name: "Revision of electoral rolls (SIR)", query: "electoral roll", gs: [GS2]}
+  - {name: "One Nation One Election", query: "One Nation One Election", gs: [GS2]}
+  - {name: "Delimitation", query: "delimitation", gs: [GS2]}
+  - {name: "Governors and state bills", query: "Governor assent", gs: [GS2]}
+  - {name: "New criminal laws (BNS, BNSS, BSA)", query: "criminal laws", gs: [GS2]}
+  - {name: "Judicial appointments and the collegium", query: "collegium", gs: [GS2]}
+  - {name: "Uniform Civil Code", query: "Uniform Civil Code", gs: [GS2]}
+  - {name: "Language policy and the three-language formula", query: "three language", gs: [GS2]}
+  - {name: "Ladakh: statehood and the Sixth Schedule", query: "Ladakh", gs: [GS2, GS3]}
+  - {name: "Jammu and Kashmir statehood", query: "Kashmir statehood", gs: [GS2]}
+  - {name: "Left-wing extremism", query: "Naxal", gs: [GS3]}
+  - {name: "Anti-defection law", query: "defection", gs: [GS2]}
+  # ── economy ──
+  - {name: "Tariffs and trade tensions", query: "tariff", gs: [GS2, GS3]}
+  - {name: "India–EU trade deal", query: "India EU trade", gs: [GS2, GS3]}
+  - {name: "India–US trade deal", query: "India US trade deal", gs: [GS2, GS3]}
+  - {name: "GST reforms", query: "GST", gs: [GS3]}
+  - {name: "RBI monetary policy", query: "repo rate", gs: [GS3]}
+  - {name: "Inflation", query: "inflation", gs: [GS3]}
+  - {name: "The rupee and forex reserves", query: "rupee", gs: [GS3]}
+  - {name: "Labour codes", query: "labour codes", gs: [GS3]}
+  - {name: "Semiconductor mission", query: "semiconductor", gs: [GS3]}
+  - {name: "Critical minerals", query: "critical minerals", gs: [GS3]}
+  - {name: "Nuclear power", query: "nuclear power", gs: [GS3]}
+  - {name: "MSP and farm policy", query: "MSP", gs: [GS3]}
+  - {name: "Eighth Pay Commission", query: "Pay Commission", gs: [GS2, GS3]}
+  - {name: "Monsoon", query: "monsoon", gs: [GS1, GS3]}
+  - {name: "Data protection (DPDP)", query: "data protection", gs: [GS2, GS3]}
+  # ── international relations ──
+  - {name: "India–China relations", query: "India China", gs: [GS2]}
+  - {name: "India–Pakistan relations", query: "India Pakistan", gs: [GS2, GS3]}
+  - {name: "Indus Waters Treaty", query: "Indus Waters", gs: [GS2]}
+  - {name: "Bangladesh", query: "Bangladesh", gs: [GS2]}
+  - {name: "Nepal", query: "Nepal", gs: [GS2]}
+  - {name: "Sri Lanka", query: "Sri Lanka", gs: [GS2]}
+  - {name: "Maldives", query: "Maldives", gs: [GS2]}
+  - {name: "Myanmar", query: "Myanmar", gs: [GS2, GS3]}
+  - {name: "Afghanistan", query: "Afghanistan", gs: [GS2]}
+  - {name: "India–Canada relations", query: "Canada", gs: [GS2]}
+  - {name: "Russia–Ukraine war", query: "Ukraine", gs: [GS2]}
+  - {name: "Gaza and Israel", query: "Gaza", gs: [GS2]}
+  - {name: "Iran", query: "Iran", gs: [GS2]}
+  - {name: "Quad", query: "Quad", gs: [GS2]}
+  - {name: "BRICS", query: "BRICS", gs: [GS2]}
+  - {name: "UN Security Council reform", query: "Security Council", gs: [GS2]}
+  # ── environment, science and security ──
+  - {name: "Climate talks (COP31)", query: "COP31", gs: [GS3]}
+  - {name: "Air pollution", query: "pollution", gs: [GS3]}
+  - {name: "Project Cheetah", query: "cheetah", gs: [GS3]}
+  - {name: "Great Nicobar project", query: "Great Nicobar", gs: [GS3]}
+  - {name: "Gaganyaan", query: "Gaganyaan", gs: [GS3]}
+  - {name: "Chandrayaan", query: "Chandrayaan", gs: [GS3]}
+  - {name: "Heatwaves", query: "heatwave", gs: [GS1, GS3]}

@@ -1028,7 +1028,7 @@ Rules:
           const full = trimEdges(await read(page.url), s);
           if (full.words > page.words && sameStory(full, words(s.title), OWN_FIT)) page = { ...full, via: page.via };
         } catch (err) { if (err.code === "rate") { /* the opening will do */ } }
-      } else if (!page) {
+      } else if (!page && !s.kind) {  // a dossier or an index answers from its own reports
         const r = await fromWeb(s, onStep);
         if (r.g && r.g.read.length) page = r.g.read[0];
       }
@@ -1040,8 +1040,9 @@ Rules:
         ["Background", !e.auto && e.background], ["Why it matters", !e.auto && (e.significance || []).join("; ")]].filter(([, v]) => v && !WEAK.test(v));
       if (w.length) lines.push("", "WRITE-UP:", ...w.map(([k, v]) => `${k}: ${v}`));
       if (page) lines.push("", `ARTICLE (${page.domain}${page.via === "search" ? ", a free report of the same story" : ""}):`, clip(page.paragraphs.join("\n"), 12000));
-      const reports = (s.texts || []).slice(0, 4).map((t) => `- ${t.p || "An outlet"}: ${clip(t.x, 700)}`);
-      if (reports.length) lines.push("", "OTHER REPORTS:", ...reports);
+      if (s.digest) lines.push("", s.kind === "dossier" ? "THE STORY SO FAR:" : "THE INDEX:", ...s.digest.points.map((x) => `- ${x}`));
+      const reports = (s.texts || []).slice(0, s.kind ? 30 : 4).map((t) => `- ${t.p || "An outlet"}: ${clip(t.x, 700)}`);
+      if (reports.length) lines.push("", s.kind === "dossier" ? "TIMELINE (newest first):" : "OTHER REPORTS:", ...reports);
       const out = { text: lines.join("\n"), page };
       ctxCache.set(s.id, out);
       return out;
@@ -1053,7 +1054,8 @@ Rules:
       const { text, model } = await gemini.generate({ system: `${GEM_SYSTEM}\n\nToday is ${new Date().toISOString().slice(0, 10)}.\n\nSTORY CONTEXT\n${ctx.text}`,
         contents, onText: (t) => { if (onPartial) onPartial(mdHtml(t)); } });
       history.set(s.id, [...contents, { role: "model", parts: [{ text }] }].slice(-8));
-      const from = ctx.page ? `the article on ${link(ctx.page.url, ctx.page.domain)}${ctx.page.via === "search" ? ", a free report of the same story" : ""}` : "the reports in the brief";
+      const from = ctx.page ? `the article on ${link(ctx.page.url, ctx.page.domain)}${ctx.page.via === "search" ? ", a free report of the same story" : ""}`
+        : s.kind === "dossier" ? "the dossier's reports" : s.kind === "rank" ? "the index's report" : "the reports in the brief";
       return `${mdHtml(text)}<p class="bot-src" title="${esc(model)}">✦ Intel AI, from ${from}. Check key facts against the source before quoting.</p>`;
     }
     async function storyAnswer(s, q, opts = {}) {
@@ -1071,6 +1073,7 @@ Rules:
     async function ruleAnswer(s, q, { onStep, deep } = {}) {
       const e = s.explain || {}; const n = noteOf(s); const intent = deep ? "deep" : intentOf(q);
       const corpus = corpusOf(s);
+      if (intent === "summary" && s.digest) return `${sub(s.digest.title)}${list(s.digest.points.map(esc), "ol")}<p class="bot-src">${esc(s.digest.note)}</p>`;  // a dossier or an index
       if (intent === "summary" || intent === "websummary") {  // the shared summary: instant when a card already read it
         if (intent === "summary" && n && n.points && n.points.length) return `${sub(`Summary · ${n.points.length} points`, NOTE_TAG)}${list(n.points.map(esc), "ol")}<p class="bot-src">${btn("chip", "Summarise the full article from the web", { q: "Summarise the full article from the web" })}</p>`;
         let r;
@@ -1838,7 +1841,34 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       ${L.score ? `<p class="rk-score">Score: ${esc(L.score)}</p>` : ""}
       ${x.about ? `<p class="rk-about"><b>What it measures:</b> ${esc(x.about)}</p>` : ""}
       ${L.why && L.why.length ? `<div class="rk-why"><b>Why India is here</b><ul>${L.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
-      <p class="rk-src">${L.url ? `<a href="${esc(safeUrl(L.url))}" target="_blank" rel="noopener">${esc(L.source || domainOf(L.url) || "Source")}</a>` : esc(L.source || "")}${L.day ? ` · ${esc(dayLabel(L.day))}` : ""}${hist.length ? ` · earlier: ${hist.map((h) => `${esc(h.edition)} ${ordinal(h.rank)}`).join(", ")}` : ""}</p></article>`;
+      <p class="rk-src">${L.url ? `<a href="${esc(safeUrl(L.url))}" target="_blank" rel="noopener">${esc(L.source || domainOf(L.url) || "Source")}</a>` : esc(L.source || "")}${L.day ? ` · ${esc(dayLabel(L.day))}` : ""}${hist.length ? ` · earlier: ${hist.map((h) => `${esc(h.edition)} ${ordinal(h.rank)}`).join(", ")}` : ""}</p>
+      ${askBtn(`data-rk-ask="${esc(x.key)}"`, "Ask Intel about this index")}</article>`;
+  }
+  const askBtn = (attr, title) => `<button type="button" class="ask-intel" ${attr} title="${esc(title)}"><span class="adot"></span>Ask Intel</button>`;
+  // Intel bot on an index or a dossier: each becomes a story the bot reads (its reports and lines), so every question
+  // works as on a brief card: the summary, MCQs, a Mains angle, Hindi, ✦ Intel AI and Ask Claude.
+  function rankStory(x) {
+    const L = x.latest || null; const mv = L ? rankMove(x) : null;
+    const head = L ? `India is ${ordinal(L.rank)}${L.total ? ` of ${L.total}` : ""} in the ${x.name} (${L.edition})` : `India in the ${x.name}`;
+    const pts = [`${head}.`, x.about ? `What it measures: ${x.about}` : "", `Released by ${x.publisher}.`, mv ? `${mv.text}.` : "",
+      L && L.score ? `Score: ${L.score}.` : "", ...((L && L.why) || [])].filter(Boolean);
+    return { id: `rk:${x.key}`, kind: "rank", title: head, url: (L && L.url) || "", date: (L && L.day) || "", grade: "SKIM", gs: [], subjects: [], tags: [], n_pub: 1,
+      sources: L && L.url ? [{ p: L.source || domainOf(L.url), u: L.url, t: head }] : [],
+      summary: pts.join(" "), texts: [{ p: `${x.publisher}${L && L.source ? ` (via ${L.source})` : ""}`, x: pts.join(" ") }],
+      explain: { why_in_news: head, what: ((L && L.why) || []).join(" "), background: `${x.name} is released by ${x.publisher}. ${x.about || ""}`, significance: (L && L.why) || [] },
+      digest: { title: `${x.name} · India`, points: pts, note: L ? `From the report on ${L.source || domainOf(L.url)}${L.day ? `, ${dayLabel(L.day)}` : ""}.` : "No edition has been reported in the news yet." } };
+  }
+  function dossierStory(d) {
+    const s = d.summary || {}; const tl = d.timeline || [];
+    const pts = s.so_far && s.so_far.length ? s.so_far : tl.slice(0, 6).map((x) => `${dayLabel(x.day)}: ${x.title}`);
+    return { id: `ds:${d.key}`, kind: "dossier", title: d.name, url: (tl[0] || {}).url || "", date: d.last_day, grade: "NOTE", gs: s.gs || d.gs || [],
+      subjects: [], tags: [], n_pub: tl.length,
+      sources: tl.slice(0, 8).map((x) => ({ p: x.source || domainOf(x.url), u: x.url, t: `${dayLabel(x.day)}: ${x.title}` })),
+      summary: tl.map((x) => `${x.title}.`).join(" ").slice(0, 2400),
+      texts: tl.map((x) => ({ p: `${x.source || "A report"} · ${dayLabel(x.day)}`, x: `${x.title}. ${x.line && x.line !== x.title ? x.line : ""}` })),
+      explain: { why_in_news: tl[0] ? `${dayLabel(tl[0].day)}: ${tl[0].title}` : "", what: (s.so_far || []).join(" "), background: (s.upsc || []).join(" "), significance: s.upsc || [] },
+      digest: { title: s.so_far && s.so_far.length ? `The story so far · ${pts.length} points` : `The latest reports · ${pts.length}`, points: pts,
+        note: s.so_far && s.so_far.length ? `✦ Written by Intel AI from the dossier's ${tl.length} reports. Check key facts against them.` : "The dossier's latest reports, newest first." } };
   }
   function ranksHtml(data, area = "all") {
     const all = (data && data.indices) || [];
@@ -1862,6 +1892,9 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       if (a) { R.area = a.dataset.rkArea; paint(); return; }
       const g = e.target.closest && e.target.closest("[data-rk-go]");
       if (g) { const c = el.querySelector(`[data-rk="${g.dataset.rkGo}"]`); if (c && c.scrollIntoView) { c.scrollIntoView({ behavior: "smooth", block: "center" }); c.classList.add("flash"); setTimeout(() => c.classList.remove("flash"), 1600); } }
+      const k = e.target.closest && e.target.closest("[data-rk-ask]");
+      const x = k && R.data && (R.data.indices || []).find((i) => i.key === k.dataset.rkAsk);
+      if (x && host.ask) host.ask(rankStory(x));
     };
     paint();
     Promise.resolve(host.load()).then((d) => { R.data = d; paint(); }).catch(() => { R.err = "Couldn't load India's ranks. Check the connection and open this again."; paint(); });
@@ -1892,7 +1925,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       const lead = (d.summary && d.summary.so_far && d.summary.so_far[d.summary.so_far.length - 1]) || (d.timeline[0] && d.timeline[0].title) || "";
       return `<article class="ds-card${d.key in f ? " followed" : ""}" data-ds="${esc(d.key)}">
         <button type="button" class="ds-go" data-ds-go="${esc(d.key)}"><span class="ds-name">${esc(d.name)}${dsNew(d, f) ? ' <span class="ds-new">New</span>' : ""}</span>
-          <small>${esc(dsSpan(d))}${d.summary && d.summary.gs && d.summary.gs.length ? ` · ${esc(d.summary.gs.join(", "))}` : ""}</small>
+          <small>${esc(dsSpan(d))}${((d.summary && d.summary.gs && d.summary.gs.length ? d.summary.gs : d.gs) || []).length ? ` · ${esc((d.summary && d.summary.gs && d.summary.gs.length ? d.summary.gs : d.gs).join(", "))}` : ""}</small>
           ${lead ? `<span class="ds-lead">${esc(lead)}</span>` : ""}</button>
         <button type="button" class="ds-follow" data-ds-follow="${esc(d.key)}" aria-pressed="${d.key in f}">${d.key in f ? "★ Following" : "☆ Follow"}</button></article>`;
     };
@@ -1904,11 +1937,12 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       <div class="ds-list">${list.map(card).join("") || `<p class="ds-note">${all.length ? (opts.only === "follow" && !nf ? "Follow a dossier to keep it here." : "No dossier matches.") : "Dossiers appear once a running story has been in the news on two days: the build names each card's running story as it reads the brief."}</p>`}</div></section>`;
   }
   function dossierHtml(d, opts = {}) {
-    const f = opts.follow || {}; const s = d.summary;
+    const f = opts.follow || {}; const s = d.summary; const gs = (s && s.gs && s.gs.length ? s.gs : d.gs) || [];
     const list = (xs) => (xs || []).map((x) => `<li>${esc(x)}</li>`).join("");
     return `<section class="ds ds-one" data-ds="${esc(d.key)}"><button type="button" class="ds-back" data-ds-back>‹ All dossiers</button>
-      <header class="ds-top"><div class="ds-eyebrow">Dossier${s && s.gs && s.gs.length ? ` · ${esc(s.gs.join(", "))}` : ""}</div><h2>${esc(d.name)}</h2>
-        <p>${esc(dsSpan(d))}</p><button type="button" class="ds-follow" data-ds-follow="${esc(d.key)}" aria-pressed="${d.key in f}">${d.key in f ? "★ Following" : "☆ Follow"}</button></header>
+      <header class="ds-top"><div class="ds-eyebrow">Dossier${gs.length ? ` · ${esc(gs.join(", "))}` : ""}</div><h2>${esc(d.name)}</h2>
+        <p>${esc(dsSpan(d))}</p><div class="ds-acts"><button type="button" class="ds-follow" data-ds-follow="${esc(d.key)}" aria-pressed="${d.key in f}">${d.key in f ? "★ Following" : "☆ Follow"}</button>
+        ${opts.canAsk ? askBtn(`data-ds-ask="${esc(d.key)}"`, "Ask Intel about this running story") : ""}</div></header>
       ${s ? `<div class="ds-sum"><h3>The story so far</h3><ol>${list(s.so_far)}</ol>
         ${s.upsc && s.upsc.length ? `<h3>UPSC angle</h3><ul>${list(s.upsc)}</ul>` : ""}
         ${s.watch && s.watch.length ? `<h3>What to watch</h3><ul>${list(s.watch)}</ul>` : ""}
@@ -1933,7 +1967,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
         el.innerHTML = `<section class="ds"><button type="button" class="ds-back" data-ds-back>‹ All dossiers</button><p class="ds-note">This running story isn't a dossier yet: it becomes one once it has been in the news on two days.</p></section>`;
         return;
       }
-      if (d) { follows.seen(d.key, d.last_day); el.innerHTML = dossierHtml(d, { follow: follows.get(), canOpen: !!host.open }); return; }
+      if (d) { follows.seen(d.key, d.last_day); el.innerHTML = dossierHtml(d, { follow: follows.get(), canOpen: !!host.open, canAsk: !!host.ask }); return; }
       el.innerHTML = dossiersHtml(D.data, { follow: f, q: D.q, only: D.only });
     };
     const show = (k) => { D.key = k || null; if (host.onShow) host.onShow(D.key); paint(); if (el.scrollIntoView && k) el.scrollIntoView({ block: "start" }); };
@@ -1944,6 +1978,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       if (t.dataset.dsOnly) { D.only = t.dataset.dsOnly; return paint(); }
       if (t.dataset.dsFollow) { const d = find(t.dataset.dsFollow); follows.toggle(t.dataset.dsFollow, d && d.last_day); return paint(); }
       if (t.dataset.dsRead && host.open) host.open(t.dataset.dsRead, t.dataset.at);
+      if (t.dataset.dsAsk && host.ask) { const d = find(t.dataset.dsAsk); if (d) host.ask(dossierStory(d)); }
     };
     el.oninput = (e) => {
       if (!e.target.matches || !e.target.matches("[data-ds-q]")) return;
@@ -2410,6 +2445,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
     mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss, mountRanks, ranksHtml, rankMove,
-    mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn,
+    mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn, dossierStory, rankStory,
   });
 })(window);

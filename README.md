@@ -192,8 +192,12 @@ Week and Month views recap everything the daily briefs covered.
     - **the story so far:** 3–6 points in order, then the **UPSC angle** (GS paper, provisions, bodies, a likely Mains angle) and **what to watch** next. Intel AI writes it from the timeline's dated lines, and rewrites it only when a new report lands (at most every 6 hours per dossier, to save quota). Until then the dossier says the newer reports aren't in it yet.
   - **Follow** a dossier to keep it at the top. It's marked **New** when a report lands after you last opened it (remembered on this device).
   - A brief card that belongs to a dossier shows a **📂 Running story** link to it.
-  - **How the timeline is built:** when Intel AI reads a card (the glossary call), it names the ongoing issue the card belongs to, reusing a known topic's name when one fits, and a few search words. The timeline is the tagged cards plus every story whose headline carries those words (a full-text search of everything stored). A story found that way counts only if it's worth reading (Intel AI's 2–3, or the rules' Must-know and Quick read). Private and subscriber-only stories never appear.
-  - A topic becomes a dossier once it has reports on 2 days. The dossiers in the news in the last 30 days are shown, up to 40.
+  - **Ask Intel** on a dossier opens the bot on the whole running story. Its summary is the story so far (or the latest reports), and every other question (MCQs, a Mains angle, Hindi, ✦ Intel AI, Ask Claude) answers from the dossier's reports. Each rank card on India's Ranks has an **Ask Intel** button too, which answers from the index, India's rank and the reasons.
+  - **Where the topics come from:**
+    - **The listed issues** in `config/dossiers.yaml`: about 50 long-running UPSC stories (the Waqf Act, Manipur, the Census, SIR, India–China, India–Pakistan, BRICS, tariffs, the monsoon…), each with the words every headline on it carries. These need no AI.
+    - **Intel AI** names the ongoing issue each card belongs to when it reads the card (the glossary call), reusing a listed or known topic's name when one fits.
+  - **How the timeline is built:** a topic's tagged cards, plus every story whose headline carries all its words (a full-text search of everything stored). A story found that way counts only if it's worth reading (Intel AI's 2–3, or the rules' Must-know and Quick read). A report republished under the same headline counts once. Private and subscriber-only stories never appear.
+  - A topic becomes a dossier once it has reports on 2 days, the latest in the last 30 days. Two dossiers sharing most of their reports are one (the bigger stays). Up to 50 are shown, the latest in the news first.
   - Pipeline: `pipeline/dossiers.py`, the `topics` table and `data/dossiers.json` (`/api/dossiers` on the local server). It runs in the notes step: at most 2 calls a run, 3 dossiers a call.
 - **Map (a website tab; in the app, Read → Map):** the places in the news, on a map, for the Prelims map questions.
   - A dot per place: blue for India, orange for the world, bigger with more reports. Tap a dot for its reports; each opens in its day's brief.
@@ -378,7 +382,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 214 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 216 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
