@@ -515,27 +515,126 @@ test("Mains: an answer is evaluated by Intel AI and kept in the history", async 
   } finally { global.fetch = prev; }
 });
 
-test("listen: the brief is read aloud a few sentences at a time, with next, pause and stop", () => {
-  const spoken = []; let current = null;
+const flush = async (n = 8) => { for (let k = 0; k < n; k++) await new Promise((r) => setTimeout(r, 0)); };
+const LISTEN_CARDS = [{ id: "a", title: "Cabinet approves ECLGS 5.0", sum: { points: ["The scheme gives ₹2 lakh crore of guaranteed credit.", "It runs until March 2027."] } },
+  { id: "b", title: "Delhi HC on POCSO", explain: { why_in_news: "Personal law is no shield against POCSO." } }];
+const LISTEN_FACTS = [{ id: "c", title: "Exercise Varuna begins", explain: { what: "India and France hold the naval drill." } }];
+function fakeSpeech(voices) {
+  const out = { spoken: [], current: null };
   global.SpeechSynthesisUtterance = function (text) { this.text = text; };
-  global.speechSynthesis = { speak: (u) => { spoken.push(u); current = u; }, cancel: () => { current = null; }, getVoices: () => [{ lang: "en-US" }, { lang: "en-IN", name: "India" }] };
+  global.speechSynthesis = { speak: (u) => { if (u.text) { out.spoken.push(u); out.current = u; } }, cancel: () => { out.current = null; }, getVoices: () => voices };
+  return out;
+}
+const unspeech = () => { C.listen.stop(); delete global.speechSynthesis; delete global.SpeechSynthesisUtterance; delete global.Audio; };
+
+test("listen: each story's lines; a story or a line can be picked; pause, next and stop", async () => {
+  memStore();
+  const T = fakeSpeech([{ lang: "en-US", name: "US" }, { lang: "en-IN", name: "India" }, { lang: "en-IN", name: "Microsoft Neerja Online (Natural)" }, { lang: "hi-IN", name: "Hindi" }]);
   try {
-    const items = C.listenItems([{ id: "a", title: "Cabinet approves ECLGS 5.0", sum: { points: ["The scheme gives ₹2 lakh crore of guaranteed credit.", "It runs until March 2027."] } },
-      { id: "b", title: "Delhi HC on POCSO", explain: { why_in_news: "Personal law is no shield against POCSO." } }], [{ id: "c", title: "Exercise Varuna begins", explain: { what: "India and France hold the naval drill." } }]);
+    const items = C.listenItems(LISTEN_CARDS, LISTEN_FACTS);
     assert.strictEqual(items.length, 3);
-    assert.ok(items[0].text.startsWith("Story 1. Cabinet approves ECLGS 5.0.") && items[0].text.includes("rupees 2 lakh crore"));
-    assert.ok(items[2].text.startsWith("Prelims facts. Exercise Varuna begins."));
+    assert.deepStrictEqual(items[0].lines, ["Cabinet approves ECLGS 5.0", "The scheme gives rupees 2 lakh crore of guaranteed credit.", "It runs until March 2027."]);
+    assert.deepStrictEqual([items[1].kind, items[2].kind], ["must", "fact"]);
+    C.listen.setLang("en"); C.listen.setVoice("");
     assert.ok(C.listen.supported && C.listen.play(items));
-    assert.strictEqual(spoken[0].voice.lang, "en-IN");
-    const first = spoken.length;
-    current.onend();  // the story's text ends: the next story
-    assert.ok(spoken.length > first && C.listen.state().i === 1, JSON.stringify(C.listen.state()));
+    await flush();
+    assert.strictEqual(T.spoken[0].text, "Story 1: Cabinet approves ECLGS 5.0");
+    assert.strictEqual(T.spoken[0].voice.name, "Microsoft Neerja Online (Natural)", "the most natural Indian English voice");
+    T.current.onend(); await flush();
+    assert.strictEqual(C.listen.state().l, 1); assert.ok(T.spoken.at(-1).text.startsWith("The scheme gives rupees 2 lakh crore"));
+    C.listen.from(2); await flush();  // a tapped line
+    assert.strictEqual(T.spoken.at(-1).text, "It runs until March 2027."); assert.strictEqual(C.listen.state().l, 2);
+    C.listen.pick(2); await flush();  // a tapped story
+    assert.strictEqual(T.spoken.at(-1).text, "Prelims fact 1: Exercise Varuna begins");
     C.listen.toggle(); assert.ok(C.listen.state().paused);
-    const n = spoken.length; C.listen.toggle(); assert.ok(!C.listen.state().paused && spoken.length === n + 1, "play restarts the sentence");
-    const stale = spoken[spoken.length - 2]; const before = spoken.length; stale.onend(); assert.strictEqual(spoken.length, before, "a cancelled sentence's end is ignored");
-    C.listen.next(); assert.strictEqual(C.listen.state().i, 2);
-    current.onend(); assert.ok(!C.listen.state().on, "the last one ends the brief");
-  } finally { delete global.speechSynthesis; delete global.SpeechSynthesisUtterance; }
+    const n = T.spoken.length; C.listen.toggle(); assert.ok(!C.listen.state().paused && T.spoken.length === n + 1 && T.spoken.at(-1).text === T.spoken.at(-2).text, "play restarts the sentence");
+    const stale = T.spoken.at(-2); const before = T.spoken.length; stale.onend(); assert.strictEqual(T.spoken.length, before, "a cancelled sentence's end is ignored");
+    C.listen.prev(); await flush(); assert.strictEqual(C.listen.state().i, 1, "prev at a story's start: the story before");
+    C.listen.next(); await flush(); assert.strictEqual(C.listen.state().i, 2);
+    T.current.onend(); await flush(); T.current.onend(); await flush();
+    assert.ok(!C.listen.state().on, "the last line ends the brief");
+  } finally { unspeech(); }
+});
+
+test("listen: Hindi as Hinglish from Intel AI, kept on the device, read in a Hindi voice", async () => {
+  const mem = memStore({ "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash"]) });
+  const T = fakeSpeech([{ lang: "en-IN", name: "India" }, { lang: "hi-IN", name: "Lekha" }, { lang: "hi-IN", name: "Google हिन्दी" }]);
+  const prev = global.fetch; const sent = [];
+  global.fetch = async (url, init = {}) => {
+    sent.push({ url: String(url), body: JSON.parse(init.body || "{}") });
+    const n = ((JSON.parse(init.body).contents[0].parts[0].text).match(/^\d+\./gm) || []).length;
+    const lines = Array.from({ length: n }, (_, k) => `${k + 1}. सरकार ने ECLGS 5.0 को मंज़ूरी दी, लाइन ${k + 1}`);
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({ lines }) }] } }] }) };
+  };
+  try {
+    const items = C.listenItems(LISTEN_CARDS, LISTEN_FACTS);
+    C.listen.setLang("hi"); C.listen.setVoice("");  // with Intel AI on, Hinglish would default to its voice: this test takes the device's
+    C.listen.setVoice("dev:");
+    assert.ok(C.listen.play(items));
+    await flush();
+    const ask = sent[0];
+    assert.ok(ask.url.includes("gemini-2.5-flash:generateContent") && ask.body.systemInstruction.parts[0].text.includes("Hinglish"));
+    assert.ok(ask.body.contents[0].parts[0].text.startsWith("1. Cabinet approves ECLGS 5.0\n2. The scheme gives rupees"));
+    assert.strictEqual(T.spoken[0].text, "ख़बर 1: सरकार ने ECLGS 5.0 को मंज़ूरी दी, लाइन 1");
+    assert.strictEqual(T.spoken[0].voice.name, "Google हिन्दी", "the natural (Google) Hindi voice first");
+    assert.strictEqual(JSON.parse(mem["upsc-hinglish"]).a.by, "ai");
+    assert.ok(sent.some((x) => x.body.contents[0].parts[0].text.includes("Delhi HC on POCSO")), "the next story is translated ahead");
+    C.listen.stop(); const k = sent.length; C.listen.play(items); await flush();
+    assert.strictEqual(sent.length, k, "a translated story isn't asked again");
+    C.listen.setLang("en"); await flush();
+    assert.strictEqual(T.spoken.at(-1).text, "Story 1: Cabinet approves ECLGS 5.0", "English again, from the same line");
+  } finally { global.fetch = prev; unspeech(); }
+});
+
+test("listen: no Hindi voice on the device says how to get one", async () => {
+  memStore();
+  const T = fakeSpeech([{ lang: "en-IN", name: "India" }]);
+  const prev = global.fetch;
+  global.fetch = async (url) => ({ ok: true, json: async () => ({ responseStatus: 200, responseData: { translatedText: `हिंदी: ${decodeURIComponent(String(url).split("q=")[1].split("&")[0])}` } }) });
+  try {
+    C.listen.setLang("hi"); C.listen.setVoice("");
+    C.listen.play(C.listenItems(LISTEN_CARDS)); await flush();
+    const st = C.listen.state();
+    assert.ok(st.paused && /no Hindi voice/.test(st.note) && !T.spoken.length, JSON.stringify(st));
+  } finally { global.fetch = prev; C.listen.setLang("en"); unspeech(); }
+});
+
+test("listen: ✦ Intel AI's natural voice records each story; the line follows the clip; a used-up quota hands over to the device", async () => {
+  memStore({ "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash"]) });
+  const T = fakeSpeech([{ lang: "en-IN", name: "India" }]);
+  class FakeAudio { constructor() { this.src = ""; this.currentTime = 0; this.duration = 0; this.playing = false; FakeAudio.all.push(this); } play() { this.playing = true; return Promise.resolve(); } pause() { this.playing = false; } }
+  FakeAudio.all = []; global.Audio = FakeAudio;
+  const prev = global.fetch; const tts = []; let quota = false;
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes("/models?")) return { ok: true, status: 200, json: async () => ({ models: [{ name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] },
+      { name: "models/gemini-2.5-pro-preview-tts", supportedGenerationMethods: ["generateContent"] }, { name: "models/gemini-2.5-flash-preview-tts", supportedGenerationMethods: ["generateContent"] }] }) };
+    const body = JSON.parse(init.body); tts.push({ u, body });
+    if (quota) return { ok: false, status: 429, text: async () => "", clone() { return this; }, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ inlineData: { mimeType: "audio/L16;codec=pcm;rate=24000", data: Buffer.alloc(4800).toString("base64") } }] } }] }) };
+  };
+  try {
+    const items = C.listenItems(LISTEN_CARDS, LISTEN_FACTS);
+    C.listen.setLang("en"); C.listen.setVoice("ai:Charon");
+    C.listen.play(items); await flush(12);
+    const first = tts[0];
+    assert.ok(first.u.includes("gemini-2.5-flash-preview-tts:generateContent"), "Flash's voice first: " + first.u);
+    assert.deepStrictEqual(first.body.generationConfig.responseModalities, ["AUDIO"]);
+    assert.strictEqual(first.body.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, "Charon");
+    assert.ok(first.body.contents[0].parts[0].text.includes("Story 1: Cabinet approves ECLGS 5.0\nThe scheme gives rupees"));
+    const a = FakeAudio.all.at(-1);
+    assert.ok(a.playing && a.src.startsWith("blob:") && C.listen.state().mode === "ai");
+    const wav = await require("buffer").resolveObjectURL(a.src).arrayBuffer();
+    assert.strictEqual(Buffer.from(wav).subarray(0, 4).toString(), "RIFF"); assert.strictEqual(wav.byteLength, 44 + 4800);
+    a.duration = 10; a.currentTime = 9; a.ontimeupdate();
+    assert.strictEqual(C.listen.state().l, 2, "the lit line follows the clip");
+    const n = tts.length; C.listen.from(1); await flush(); a.duration = 10; a.onloadedmetadata();
+    assert.ok(a.currentTime > 2 && a.currentTime < 9 && tts.length === n, `a tapped line seeks into the same clip (${a.currentTime})`);
+    C.listen.toggle(); assert.ok(!a.playing && C.listen.state().paused); C.listen.toggle(); assert.ok(a.playing);
+    quota = true; C.listen.pick(2); await flush(12);  // the voice's free quota runs out: the device's voice goes on
+    const st = C.listen.state();
+    assert.ok(st.mode === "dev" && /isn't available/.test(st.note) && T.spoken.at(-1).text === "Prelims fact 1: Exercise Varuna begins", JSON.stringify(st));
+  } finally { global.fetch = prev; unspeech(); }
 });
 
 (async () => {
