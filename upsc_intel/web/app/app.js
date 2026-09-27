@@ -953,7 +953,16 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     await goDay(todayIST());
     setInterval(poll, STATIC ? 300000 : 60000);
     setInterval(renderLive, 30000);
-    if (STATIC && "serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+    if (STATIC && "serviceWorker" in navigator) {
+      // A new build's app takes over as soon as it has downloaded: right after opening, reload into it (so an update
+      // needs one open, not two); later, say so instead of reloading under your fingers.
+      const had = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!had) return;  // the first install: this page is already the latest
+        if (performance.now() < 20000) location.reload(); else toast("A new version of the app is ready: close and reopen it to use it.");
+      });
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
   }
   boot();
 })();
