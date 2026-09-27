@@ -31,6 +31,7 @@ from datetime import date, timedelta
 
 from ..config import Settings
 from ..db import DB
+from .articles import is_stale
 from .classify import Classifier
 from .normalize import today_ist
 
@@ -119,14 +120,15 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
     ex_size = int(b["explained_floor"] if ex_size is None else ex_size)
     rows = db.q(
         "SELECT id, title, COALESCE(summary,'') AS summary, score, grade, subjects, tags, is_editorial, is_explained, "
-        "publishers, tokens, length(COALESCE(summary,'')) AS slen FROM stories WHERE date_ist=? AND is_library=0 "
+        "publishers, tokens, length(COALESCE(summary,'')) AS slen, a.published FROM stories "
+        "LEFT JOIN article_text a ON a.story_id = stories.id WHERE date_ist=? AND is_library=0 "
         "ORDER BY score DESC",
         (day,),
     )
     news, eds, exps = [], [], []
     for r in rows:
         subjects = json.loads(r["subjects"] or "[]")
-        if not subjects:
+        if not subjects or is_stale(r["published"] or "", day):  # its own article is weeks old: a feed re-dated it
             continue
         publisher = (json.loads(r["publishers"] or "[]") or [""])[0]
         item = {"id": r["id"], "score": r["score"], "subject": subjects[0], "publisher": publisher,

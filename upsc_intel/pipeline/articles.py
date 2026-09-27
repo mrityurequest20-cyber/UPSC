@@ -16,7 +16,7 @@ import logging
 import math
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qs, quote_plus, urlsplit
 
 import feedparser
@@ -30,6 +30,7 @@ log = logging.getLogger("upsc_intel.articles")
 MAX_PER_RUN = 40       # stories read per build (a build runs every ~20 minutes)
 WORKERS = 6
 MISS_RETRY_H = 6       # a story with no free copy is tried again after this many hours
+STALE_DAYS = 3         # an article published this many days before the day it was filed under is old news
 MAX_PARAS = 40
 MAX_CHARS = 12000
 POINTS = 8
@@ -73,10 +74,19 @@ BOILER = re.compile(r"^(advertisement|also read|read more|read also|follow us|su
 INLINE_FURNITURE = re.compile(r"\b(Also Read|Read More|Also Watch|Read Also|ALSO READ)\s*[|:]\s*[^.!?\n]{0,160}?(?=[A-Z][a-z]+ [a-z]|\n|$)")
 
 
+BIO = re.compile(r"^(?:[A-Z][\w.'’-]+\s){1,3}(?:is|has)\b.{0,80}?\b(?:years of experience|(?:senior |special |principal )?"
+                 r"(?:journalist|correspondent|reporter)\b)")  # the author's bio under an article
+
+
+GLUED_HEAD = re.compile(r"\b([a-z]{3,})((?:The|This|That|These|Those|It|In|On|At|As|An|He|She|They|We|But|However|While|According|"
+                        r"Even|For|With|Under|After|Before|Since|Although|Earlier|Meanwhile|Officials|India)\s)")
+
+
 def is_teaser(t: str) -> bool:
-    """A "trending" teaser: a headline run into another story's dateline, or a quoted headline cut off."""
-    return bool(re.search(r"\S\s+[A-Z]{4,}(?:[ -][A-Z]{2,})*:\s", t[1:])) or (
-        bool(re.match(r"^[‘'\"“]", t)) and bool(re.search(r"(\.\.\.|…)$", t)))
+    """A "trending" teaser: a headline run into another story's dateline, or a quoted headline cut off. (A
+    paragraph's own "NEW DELHI:" is no teaser: the dateline must follow words of a headline.)"""
+    return bool(re.search(r"[a-z].*?\S\s+[A-Z]{4,}(?:[ -][A-Z]{2,})*:\s", t)) or (
+        bool(re.match(r"^[‘'\"“]", t)) and bool(re.search(r"(\.\.\.|…)$", t))) or bool(BIO.match(t))
 
 
 # ─────────────────────────── free sites ───────────────────────────
@@ -129,6 +139,7 @@ def main_text(html: str) -> list[str]:
     if body:
         body = BeautifulSoup(body, "html.parser").get_text(" ") if "<" in body else body
         body = re.sub(r"([a-z0-9%)][.!?][\"”’]?)([A-Z])", r"\1 \2", body)  # "Moscow.The Senate" → two sentences
+        body = GLUED_HEAD.sub(r"\1.\n\2", body)  # "What the exemption meansThe Public …": a subheading run into its text
         body = INLINE_FURNITURE.sub(" ", body)
         paras = [re.sub(r"\s+", " ", p).strip() for p in re.split(r"\n\s*\n|\r\n|\n", body)]
         paras = [p for p in paras if len(p.split()) >= 8 and not FURNITURE.search(p) and not BOILER.match(p)]
@@ -177,6 +188,65 @@ def main_text(html: str) -> list[str]:
 
 CONTAINERS = ("[itemprop=articleBody]", ".entry-content", ".post-content", ".article-content", ".story-content",
               ".story_details", ".article-body", ".td-post-content", "article")
+
+
+# ─────────────────────────── the page's own publish date ───────────────────────────
+# A feed can file an old article under today (Google News re-surfaces months-old pages with a fresh date). The page
+# itself says when it was published: its article:published_time / datePublished tags, or a short dateline such as
+# "News On AIR | March 25, 2026 7:38 PM". A date merely mentioned in the text ("the July 25, 2024 ruling") never counts.
+MONTHS_RX = r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?"
+DATE_TEXT = re.compile(rf"\b(?:{MONTHS_RX}\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})|(\d{{1,2}})(?:st|nd|rd|th)?\s+{MONTHS_RX},?\s+(\d{{4}}))\b", re.I)
+MONTH_NO = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+DATELINE_CUE = re.compile(r"\b\d{1,2}:\d{2}\b|\b(published|posted|updated|last updated|first published)\b|\|", re.I)
+
+
+def _iso_day(v: str) -> str:
+    m = re.match(r"\s*(\d{4})-(\d{2})-(\d{2})", str(v or ""))
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else ""
+
+
+def _text_day(t: str) -> str:
+    m = DATE_TEXT.search(t)
+    if not m:
+        return ""
+    mon = (m.group(1) or m.group(5) or "")[:3].lower()
+    day, year = (m.group(2), m.group(3)) if m.group(1) else (m.group(4), m.group(6))
+    try:
+        return date(int(year), MONTH_NO[mon], int(day)).isoformat()
+    except (ValueError, KeyError):
+        return ""
+
+
+def published_of(html: str) -> str:
+    """The page's own publish date (YYYY-MM-DD), or "" when it doesn't say."""
+    soup = BeautifulSoup(html, "html.parser")
+    for attrs in ({"property": "article:published_time"}, {"name": "article:published_time"}, {"itemprop": "datePublished"},
+                  {"name": "publish-date"}, {"name": "pubdate"}, {"property": "og:published_time"}):
+        tag = soup.find("meta", attrs=attrs)
+        if tag and _iso_day(tag.get("content")):
+            return _iso_day(tag.get("content"))
+    m = re.search(r'"datePublished"\s*:\s*"([^"]+)"', html)
+    if m and _iso_day(m.group(1)):
+        return _iso_day(m.group(1))
+    for t in soup(["script", "style", "noscript", "nav", "header", "footer", "aside"]):
+        t.decompose()
+    for el in soup.find_all(["p", "span", "div", "time", "li"]):  # a short dateline, in page order
+        if el.find(["p", "div", "li"]):
+            continue
+        text = re.sub(r"\s+", " ", el.get_text(" ")).strip()
+        if 8 <= len(text) <= 90 and DATELINE_CUE.search(text) and _text_day(text):
+            return _text_day(text)
+    return ""
+
+
+def is_stale(published: str, day: str) -> bool:
+    """The article was published well before the day it is filed under."""
+    if not published or not day:
+        return False
+    try:
+        return (date.fromisoformat(day) - date.fromisoformat(published)).days > STALE_DAYS
+    except ValueError:
+        return False
 
 
 COMMON = {"gover", "state", "minis", "centr", "india", "offic", "peopl", "year", "years", "month", "today", "new"}
@@ -357,8 +427,8 @@ def is_syndicated(url: str) -> bool:
     return bool(MSN_ID.search(url.split("://", 1)[-1]))
 
 
-def read_msn(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str]:
-    """→ (paragraphs, the original outlet's URL when it is free to read, else the MSN URL)."""
+def read_msn(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str, str]:
+    """→ (paragraphs, the original outlet's URL when it is free to read, else the MSN URL, the publish date)."""
     aid = MSN_ID.search(url.split("://", 1)[-1]).group(1)
     j = http.get(f"https://assets.msn.com/content/view/v2/Detail/en-in/{aid}").json()
     if j.get("subscriptionProductType") or j.get("renderingRestriction"):
@@ -367,11 +437,11 @@ def read_msn(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str]:
     paras = [re.sub(r"\s+", " ", p.get_text(" ")).strip() for p in body.find_all("p")]
     paras = [p for p in paras if len(p.split()) >= 8 and not FURNITURE.search(p) and not BOILER.match(p)]
     src = j.get("sourceHref") or ""
-    return paras[:MAX_PARAS], (src if src and fr.is_open(src) else url)
+    return paras[:MAX_PARAS], (src if src and fr.is_open(src) else url), _iso_day(j.get("publishedDateTime") or "")
 
 
-def read_page(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str]:
-    """→ (paragraphs, the URL to cite)."""
+def read_page(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str, str]:
+    """→ (paragraphs, the URL to cite, the page's publish date or "")."""
     if is_syndicated(url):
         return read_msn(http, fr, url)
     if not fr.is_open(url):  # never request a subscriber-only or unknown site
@@ -379,7 +449,7 @@ def read_page(http: Http, fr: FreeReading, url: str) -> tuple[list[str], str]:
     resp = http.get(url)
     if not fr.is_open(str(resp.url)):  # redirected off the free list (a login wall, a premium path)
         raise ValueError(f"redirected to {fr.domain(str(resp.url))}")
-    return main_text(resp.text), url
+    return main_text(resp.text), url, published_of(resp.text)
 
 
 def read_story(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver | None = None) -> dict | None:
@@ -389,7 +459,7 @@ def read_story(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver 
     sw = set(words(f"{story['title']} {story.get('summary') or ''}"))
     tried: set[str] = set()
 
-    def keep(url: str, paras: list[str], via: str) -> dict | None:
+    def keep(url: str, paras: list[str], via: str, published: str = "") -> dict | None:
         paras = trim_edges(paras, sw)
         text = []
         total = 0
@@ -401,7 +471,7 @@ def read_story(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver 
         sents = [s for p in text for s in sentences_of(p) if not FURNITURE.search(s)]
         if len(sents) < 3:
             return None
-        return {"url": url, "domain": fr.domain(url), "via": via, "paragraphs": text,
+        return {"url": url, "domain": fr.domain(url), "via": via, "paragraphs": text, "published": published,
                 "points": summarize(sents, POINTS, editorial=bool(story.get("editorial")))}
 
     own = []
@@ -411,15 +481,19 @@ def read_story(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver 
             u = resolve(http, u) or u  # the outlet's own page, when its site is free to read
         if u and fr.is_open(u) and u not in own:
             own.append(u)
+    old = None
     for u in own[:3]:
         tried.add(u)
         try:
-            paras, cite = read_page(http, fr, u)
-            got = keep(cite, paras, "")
-            if got:
+            paras, cite, published = read_page(http, fr, u)
+            got = keep(cite, paras, "", published)  # its date is kept: an old page filed under today is dropped from the brief
+            if got and not is_stale(published, story.get("date", "")):
                 return got
+            old = old or got  # another outlet may carry today's report of it
         except Exception as exc:  # one outlet failing is normal: try the next
             log.debug("read %s: %s", u, exc)
+    if old:
+        return old  # the story's own reports are all old: a feed re-dated them
     queries = list(dict.fromkeys(q for q in (search_query(story["title"]),
                                              key_query(story["title"], [s.get("p") or "" for s in story.get("sources") or []])) if q))
     hits: list[dict] = []
@@ -439,9 +513,9 @@ def read_story(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver 
                 break
             tried.add(h["url"])
             try:
-                paras, cite = read_page(http, fr, h["url"])
-                if same_story(paras, tw):
-                    got = keep(cite, paras, "search")
+                paras, cite, published = read_page(http, fr, h["url"])
+                if same_story(paras, tw) and not is_stale(published, story.get("date", "")):  # an older article is another event
+                    got = keep(cite, paras, "search", published)
                     if got:
                         return got
             except Exception as exc:
@@ -463,10 +537,12 @@ def _candidates(db: DB, days: list[str]) -> list[dict]:
     out = []
     for r in rows:
         a = have.get(r["story_id"])
-        if a and (not a["miss"] or (a["fetched_at"] or "") > retry):
+        dated = a is not None and a.get("published") is not None  # read before dates were kept: read it again once
+        if a and ((not a["miss"] and dated) or (a["miss"] and (a["fetched_at"] or "") > retry)):
             continue
         out.append({"id": r["story_id"], "title": r["title"] or "", "summary": r["summary"] or "", "date": r["date_ist"],
-                    "editorial": bool(r["is_editorial"]), "opinion": r["kind"] != "news"})
+                    "editorial": bool(r["is_editorial"]), "opinion": r["kind"] != "news",
+                    "had": a if a and not a["miss"] else None})
     return out
 
 
@@ -476,7 +552,7 @@ def read_brief_articles(db: DB, topics: dict, days: list[str], limit: int = MAX_
     fr = FreeReading(topics)
     todo = _candidates(db, days)[:limit]
     if not todo:
-        return {"read": 0, "missed": 0}
+        return {"read": 0, "missed": 0, "stale": 0}
     for st in todo:
         st["sources"] = [{"u": r["url"], "p": r["publisher"] or "", "origin": (json.loads(r["extra"] or "{}") or {}).get("origin") or ""}
                          for r in db.q("SELECT url, publisher, extra FROM items WHERE story_id=? AND is_private=0 "
@@ -491,15 +567,18 @@ def read_brief_articles(db: DB, topics: dict, days: list[str], limit: int = MAX_
         if own:
             http.close()
     now = iso(datetime.now(timezone.utc))
-    n_read = 0
+    n_read = n_stale = 0
     for st, got in results:
         if got:
             n_read += 1
+            n_stale += is_stale(got.get("published", ""), st["date"])
             db.save_article(st["id"], {**got, "fetched_at": now})
+        elif st.get("had"):  # a date re-check that failed keeps the text it already has, date unknown
+            db.save_article(st["id"], {**st["had"], "published": ""})
         else:
             db.save_article(st["id"], {"miss": True, "fetched_at": now})
     db.commit()
-    return {"read": n_read, "missed": len(results) - n_read}
+    return {"read": n_read, "missed": len(results) - n_read, "stale": n_stale}
 
 
 def _safe_read(http: Http, fr: FreeReading, story: dict, resolve: GnewsResolver | None = None) -> dict | None:

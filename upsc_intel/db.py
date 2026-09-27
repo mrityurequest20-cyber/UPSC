@@ -190,6 +190,7 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("videos", "lang", "TEXT"),
     ("brief_picks", "tier", "TEXT"),  # "top" (Must-know card) / "prelims" (Prelims facts card) / "more" (the list)
     ("brief_picks", "lead", "TEXT"),  # folded into this story's card (same event, another outlet)
+    ("article_text", "published", "TEXT"),  # the article's own publish date ("": the page doesn't say; NULL: not checked)
 ]
 
 
@@ -548,10 +549,10 @@ class DB:
         return out
 
     def save_article(self, story_id: str, row: dict) -> None:
-        self.x("INSERT OR REPLACE INTO article_text (story_id, url, domain, via, paragraphs, points, miss, fetched_at) "
-               "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        self.x("INSERT OR REPLACE INTO article_text (story_id, url, domain, via, paragraphs, points, miss, fetched_at, published) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                (story_id, row.get("url"), row.get("domain"), row.get("via"), _dump(row.get("paragraphs") or []),
-                _dump(row.get("points") or []), int(bool(row.get("miss"))), row.get("fetched_at")))
+                _dump(row.get("points") or []), int(bool(row.get("miss"))), row.get("fetched_at"), row.get("published") or ""))
 
     def seen(self, key: str) -> bool:
         return bool(self.q("SELECT 1 FROM seen_keys WHERE key=?", (key,)))

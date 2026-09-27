@@ -197,22 +197,36 @@
   const BOILER = /^(advertisement|also read|read more|read also|follow us|subscribe|sign in|log ?in|download|click here|share|trending|related|©|copyright|all rights reserved|terms|privacy|visitor counter|release id|posted on|reported by|last updated|published on|read time|how may i help|show full article|track latest news)/i;
   // a "trending" teaser: a headline run into another story's dateline ("… says Mamata KOLKATA: Mamata Banerjee
   // alleged …"), or a quoted headline cut off with an ellipsis. An article's own dateline only opens a paragraph.
-  const TEASER = (t) => /\S\s+[A-Z]{4,}(?:[ -][A-Z]{2,})*:\s/.test(t.slice(1)) || (/^[‘'"“]/.test(t) && /(\.\.\.|…)$/.test(t));
+  // (a paragraph's own "NEW DELHI:" is no teaser: the dateline must follow words of a headline)
+  const TEASER = (t) => /[a-z].*?\S\s+[A-Z]{4,}(?:[ -][A-Z]{2,})*:\s/.test(t) || (/^[‘'"“]/.test(t) && /(\.\.\.|…)$/.test(t));
+  // the author's bio under an article
+  const BIO = /^(?:[A-Z][\w.'’-]+\s){1,3}(?:is|has)\b.{0,80}?\b(?:years of experience|(?:senior |special |principal )?(?:journalist|correspondent|reporter)\b)/;
+  // A run of article text survives what sites put between its paragraphs (a tweet, a comment box, ads: short lines)
+  // but ends at a block of rejected prose (a "trending" strip, a list of other stories) or a long stretch of page.
+  const RUN_GAP = 15; const RUN_NOISE = 60;
   function mainText(md) {
-    const kept = [];
+    const kept = []; let gap = 0; let noise = 0;
     String(md || "").split("\n").forEach((raw, i) => {
+      if (!raw.trim()) return;
       const links = (raw.match(/\]\(/g) || []).length;
+      const linked = (raw.match(/\[[^\]]*\]\(/g) || []).reduce((sum, m) => sum + m.length - 3, 0);
       const listed = /^\s*(\d+\.|[-*+])\s/.test(raw);
-      const t = raw.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-        .replace(/^\s*(\d+\.|[-*+])(\s+(\d+\.|[-*+]))*\s+/, "").replace(/[*_`#>|]+/g, " ").replace(/\s+/g, " ").trim();
-      if (!t || FURNITURE.test(t) || BOILER.test(t) || TEASER(t)) return;
-      const n = t.split(" ").length;
-      if (links >= 2 && links * 12 > n) return;  // a list of links: navigation, "related stories"
+      const t = raw.replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/(\w?)\[([^\]]*)\]\([^)]*\)(\w?)/g, (m, a, x, b) => `${a}${a ? " " : ""}${x}${b ? " " : ""}${b}`)  // "President[Donald Trump](…)and"
+        .replace(/^\s*(\d+\.|[-*+])(\s+(\d+\.|[-*+]))*\s+/, "").replace(/[*_`#>|]+/g, " ").replace(/\s+/g, " ").trim()
+        .replace(/([a-z0-9%)][.!?]["”’]?)([A-Z])/g, "$1 $2");  // "of the law.A Gazette" → two sentences
+      const n = t ? t.split(" ").length : 0;
+      const skip = () => { gap += 1; if (n >= 14) noise += n; };
+      if (!t || FURNITURE.test(t) || BOILER.test(t) || TEASER(t) || BIO.test(t)) return skip();
+      // a list of links: navigation, "related stories", a "trending" strip of headlines run together
+      if (links >= 2 && (links * 12 > n || linked * 2 > t.length || /\]\([^)]*\)\[/.test(raw))) return skip();
       const sentence = /[.!?"”’)]$/.test(t);
-      if ((n >= 14 && (sentence || n >= 28)) || (listed && n >= 8 && sentence)) kept.push({ i, t, n });
+      if ((n >= 14 && (sentence || n >= 28)) || (listed && n >= 8 && sentence)) {
+        kept.push({ i, t, n, gap, noise }); gap = 0; noise = 0;
+      } else skip();
     });
     const runs = []; let cur = [];
-    for (const k of kept) { if (cur.length && k.i - cur[cur.length - 1].i > 4) { runs.push(cur); cur = []; } cur.push(k); }
+    for (const k of kept) { if (cur.length && (k.gap > RUN_GAP || k.noise > RUN_NOISE)) { runs.push(cur); cur = []; } cur.push(k); }
     if (cur.length) runs.push(cur);
     const size = (r) => r.reduce((s, x) => s + x.n, 0);
     const best = runs.sort((a, b) => size(b) - size(a))[0] || [];
@@ -288,7 +302,8 @@
     const shared = tw.filter((w) => hw.has(w)).length;
     return shared >= 2 ? shared / (tw.length || 1) : 0;
   }
-  const sameStory = (page, tw) => { const pw = new Set(words(page.paragraphs.join(" "))); return tw.filter((w) => pw.has(w)).length / (tw.length || 1) >= 0.5; };
+  const OWN_FIT = 0.34;  // a story's own page words its headline its own way; a free copy found by search must match more
+  const sameStory = (page, tw, bar = 0.5) => { const pw = new Set(words(page.paragraphs.join(" "))); return tw.filter((w) => pw.has(w)).length / (tw.length || 1) >= bar; };
   const COMMON = new Set(["gover", "state", "minis", "centr", "india", "offic", "peopl", "year", "years", "month", "today", "new"]);
   // A widget above an article ("trending") shares next to nothing with the story; an article's lead shares its
   // names and subject with the headline. (Its closing lines may not, so only the top is trimmed.)
@@ -322,7 +337,10 @@
     const tried = new Set();
     for (const u of urls.filter(isOpen).slice(0, 3)) {
       step(`Reading ${domainOf(u)}…`); tried.add(u);
-      try { out.read.push(trimEdges(await read(u, signal), story)); return out; } catch (e) { if (e.code === "rate") throw e; }
+      try {
+        const page = trimEdges(await read(u, signal), story);
+        if (sameStory(page, tw, OWN_FIT)) { out.read.push(page); return out; }  // else the text read was the page's furniture
+      } catch (e) { if (e.code === "rate") throw e; }
     }
     const queries = [searchQuery(story.title), keyQuery(story)].filter((q, i, a) => q && a.indexOf(q) === i);
     for (const q of queries) {
@@ -364,9 +382,10 @@
     }
     return summarize(sents, n).map((x) => x.text);
   }
-  const SUM_KEY = "upsc-sum"; const SUM_MAX = 250; const MISS_RETRY = 6 * 3600 * 1000;
+  // v2: summaries kept on a device before the trending-strip fix are dropped
+  const SUM_KEY = "upsc-sum-v2"; const SUM_MAX = 250; const MISS_RETRY = 6 * 3600 * 1000;
   const sumStore = {
-    get() { try { return JSON.parse(localStorage.getItem(SUM_KEY) || localStorage.getItem("upsc-app-sum") || "{}") || {}; } catch (e) { return {}; } },
+    get() { try { return JSON.parse(localStorage.getItem(SUM_KEY) || "{}") || {}; } catch (e) { return {}; } },
     set(v) { try { localStorage.setItem(SUM_KEY, JSON.stringify(v)); } catch (e) { /* private mode or full */ } },
   };
   let SUMS = null;
