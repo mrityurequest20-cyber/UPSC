@@ -1677,6 +1677,7 @@ brief:
   must_know_min: 8
   must_know_max: 25
   prelims_max: 30
+  more_max: 60   # "Also in the news" lines (Gemini rates about half the day's leading stories 2: without a cap, 200+)
   also: 4.75
   floor_cards: 20
   floor_total: 40

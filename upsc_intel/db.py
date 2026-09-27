@@ -174,6 +174,15 @@ CREATE TABLE IF NOT EXISTS article_text (
     fetched_at TEXT
 );
 
+-- Gemini's same-event groups among a day's brief cards (pipeline/triage.py → dedupe); sig: the card ids it saw
+CREATE TABLE IF NOT EXISTS ai_groups (
+    day TEXT PRIMARY KEY,
+    sig TEXT,
+    ids TEXT,
+    groups TEXT,
+    at TEXT
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );

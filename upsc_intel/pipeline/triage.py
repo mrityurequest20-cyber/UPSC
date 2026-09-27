@@ -75,6 +75,17 @@ SCHEMA_ITEM = {"type": "object", "properties": {
 SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": SCHEMA_ITEM}}, "required": ["items"]}
 
 
+DEDUPE_SYSTEM = """You get the numbered headlines of one day's current-affairs brief. Group the headlines that
+report the SAME news event: one speech, one announcement, one Cabinet decision, one court ruling, one meeting or
+summit session, one report's release, told by different outlets or from different angles. Headlines about
+different events on the same topic stay apart (two different Cabinet decisions; a minister's speech and a
+separate bilateral meeting; a bill's passage and a later court challenge to it). Return only groups of two or
+more numbers; a headline in no group is its own event."""
+DEDUPE_SCHEMA = {"type": "object", "properties": {"groups": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}}},
+                 "required": ["groups"]}
+DEDUPE_EVERY_MIN = 40  # a day's cards are grouped again when 3+ new ones came in, or after this long
+
+
 def mode(settings: Settings) -> str:
     m = (settings.ai_triage or "").lower()
     return m if m in ("on", "shadow", "off") else "off"
@@ -168,3 +179,57 @@ def triage(settings: Settings, db: DB, clf: Classifier, days: list[str], http=No
     left = len(todo) - graded
     return {"enabled": True, "mode": mode(settings), "graded": graded, "calls": calls, "left": left,
             **({"paused": note} if note else {})}
+
+
+def _cards(db: DB, day: str) -> list:
+    """The day's Must-know and Prelims-facts cards, with the reports already folded into them."""
+    return db.q("SELECT b.story_id, s.title FROM brief_picks b JOIN stories s ON s.id = b.story_id WHERE b.date_ist=? "
+                "AND b.kind='news' AND COALESCE(b.tier, 'top') IN ('top', 'prelims') ORDER BY b.rank", (day,))
+
+
+def dedupe(settings: Settings, db: DB, days: list[str], http=None) -> dict:
+    """Gemini groups the days' cards that report the same event (kept in ai_groups; the brief folds each group
+    into one card). A day is asked again only when its cards changed: 3+ new ones, or DEDUPE_EVERY_MIN later.
+    → {"calls", "changed": [days whose groups changed]}"""
+    if mode(settings) != "on" or not settings.gemini_api_key:
+        return {"enabled": False}
+    now = datetime.now(timezone.utc)
+    gem = None
+    calls, changed = 0, []
+    for day in days:
+        rows = _cards(db, day)
+        ids = [r["story_id"] for r in rows]
+        if len(ids) < 2:
+            continue
+        sig = hashlib.sha1(",".join(sorted(ids)).encode()).hexdigest()[:12]
+        prev = db.q("SELECT sig, ids, groups, at FROM ai_groups WHERE day=?", (day,))
+        if prev:
+            p = prev[0]
+            new = set(ids) - set(json.loads(p["ids"] or "[]"))
+            if p["sig"] == sig or (len(new) < 3 and (p["at"] or "") > iso(now - timedelta(minutes=DEDUPE_EVERY_MIN))):
+                continue
+        gem = gem or Gemini(settings.gemini_api_key, settings.gemini_model, http=http)
+        calls += 1
+        try:
+            reply, _ = gem.generate(DEDUPE_SYSTEM, "\n".join(f"{n}. {r['title']}" for n, r in enumerate(rows, 1)), DEDUPE_SCHEMA)
+        except GeminiStop as exc:
+            log.warning("AI dedupe paused: %s", exc)
+            break
+        except Exception as exc:
+            log.warning("AI dedupe: %s", type(exc).__name__)
+            continue
+        if not reply or reply.get("skipped"):
+            continue
+        groups, seen = [], set()
+        for g in reply.get("groups") or []:
+            members = [ids[n - 1] for n in dict.fromkeys(g) if isinstance(n, int) and 1 <= n <= len(ids) and ids[n - 1] not in seen]
+            if len(members) >= 2:
+                groups.append(members)
+                seen.update(members)
+        old = json.loads(prev[0]["groups"] or "[]") if prev else []
+        db.x("INSERT OR REPLACE INTO ai_groups (day, sig, ids, groups, at) VALUES (?, ?, ?, ?, ?)",
+             (day, sig, json.dumps(ids), json.dumps(groups), iso(now)))
+        if sorted(map(sorted, groups)) != sorted(map(sorted, old)):
+            changed.append(day)
+    db.commit()
+    return {"enabled": True, "calls": calls, "changed": changed}

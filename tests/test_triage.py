@@ -163,3 +163,61 @@ def test_must_know_is_topped_up_from_the_rules_on_a_light_day(db, settings, clf)
     ai = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True)}
     assert rules["r2"] == "top" and ai["r2"] == "top"  # the rules' Must-know pick that Gemini rates 2 fills the floor of 8
     assert ai["r1"] == "top"
+
+
+def test_also_in_the_news_is_capped(db, settings, clf):
+    for i in range(12):
+        story(db, f"m{i}", f"Exercise number {i} held at a naval base", score=3.0 + i * 0.01)  # 2s the rules don't take
+    db.commit()
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
+    clf.brief.update(more_max=5, prelims_max=0)  # (no fact cards: all twelve are lines)
+    try:
+        lines = [sid for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True) if tier == "more" and kind == "news"]
+    finally:
+        clf.brief.pop("more_max")
+        clf.brief["prelims_max"] = 30
+    assert len(lines) <= 5 + len(clf.subject_meta)  # (plus at most one line per uncovered subject)
+    assert "m11" in lines and "m0" not in lines  # the stronger ones stay
+
+
+class Grouper(FakeGemini):
+    """Triage as FakeGemini; for the same-event call, groups the headlines that share their first word."""
+    def post(self, url, headers=None, json=None):
+        sys = json["systemInstruction"]["parts"][0]["text"]
+        if "SAME news event" not in sys:
+            return super().post(url, headers, json)
+        self.calls.append((url, headers, json))
+        lines = re.findall(r"^(\d+)\. (\S+)", json["contents"][0]["parts"][0]["text"], re.M)
+        by = {}
+        for n, w in lines:
+            by.setdefault(w, []).append(int(n))
+        text = __import__("json").dumps({"groups": [g for g in by.values() if len(g) > 1]})
+        return Resp(200, {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": text}]}}]})
+
+
+def test_cards_on_the_same_event_fold_into_one(db, settings, clf):
+    from upsc_intel.pipeline.brief import build_day
+    story(db, "j1", "Jaishankar at UNGA: ten big messages on terrorism and the Global South Cabinet", score=7.0, grade="NOTE", subjects=("ir",))
+    story(db, "j2", "Jaishankar says reformed multilateralism is now more urgent Bill", score=6.9, grade="NOTE", subjects=("ir",))
+    story(db, "j3", "Jaishankar pushes for immediate UN reform as post-1945 order fades Cabinet", score=6.8, grade="NOTE", subjects=("ir",))
+    story(db, "c1", "Cabinet approves ECLGS 5.0 for small businesses", score=7.5, grade="NOTE")
+    db.commit()
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+    http = Grouper()
+    T.triage(settings, db, clf, [DAY], http=http, pause=0, min_batch=1)
+    build_day(settings, db, clf, DAY)
+    db.commit()
+    cards = lambda: {sid: lead for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True) if kind == "news"}
+    assert sum(1 for s in ("j1", "j2", "j3") if cards()[s] is None) == 3  # the rules keep three cards
+    res = T.dedupe(settings, db, [DAY], http=http)
+    assert res == {"enabled": True, "calls": 1, "changed": [DAY]}
+    build_day(settings, db, clf, DAY)
+    db.commit()
+    c = cards()
+    assert c["j1"] is None and c["j2"] == "j1" and c["j3"] == "j1" and c["c1"] is None  # one Jaishankar card
+    n = len(http.calls)
+    assert T.dedupe(settings, db, [DAY], http=http) == {"enabled": True, "calls": 0, "changed": []}  # same cards: no call
+    assert len(http.calls) == n
+    settings.ai_triage = "shadow"
+    assert T.dedupe(settings, db, [DAY], http=http) == {"enabled": False}

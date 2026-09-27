@@ -295,7 +295,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 190 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 192 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -333,6 +333,8 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
      - A 2 is a Prelims-facts card when it holds a checkable fact and the rules take the story too, else a line. There are at most `prelims_max` (30) such cards, strongest first.
      - A 1 is a line if the rules take it.
      - Gemini's subject and GS papers lead the card.
+     - "Also in the news" holds at most `more_max` (60) lines: Gemini's 2s first, then the rules' picks, then its 1s.
+     - **Same event, one card:** after the brief is picked, Gemini sees the day's Must-know and Prelims-facts headlines (with the reports already folded in) and groups the ones on the same event, e.g. one speech told three ways. Each group folds into one card. The groups are kept in `ai_groups`, and a day is asked again only when its cards change (3 or more new ones, or 40 minutes later), about one call per busy run.
      - A story without a grade (quota out) keeps the rules.
    - **`off`:** no calls.
 

@@ -15,6 +15,7 @@ from ..fetchers.describe import describe_new, page_description
 from ..fetchers.http import Http
 from ..models import RawItem
 from .articles import read_brief_articles
+from .triage import dedupe as ai_dedupe
 from .triage import triage as ai_triage
 from .brief import build_day, recent_days, update_recent
 from .classify import Classifier
@@ -202,6 +203,15 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
         except Exception:
             log.exception("AI triage failed")
     brief_days = update_recent(settings, db, clf)
+    if not only:
+        try:  # Gemini folds cards that report the same event (a speech told three ways is one card)
+            dd = ai_dedupe(settings, db, brief_days)
+            for d in dd.get("changed") or []:
+                build_day(settings, db, clf, d)
+            db.commit()
+            triage_stats["dedupe"] = dd
+        except Exception:
+            log.exception("AI dedupe failed")
     video_stats = {}
     article_stats = {}
     if not only:

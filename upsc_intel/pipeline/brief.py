@@ -93,10 +93,16 @@ class _Rarity:
         return sum(self.idf(t) for t in shared) / (sum(self.idf(t) for t in a | b) or 1.0)
 
 
-def _fold(items: list[dict], rarity: _Rarity, threshold: float) -> list[list[dict]]:
-    """Groups same-event reports; `items` come best first, so each group's first item leads it."""
+def _fold(items: list[dict], rarity: _Rarity, threshold: float, same: dict[str, int] | None = None) -> list[list[dict]]:
+    """Groups same-event reports; `items` come best first, so each group's first item leads it.
+    same: {story id: group} from Gemini (ai_groups): stories in one group always share a card."""
     groups: list[list[dict]] = []
+    by_key: dict[int, list[dict]] = {}
     for it in items:
+        key = (same or {}).get(it["id"])
+        if key is not None and key in by_key:
+            by_key[key].append(it)
+            continue
         best, best_sim = None, 0.0
         for g in groups:
             sim = max(rarity.similar(it["tokens"], m["tokens"]) for m in g[:FOLD_LINK])
@@ -106,7 +112,17 @@ def _fold(items: list[dict], rarity: _Rarity, threshold: float) -> list[list[dic
             best.append(it)
         else:
             groups.append([it])
+            best = groups[-1]
+        if key is not None:
+            by_key[key] = best
     return groups
+
+
+def ai_groups(db: DB, day: str) -> dict[str, int]:
+    """{story id: group} from Gemini's same-event groups for the day, or {}."""
+    rows = db.q("SELECT groups FROM ai_groups WHERE day=?", (day,))
+    groups = json.loads(rows[0]["groups"] or "[]") if rows else []
+    return {sid: n for n, g in enumerate(groups) for sid in g}
 
 
 def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
@@ -184,7 +200,14 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
         if tier:
             it["tier"] = tier
             picked.append(it)
-    if use_ai:
+    cards = sum(1 for it in picked if it["tier"] != "more")
+    for it in picked:  # 2. a light day: the best remaining facts become cards (not one Gemini rates marginal)
+        if cards >= b["floor_cards"]:
+            break
+        if it["tier"] == "more" and it["fact"] and it["bs"] >= b["floor_min"] and (it["ai"] is None or it["ai"] >= 2):
+            it["tier"] = "prelims"
+            cards += 1
+    if use_ai:  # (after the light-day floor, so the caps hold)
         by_bs = lambda it: -it["bs"]
         # a light day for Gemini: the rules' Must-know stories that it rates useful fill Must-know to must_know_min
         need = int(b.get("must_know_min", 8)) - sum(1 for it in picked if it["tier"] == "top")
@@ -197,13 +220,11 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
             it["tier"] = "prelims" if it["ai_fact"] or it["fact"] else "more"
         for it in sorted((it for it in picked if it["tier"] == "prelims"), key=by_bs)[int(b.get("prelims_max", 30)):]:
             it["tier"] = "more"
-    cards = sum(1 for it in picked if it["tier"] != "more")
-    for it in picked:  # 2. a light day: the best remaining facts become cards (not one Gemini rates marginal)
-        if cards >= b["floor_cards"]:
-            break
-        if it["tier"] == "more" and it["fact"] and it["bs"] >= b["floor_min"] and (it["ai"] is None or it["ai"] >= 2):
-            it["tier"] = "prelims"
-            cards += 1
+        # "Also in the news": at most more_max lines, Gemini's 2s first, then the rules' picks, then its 1s
+        lines = sorted((it for it in picked if it["tier"] == "more"),
+                       key=lambda it: (-(it["ai"] if it["ai"] is not None else 1.5), -it["bs"]))
+        cut = {it["id"] for it in lines[int(b.get("more_max", 60)):]}
+        picked = [it for it in picked if it["id"] not in cut]
     covered = {p["subject"] for p in picked}
     taken = {p["id"] for p in picked}
     for subj in clf.subject_meta:  # 3. coverage
@@ -216,7 +237,7 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
             covered.add(subj)
 
     picked.sort(key=lambda it: (TIER_ORDER[it["tier"]], -it["order"]))
-    groups = _fold(picked, _Rarity(db, day), b["fold_similarity"])  # 4. same-event reports
+    groups = _fold(picked, _Rarity(db, day), b["fold_similarity"], ai_groups(db, day) if use_ai else None)  # 4. same event
     out: list[tuple[str, str, int, str, str | None]] = []
     rank = 0
     for g in groups:
