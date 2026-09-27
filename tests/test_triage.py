@@ -71,24 +71,24 @@ def test_stories_are_graded_in_batches_once_per_headline(db, settings, clf):
     seed(db)
     settings.gemini_api_key, settings.ai_triage = "test-key", "shadow"
     http = FakeGemini()
-    res = T.triage(settings, db, clf, [DAY], http=http, pause=0)
+    res = T.triage(settings, db, clf, [DAY], http=http, pause=0, min_batch=1)
     assert res == {"enabled": True, "mode": "shadow", "graded": 5, "calls": 1, "left": 0}
     url, headers, body = http.calls[0]
     assert "key=" not in url and headers["x-goog-api-key"] == "test-key"
     assert "1. [NEWS] Bigg Boss contestant slams housemate (PIB)" in body["contents"][0]["parts"][0]["text"]  # best score first
     v = json.loads(db.q("SELECT triage FROM stories WHERE id='cab'")[0]["triage"])
     assert v["upsc"] == 3 and v["model"] == "gemini-2.5-flash"
-    assert T.triage(settings, db, clf, [DAY], http=http, pause=0)["graded"] == 0 and len(http.calls) == 1  # nothing new
+    assert T.triage(settings, db, clf, [DAY], http=http, pause=0, min_batch=1)["graded"] == 0 and len(http.calls) == 1  # nothing new
     db.x("UPDATE stories SET title='Cabinet approves fertiliser subsidy of Rs 37,000 crore' WHERE id='cab'")
-    assert T.triage(settings, db, clf, [DAY], http=http, pause=0)["graded"] == 1  # a new headline is graded again
+    assert T.triage(settings, db, clf, [DAY], http=http, pause=0, min_batch=1)["graded"] == 1  # a new headline is graded again
     settings.ai_triage = "off"
-    assert T.triage(settings, db, clf, [DAY], http=http, pause=0) == {"enabled": False}
+    assert T.triage(settings, db, clf, [DAY], http=http, pause=0, min_batch=1) == {"enabled": False}
 
 
 def test_the_brief_follows_the_verdicts_only_when_on(db, settings, clf):
     seed(db)
     settings.gemini_api_key, settings.ai_triage = "test-key", "shadow"
-    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0)
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
     rules = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY)}
     ai = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True)}
     assert "bb" in rules and "bb" not in ai  # rules took the Bigg Boss story (a NOTE score); Gemini says 0
@@ -101,7 +101,7 @@ def test_must_know_is_capped_on_a_heavy_day(db, settings, clf):
         story(db, f"c{i}", f"Cabinet approves item number {i} of the reform package", score=6.0 - i * 0.1)
     db.commit()
     settings.gemini_api_key, settings.ai_triage = "test-key", "on"
-    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0)
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
     clf.brief["must_know_max"] = 4
     try:
         tiers = [tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True) if kind == "news" and lead is None]
@@ -114,7 +114,7 @@ def test_audit_lists_what_the_ai_moves(db, settings, clf):
     seed(db)
     settings.gemini_api_key, settings.ai_triage = "test-key", "shadow"
     assert audit_day(db, clf, DAY) is None  # nothing graded yet
-    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0)
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
     a = audit_day(db, clf, DAY)
     assert a["graded"] == 5 and a["upsc"] == {"0": 1, "1": 1, "2": 1, "3": 2}
     assert [x["title"] for x in a["dropped"]] == ["Bigg Boss contestant slams housemate"] and a["dropped"][0]["why"] == "graded 0"
@@ -126,10 +126,40 @@ def test_payload_leads_with_the_ai_subject_when_on(db, settings, clf):
     from upsc_intel.web.app import brief_payload
     seed(db)
     settings.gemini_api_key, settings.ai_triage = "test-key", "on"
-    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0)
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
     build_day(settings, db, clf, DAY)
     db.commit()
     p = brief_payload(settings, db, clf, DAY, DAY)
     s = next(x for x in p["stories"] if x["id"] == "bill")
     assert s["subjects"][0] == "polity" and s["gs"] == ["GS2"] and "bill" in p["days"][DAY]["news"]
     assert "bb" not in {i for k in ("news", "prelims", "more") for i in p["days"][DAY][k]}
+
+
+def test_a_quiet_run_waits_for_more_stories(db, settings, clf):
+    seed(db)
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+    http = FakeGemini()
+    assert T.triage(settings, db, clf, [DAY], http=http, pause=0)["waiting"] and not http.calls  # 5 new stories: later
+    db.x("UPDATE stories SET first_seen='2026-09-27T01:00:00+00:00' WHERE id='gen'")  # one has waited an hour
+    assert T.triage(settings, db, clf, [DAY], http=http, pause=0)["graded"] == 5
+
+
+def test_must_know_is_topped_up_from_the_rules_on_a_light_day(db, settings, clf):
+    story(db, "r1", "Cabinet approves pact with Brazil on critical minerals", score=9.0, grade="NOTE")
+    story(db, "r2", "Minister reviews flood relief in Assam districts", score=9.0, grade="NOTE")
+    db.commit()
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+
+    class TwoOnly(FakeGemini):  # r1 a 3; r2 a 2 (a useful development, not must-know)
+        def post(self, url, headers=None, json=None):
+            r = super().post(url, headers, json)
+            items = __import__("json").loads(r._data["candidates"][0]["content"]["parts"][0]["text"])["items"]
+            for x in items:
+                x["upsc"], x["prelims"] = (3, False) if x["n"] == 1 else (2, False)
+            r._data["candidates"][0]["content"]["parts"][0]["text"] = __import__("json").dumps({"items": items})
+            return r
+    T.triage(settings, db, clf, [DAY], http=TwoOnly(), pause=0, min_batch=1)
+    rules = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY)}
+    ai = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True)}
+    assert rules["r2"] == "top" and ai["r2"] == "top"  # the rules' Must-know pick that Gemini rates 2 fills the floor of 8
+    assert ai["r1"] == "top"

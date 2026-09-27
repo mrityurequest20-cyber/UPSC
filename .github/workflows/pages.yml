@@ -33,7 +33,7 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # free Google AI Studio key: Gemini writes the study notes
-      UPSC_AI_TRIAGE: shadow  # Gemini grades every story; "on": the brief follows its grades (data/triage.json compares)
+      UPSC_AI_TRIAGE: "on"  # Gemini grades every story and the brief follows it; "shadow": rules only (data/triage.json compares)
       UPSC_SITE_REFRESH_MIN: "20"  # keep in step with the cron above (shown on the page)
       UPSC_KEEP_DAYS: "45"         # the working database; finished months live on in the archive branch
     steps:

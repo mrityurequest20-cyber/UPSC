@@ -1672,7 +1672,11 @@ brief:
   hard_news: 1.0
   talk_weight: 1.0
   must_know: 6.25
-  must_know_max: 25   # with Gemini's verdicts (UPSC_AI_TRIAGE=on): at most this many Must-know cards; the rest become facts or lines
+  # with Gemini's verdicts (UPSC_AI_TRIAGE=on): Must-know holds its 3s, topped up to must_know_min with the rules'
+  # Must-know stories it rates 2, and at most must_know_max; Prelims facts at most prelims_max (strongest first)
+  must_know_min: 8
+  must_know_max: 25
+  prelims_max: 30
   also: 4.75
   floor_cards: 20
   floor_total: 40
