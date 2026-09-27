@@ -627,6 +627,31 @@
       }
       throw fail("quota", "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
     },
+    // One JSON answer to a schema (Gemini's form: "OBJECT", "STRING"…); parts may carry images ({inlineData}). → {data, model}
+    async json({ system, parts, schema, signal, temperature = 0.3 }) {
+      const key = gemStore.get(GEM_KEY);
+      if (!key) throw fail("nokey", "Switch on ✦ Intel AI first.");
+      const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts }],
+        generationConfig: { temperature, maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: schema } });
+      const models = gemini.models();
+      for (const model of models) {
+        let r;
+        try {
+          r = await fetch(`${GEM_API}/models/${model}:generateContent`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body, signal });
+        } catch (e) { if (signal && signal.aborted) throw e; throw fail("net", "Couldn't reach Google's AI service."); }
+        if (r.status === 429 || r.status === 404 || r.status >= 500) continue;  // quota used up, gone or busy: the next model
+        if (r.status === 401 || r.status === 403 || (r.status === 400 && /API_KEY/.test(await r.clone().text()))) throw fail("key", "Google refused the key: add it again in ✦ Intel AI.");
+        if (!r.ok) throw fail("http", `Intel AI couldn't answer (${r.status}).`);
+        const c = (((await r.json()).candidates) || [])[0] || {};
+        const text = ((c.content || {}).parts || []).filter((p) => !p.thought).map((p) => p.text || "").join("");
+        if (!text) throw fail("blocked", `Intel AI gave no answer${c.finishReason ? ` (${String(c.finishReason).toLowerCase()})` : ""}.`);
+        let data;
+        try { data = JSON.parse(text); } catch (e) { throw fail("http", "Intel AI's reply was cut short: try again."); }
+        if (models[0] !== model) gemStore.set(GEM_MODELS, JSON.stringify([model, ...models.filter((m) => m !== model)]));
+        return { data, model };
+      }
+      throw fail("quota", "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
+    },
   };
   // Gemini's Markdown → safe HTML: headings, bullets, numbered lists, bold, italics, code, http(s) links.
   function mdHtml(t) {
@@ -1231,21 +1256,31 @@ Rules:
     };
   }
 
-  // ─────────────────────────── Practice: the day's UPSC-style MCQs (data/practice/<day>.json) ───────────────────────────
-  // One widget for the dashboard and the app: pick a day, a set of 10/15/20, practice (answer shown after each) or exam
-  // (answers at the end); swap any question for one never seen; a result with UPSC marking and every answer's source.
-  // What you've seen and your scores stay on this device (shared by the dashboard and the app).
+  // ─────────────────────────── Practice hub (data/practice, data/cards, the day files) ───────────────────────────
+  // One widget for the dashboard and the app, five modes:
+  //   MCQs:        a day's questions (UPSC-style ones written with the AI notes first), sets of 10/15/20, practice or exam
+  //   Revise:      spaced-repetition flashcards from the notes (Again / Hard / Good / Easy, Anki-like intervals)
+  //   Mains:       write an answer to a day's Mains question (typed, or photos of a handwritten one); Intel AI evaluates
+  //                it like a UPSC examiner (on the viewer's own key)
+  //   Weekly mock: 50 questions from the last seven days, 60 minutes, exam mode
+  //   Mistakes:    every question answered wrong, until it's answered right
+  // Scores, the revision schedule and drafts stay on this device (shared by the dashboard and the app).
   const PX_KEY = "upsc-practice";
   const pxStore = {
-    get() { try { const v = JSON.parse(localStorage.getItem(PX_KEY) || "{}") || {}; return { seen: v.seen || {}, attempts: v.attempts || [] }; } catch (e) { return { seen: {}, attempts: [] }; } },
+    get() {
+      try { const v = JSON.parse(localStorage.getItem(PX_KEY) || "{}") || {}; return { seen: v.seen || {}, attempts: v.attempts || [], wrong: v.wrong || {} }; }
+      catch (e) { return { seen: {}, attempts: [], wrong: {} }; }
+    },
     set(v) {
       const seen = Object.entries(v.seen).sort((a, b) => b[1] - a[1]).slice(0, 3000);
-      try { localStorage.setItem(PX_KEY, JSON.stringify({ seen: Object.fromEntries(seen), attempts: v.attempts.slice(-80) })); } catch (e) { /* private mode or full */ }
+      const wrong = Object.entries(v.wrong || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 300);
+      try { localStorage.setItem(PX_KEY, JSON.stringify({ seen: Object.fromEntries(seen), attempts: v.attempts.slice(-80), wrong: Object.fromEntries(wrong) })); } catch (e) { /* private mode or full */ }
     },
   };
-  const PX_TYPE = { statements: "Statements", pairs: "Match the pairs", fact: "Fact", figure: "Figure", claude: "By Claude" };
+  const PX_TYPE = { statements: "Statements", pairs: "Match the pairs", fact: "Fact", figure: "Figure", claude: "By Claude", upsc: "UPSC-style" };
   const PX_MARK = { right: 2, wrong: -0.66 };
-  const PX_QUOTA = { pairs: 0.08, statements: 0.5, fact: 0.25, figure: 0.17, claude: 1 };
+  const PX_QUOTA = { pairs: 0.08, statements: 0.5, fact: 0.25, figure: 0.17, claude: 1, upsc: 1 };
+  const MOCK_N = 50; const MOCK_MIN = 60;
   function pxSeed(t) { let h = 2166136261; for (const c of String(t)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h; }
   // A set of n: questions never seen first, one per story before a second, about half statements, one pairs at most.
   function pxPick(pool, n, seen, exclude = new Set()) {
@@ -1272,32 +1307,123 @@ Rules:
     const st = pxStore.get(); const subj = {};
     for (const a of st.attempts) for (const [k, [r, t]] of Object.entries(a.subj || {})) { subj[k] = subj[k] || [0, 0]; subj[k][0] += r; subj[k][1] += t; }
     const tot = st.attempts.reduce((x, a) => [x[0] + a.right, x[1] + a.n], [0, 0]);
-    return { attempts: st.attempts, subj, accuracy: tot[1] ? Math.round((tot[0] * 100) / tot[1]) : null, seen: Object.keys(st.seen).length };
+    return { attempts: st.attempts, subj, accuracy: tot[1] ? Math.round((tot[0] * 100) / tot[1]) : null, seen: Object.keys(st.seen).length,
+      mistakes: Object.keys(st.wrong).length, mains: mainsStore.get().slice(-20), revise: srsStats() };
   }
 
-  // host: { day() → "YYYY-MM-DD", days() → recent days, newest first, load(day) → Promise<{questions}>, label(day) → text,
-  //         subject(key) → name, claude(prompt) }
+  // ── spaced repetition: an Anki-like schedule per flashcard, in days (IST) ──
+  const SRS_KEY = "upsc-srs"; const SRS_NEW = 20;  // new cards a day
+  const dayNo = (t = Date.now()) => Math.floor((t + 5.5 * 3600e3) / 864e5);
+  const srsStore = {
+    get() { try { const v = JSON.parse(localStorage.getItem(SRS_KEY) || "{}") || {}; return { cards: v.cards || {}, day: v.day || 0, fresh: v.fresh || 0 }; } catch (e) { return { cards: {}, day: 0, fresh: 0 }; } },
+    set(v) { try { localStorage.setItem(SRS_KEY, JSON.stringify(v)); } catch (e) { /* private mode or full */ } },
+  };
+  // grade: 1 Again, 2 Hard, 3 Good, 4 Easy → the card's next state {ease, ivl (days), reps, lapses, due (day number)}
+  function srsNext(prev, grade, today = dayNo()) {
+    const s = { ease: 2.5, ivl: 0, reps: 0, lapses: 0, ...(prev || {}) };
+    if (grade === 1) { if (prev && prev.reps) s.lapses += 1; s.reps = 0; s.ivl = 0; s.ease = Math.max(1.3, s.ease - 0.2); }
+    else if (!s.reps) { s.ivl = grade === 4 ? 3 : 1; s.reps = 1; if (grade === 4) s.ease += 0.15; if (grade === 2) s.ease = Math.max(1.3, s.ease - 0.15); }
+    else {
+      s.ivl = grade === 2 ? Math.max(1, Math.round(s.ivl * 1.2)) : grade === 3 ? Math.max(s.ivl + 1, Math.round(s.ivl * s.ease))
+        : Math.max(s.ivl + 2, Math.round(s.ivl * s.ease * 1.3));
+      s.reps += 1; s.ease = Math.max(1.3, s.ease + (grade === 2 ? -0.15 : grade === 4 ? 0.15 : 0));
+    }
+    s.due = today + s.ivl;
+    return s;
+  }
+  const srsWhen = (prev, g) => { const n = srsNext(prev, g).ivl; return n === 0 ? "again soon" : n === 1 ? "1 day" : n < 30 ? `${n} days` : `${Math.round(n / 30)} mo`; };
+  function srsStats() {
+    const st = srsStore.get(); const today = dayNo(); const all = Object.values(st.cards);
+    return { learned: all.filter((c) => c.reps > 0).length, due: all.filter((c) => c.due <= today).length, total: all.length };
+  }
+
+  // ── Mains: answers and their evaluations ──
+  const MAINS_KEY = "upsc-mains"; const DRAFT_KEY = "upsc-mains-draft";
+  const mainsStore = {
+    get() { try { return JSON.parse(localStorage.getItem(MAINS_KEY) || "[]") || []; } catch (e) { return []; } },
+    add(x) { try { localStorage.setItem(MAINS_KEY, JSON.stringify([...mainsStore.get(), x].slice(-100))); } catch (e) { /* full */ } },
+  };
+  const drafts = {
+    get(id) { try { return (JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {})[id] || ""; } catch (e) { return ""; } },
+    set(id, text) {
+      try {
+        const all = JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {};
+        if (text) all[id] = text; else delete all[id];
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(Object.fromEntries(Object.entries(all).slice(-20))));
+      } catch (e) { /* full */ }
+    },
+  };
+  const wordCount = (t) => (String(t || "").trim().match(/\S+/g) || []).length;
+  const MAINS_SYSTEM = `You are a senior UPSC Civil Services Mains examiner. Evaluate the candidate's answer the way UPSC does:
+- Demand of the question: does it answer the directive (discuss, examine, critically analyse, comment) and every part of it?
+- Content: accuracy and depth. Use the STORY CONTEXT for the facts of the news event.
+- Dimensions: political, economic, social, environmental, legal and constitutional, ethical, international, administrative, as relevant.
+- Structure: a focused introduction, an organised body (points or sub-headings), a conclusion with a way forward.
+- Substantiation: examples, data, committee reports, Supreme Court judgments, constitutional Articles, schemes.
+- Presentation and the word limit (150 words for 10 marks, 250 for 15).
+Score like UPSC, out of {marks}: an average answer gets about 35-45% of the marks, a very good one 55-65%; above 70% is rare. Use steps of half a mark.
+If pages are attached as images, first transcribe the handwritten answer faithfully into transcript; otherwise leave transcript empty.
+rubric: each criterion from 0 to 10. strengths, improve, missed (dimensions or points left out): short, specific points, at most 5 each.
+keywords: terms an examiner looks for that the answer lacks. examples: data, reports, cases or schemes it should cite.
+better_intro and better_conclusion: rewritten in 2-3 sentences each. outline: a model answer outline in 6-10 short points.
+Write the feedback in the language of the answer (Hindi if it is in Hindi). Be encouraging but honest.`;
+  const STR = { type: "STRING" }; const STRS = { type: "ARRAY", items: STR }; const INT = { type: "INTEGER" };
+  const MAINS_SCHEMA = { type: "OBJECT", properties: {
+    transcript: STR, score: { type: "NUMBER" }, verdict: STR,
+    rubric: { type: "OBJECT", properties: { demand: INT, content: INT, dimensions: INT, structure: INT, substantiation: INT, presentation: INT },
+      required: ["demand", "content", "dimensions", "structure", "substantiation", "presentation"] },
+    strengths: STRS, improve: STRS, missed: STRS, keywords: STRS, examples: STRS, better_intro: STR, better_conclusion: STR, outline: STRS },
+    required: ["transcript", "score", "verdict", "rubric", "strengths", "improve", "missed", "keywords", "examples", "better_intro", "better_conclusion", "outline"] };
+  const RUBRIC = [["demand", "Answers the demand"], ["content", "Content"], ["dimensions", "Dimensions"], ["structure", "Structure"], ["substantiation", "Examples & data"], ["presentation", "Presentation"]];
+  function shrinkImage(file) {  // a photo → a JPEG at most 1600 px on its longest side: {data (base64), url}
+    return new Promise((resolve, reject) => {
+      const src = URL.createObjectURL(file); const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(src);
+        const url = c.toDataURL("image/jpeg", 0.82); resolve({ data: url.split(",")[1], url });
+      };
+      img.onerror = () => { URL.revokeObjectURL(src); reject(new Error("That picture couldn't be read.")); };
+      img.src = src;
+    });
+  }
+
+  // host: { day() → "YYYY-MM-DD", days() → days with questions, newest first, load(day) → Promise<{questions}>,
+  //         label(day) → text, subject(key) → name, claude(prompt),
+  //         cardDays() → days with flashcards, loadCards(day) → Promise<{cards}>, loadDay(day) → Promise<the day's brief> }
   function mountPractice(el, host) {
-    const P = { view: "setup", day: host.day(), size: 15, mode: "practice", pool: null, loading: false, err: "", s: null };
+    const P = { tab: "mcq", view: "setup", day: host.day(), size: 15, mode: "practice", pool: null, loading: false, err: "", s: null, timer: 0 };
+    const R = { loaded: false, loading: false, deck: [], queue: [], i: 0, flip: false, done: 0, due: 0, fresh: 0, on: false };
+    const M = { day: host.day(), stories: null, loading: false, err: "", pick: null, q: "", marks: 15, text: "", images: [], busy: false, result: null };
     const L = (k) => (host.subject ? host.subject(k) : k) || k;
     async function load(day) {
       P.day = day; P.pool = null; P.loading = true; P.err = ""; render();
-      try { const x = await host.load(day); P.pool = (x && x.questions) || []; } catch (e) { P.pool = []; P.err = "No practice questions for this day yet."; }
+      try { const x = await host.load(day); P.pool = ((x && x.questions) || []).map((q) => ({ ...q, day })); } catch (e) { P.pool = []; P.err = "No practice questions for this day yet."; }
       P.loading = false; render();
     }
-    function start(qs) {
+    function start(qs, opts = {}) {
       const st = pxStore.get(); const now = Date.now();
-      P.s = { day: P.day, qs, i: 0, ans: {}, checked: {}, mode: P.mode, t0: now, swapped: 0 };
+      P.s = { day: opts.day || P.day, qs, i: 0, ans: {}, checked: {}, mode: opts.mode || P.mode, t0: now, swapped: 0, src: opts.src || "day",
+        label: opts.label || "", deadline: opts.secs ? now + opts.secs * 1000 : 0 };
       if (qs[0]) st.seen[qs[0].id] = now;
       pxStore.set(st); P.view = "quiz"; render();
+      clearInterval(P.timer);
+      if (P.s.deadline) {
+        P.timer = setInterval(() => {  // the mock's clock: ticks in place; at zero the set is submitted
+          const left = Math.max(0, P.s && P.s.deadline ? P.s.deadline - Date.now() : 0); const t = el.querySelector(".px-timer");
+          if (t) t.textContent = `${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")}`;
+          if (!left && P.view === "quiz") finish();
+        }, 1000);
+      }
     }
     async function swap() {
       const S = P.s; const cur = S.qs[S.i]; const st = pxStore.get();
       const inSet = new Set(S.qs.map((q) => q.id));
-      let next = pxPick(P.pool, 1, st.seen, inSet).find((q) => !st.seen[q.id]);
+      let next = S.src === "day" ? pxPick(P.pool, 1, st.seen, inSet).find((q) => !st.seen[q.id]) : null;
       if (!next) {  // this day's pool is used up: the days before it
         for (const d of (host.days() || []).filter((x) => x < S.day).slice(0, 7)) {
-          try { const x = await host.load(d); next = pxPick((x && x.questions) || [], 1, st.seen, inSet).find((q) => !st.seen[q.id]); } catch (e) { next = null; }
+          try { const x = await host.load(d); next = pxPick(((x && x.questions) || []).map((q) => ({ ...q, day: d })), 1, st.seen, inSet).find((q) => !st.seen[q.id]); } catch (e) { next = null; }
           if (next) break;
         }
       }
@@ -1306,22 +1432,42 @@ Rules:
       S.qs[S.i] = next; delete S.ans[cur.id]; delete S.checked[cur.id]; S.swapped += 1; render();
     }
     function finish() {
+      clearInterval(P.timer);
       const S = P.s; const st = pxStore.get();
       let right = 0; let wrong = 0; const subj = {};
       for (const q of S.qs) {
         const a = S.ans[q.id]; const k = q.subject || "other"; subj[k] = subj[k] || [0, 0]; subj[k][1] += 1;
         if (a == null) continue;
-        if (a === q.answer) { right += 1; subj[k][0] += 1; } else wrong += 1;
+        if (a === q.answer) { right += 1; subj[k][0] += 1; delete st.wrong[q.id]; }  // right at last: out of the notebook
+        else { wrong += 1; st.wrong[q.id] = { ...q, day: q.day || S.day, misses: ((st.wrong[q.id] || {}).misses || 0) + 1, at: Date.now() }; }
       }
-      const res = { day: S.day, n: S.qs.length, right, wrong, skipped: S.qs.length - right - wrong,
+      const res = { day: S.day, label: S.label, n: S.qs.length, right, wrong, skipped: S.qs.length - right - wrong,
         score: Math.round((right * PX_MARK.right + wrong * PX_MARK.wrong) * 100) / 100, max: S.qs.length * PX_MARK.right,
-        secs: Math.round((Date.now() - S.t0) / 1000), at: Date.now(), subj, mode: S.mode };
+        secs: Math.round((Date.now() - S.t0) / 1000), at: Date.now(), subj, mode: S.mode, src: S.src };
       st.attempts.push(res); pxStore.set(st);
       S.result = res; P.view = "result"; render();
+    }
+    async function startMock() {
+      P.loading = true; render();
+      const pool = [];
+      for (const d of (host.days() || []).slice(0, 7)) {
+        try { const x = await host.load(d); for (const q of (x && x.questions) || []) pool.push({ ...q, day: d }); } catch (e) { /* a day without questions */ }
+      }
+      P.loading = false;
+      const qs = pxPick(pool, MOCK_N, pxStore.get().seen);
+      if (!qs.length) { toastIn("No questions for the last seven days yet."); return; }
+      const days = [...new Set(qs.map((q) => q.day))].sort();
+      start(qs, { mode: "exam", src: "mock", secs: MOCK_MIN * 60, day: days[days.length - 1], label: `Weekly mock · ${host.label(days[0])} to ${host.label(days[days.length - 1])}` });
     }
     let toastMsg = "";
     function toastIn(m) { toastMsg = m; render(); setTimeout(() => { toastMsg = ""; render(); }, 3500); }
     const optLabel = (i) => "abcd"[i];
+    const toast = () => (toastMsg ? `<p class="px-toast">${esc(toastMsg)}</p>` : "");
+    function tabsHtml() {
+      const nWrong = Object.keys(pxStore.get().wrong).length; const due = srsStats().due;
+      const t = (k, label, badge) => `<button class="px-tab${P.tab === k ? " on" : ""}" data-px="tab" data-t="${k}" role="tab" aria-selected="${P.tab === k}">${label}${badge ? ` <i>${badge}</i>` : ""}</button>`;
+      return `<nav class="px-tabs nosb" role="tablist">${t("mcq", "MCQs")}${t("revise", "Revise", due)}${t("mains", "Mains")}${t("mock", "Weekly mock")}${t("mistakes", "Mistakes", nWrong)}</nav>`;
+    }
     function qHtml(q, S, review = false) {
       const a = S.ans[q.id]; const shown = review || S.checked[q.id];
       const items = q.items && q.items.length ? (q.type === "fact" || q.type === "figure"
@@ -1337,61 +1483,243 @@ Rules:
       return `<article class="px-q"><div class="px-tags"><span class="px-type">${esc(PX_TYPE[q.type] || q.type)}</span><span>${esc(L(q.subject))}</span>${(q.gs || []).map((g) => `<span>${esc(g)}</span>`).join("")}</div>
         <p class="px-stem">${esc(q.q)}</p>${items}${q.ask ? `<p class="px-ask">${esc(q.ask)}</p>` : ""}<div class="px-opts">${opts}</div>${why}</article>`;
     }
+    const daySelect = (cur, attr) => {
+      const days = [...new Set([cur, ...(host.days() || [])])].sort().reverse().slice(0, 14);
+      return `<select class="px-day" ${attr} aria-label="Day">${days.map((d) => `<option value="${d}"${d === cur ? " selected" : ""}>${esc(host.label(d))}</option>`).join("")}</select>`;
+    };
     function setupHtml() {
       const st = pxStore.get(); const pool = P.pool || [];
-      const unseen = pool.filter((q) => !st.seen[q.id]).length;
-      const days = [...new Set([P.day, ...(host.days() || [])])].sort().reverse().slice(0, 14);
+      const unseen = pool.filter((q) => !st.seen[q.id]).length; const upsc = pool.filter((q) => q.type === "upsc").length;
       const stats = practiceStats(); const last = st.attempts.slice(-4).reverse();
       const subj = Object.entries(stats.subj).filter(([, [, t]]) => t >= 3).map(([k, [r, t]]) => [k, Math.round((r * 100) / t), t]).sort((a, b) => a[1] - b[1]).slice(0, 5);
       const n = Math.min(P.size, pool.length);
-      return `<section class="px">
+      return `<section class="px">${tabsHtml()}
         <header class="px-head"><div class="px-eyebrow">Practice · ${esc(host.label(P.day))}</div>
           <h2>${P.loading ? "Loading the questions…" : pool.length ? `${pool.length} questions from this day's brief` : "No practice questions for this day yet"}</h2>
-          <p>${pool.length ? `${unseen} you haven't seen yet · statements, match the pairs, facts and figures · UPSC marking: +2 right, −0.66 wrong` : esc(P.err || "They are built with each day's brief: try another day.")}</p></header>
-        <div class="px-row"><span class="px-lab">Day</span><select class="px-day" data-px-day aria-label="Day">${days.map((d) => `<option value="${d}"${d === P.day ? " selected" : ""}>${esc(host.label(d))}</option>`).join("")}</select></div>
+          <p>${pool.length ? `${unseen} you haven't seen yet${upsc ? ` · ${upsc} UPSC-style` : ""} · statements, match the pairs, facts and figures · UPSC marking: +2 right, −0.66 wrong` : esc(P.err || "They are built with each day's brief: try another day.")}</p></header>
+        <div class="px-row"><span class="px-lab">Day</span>${daySelect(P.day, "data-px-day")}</div>
         <div class="px-row"><span class="px-lab">Questions</span>${[10, 15, 20].map((k) => `<button class="px-chip${P.size === k ? " on" : ""}" data-px="size" data-n="${k}">${k}</button>`).join("")}</div>
         <div class="px-row"><span class="px-lab">Mode</span><button class="px-chip${P.mode === "practice" ? " on" : ""}" data-px="mode" data-m="practice">Practice · answer after each</button><button class="px-chip${P.mode === "exam" ? " on" : ""}" data-px="mode" data-m="exam">Exam · answers at the end</button></div>
         <button class="px-go" data-px="start"${n ? "" : " disabled"}>Start ${n} question${n === 1 ? "" : "s"}</button>
-        ${last.length ? `<div class="px-hist"><h3>Your last attempts</h3><ul>${last.map((a) => `<li><b>${a.score} / ${a.max}</b> · ${a.right} right, ${a.wrong} wrong, ${a.skipped} skipped · ${esc(host.label(a.day))}</li>`).join("")}</ul>
+        ${last.length ? `<div class="px-hist"><h3>Your last attempts</h3><ul>${last.map((a) => `<li><b>${a.score} / ${a.max}</b> · ${a.right} right, ${a.wrong} wrong, ${a.skipped} skipped · ${esc(a.label || host.label(a.day))}</li>`).join("")}</ul>
           ${subj.length ? `<p class="px-fine">Weakest areas so far: ${subj.map(([k, pc, t]) => `${esc(L(k))} ${pc}% (${t} Qs)`).join(" · ")}</p>` : ""}</div>` : ""}
-        <p class="px-fine">Every question comes from the day's reports, and every answer shows its source line. Want more? <button class="px-link" data-px="claude">Make 10 more with Claude ↗</button></p>
-        ${toastMsg ? `<p class="px-toast">${esc(toastMsg)}</p>` : ""}</section>`;
+        <p class="px-fine">Every question comes from the day's reports, and every answer shows its source. Want more? <button class="px-link" data-px="claude">Make 10 more with Claude ↗</button></p>
+        ${toast()}</section>`;
     }
     function quizHtml() {
       const S = P.s; const q = S.qs[S.i]; const n = S.qs.length; const last = S.i === n - 1;
       const answered = S.ans[q.id] != null; const done = Object.keys(S.ans).length;
       const nextLabel = S.mode === "exam" ? (last ? "Submit" : "Next") : last ? "Finish" : answered ? "Next" : "Skip";
+      const left = S.deadline ? Math.max(0, S.deadline - Date.now()) : 0;
       return `<section class="px"><div class="px-top"><span>Q ${S.i + 1} of ${n}</span><div class="px-bar"><i style="width:${Math.round((done * 100) / n)}%"></i></div>
-          <span class="px-fine">${done} answered</span><button class="px-link" data-px="end">End</button></div>
+          ${S.deadline ? `<span class="px-timer" title="Time left">${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")}</span>` : `<span class="px-fine">${done} answered</span>`}<button class="px-link" data-px="end">End</button></div>
         ${qHtml(q, S)}
-        <div class="px-nav"><button class="px-btn" data-px="swap" title="Replace it with a question you haven't seen"${S.checked[q.id] ? " disabled" : ""}>↻ Swap question</button>
+        <div class="px-nav">${S.src === "day" ? `<button class="px-btn" data-px="swap" title="Replace it with a question you haven't seen"${S.checked[q.id] ? " disabled" : ""}>↻ Swap question</button>` : ""}
           <span class="px-sp"></span>${S.i > 0 ? `<button class="px-btn" data-px="prev">Back</button>` : ""}<button class="px-btn primary" data-px="next">${nextLabel}</button></div>
-        ${toastMsg ? `<p class="px-toast">${esc(toastMsg)}</p>` : ""}</section>`;
+        ${toast()}</section>`;
     }
     function resultHtml() {
       const S = P.s; const r = S.result; const acc = r.right + r.wrong ? Math.round((r.right * 100) / (r.right + r.wrong)) : 0;
       const bars = Object.entries(r.subj).sort((a, b) => b[1][1] - a[1][1]).map(([k, [rt, t]]) => `<div class="px-sbar"><span>${esc(L(k))}</span><div><i style="width:${Math.round((rt * 100) / t)}%"></i></div><b>${rt}/${t}</b></div>`).join("");
       const wrongN = S.qs.filter((q) => S.ans[q.id] != null && S.ans[q.id] !== q.answer).length;
-      return `<section class="px"><header class="px-res"><div class="px-eyebrow">Result · ${esc(host.label(S.day))} · ${S.mode === "exam" ? "exam" : "practice"} mode</div>
+      return `<section class="px"><header class="px-res"><div class="px-eyebrow">Result · ${esc(S.label || host.label(S.day))} · ${S.mode === "exam" ? "exam" : "practice"} mode</div>
           <div class="px-score">${r.score} <small>/ ${r.max}</small></div>
-          <p>${r.right} right · ${r.wrong} wrong · ${r.skipped} skipped · ${acc}% accuracy · ${Math.floor(r.secs / 60)} min ${r.secs % 60} s</p></header>
+          <p>${r.right} right · ${r.wrong} wrong · ${r.skipped} skipped · ${acc}% accuracy · ${Math.floor(r.secs / 60)} min ${r.secs % 60} s${wrongN ? ` · the ${wrongN} wrong ones are in <b>Mistakes</b>` : ""}</p></header>
         <div class="px-sbars">${bars}</div>
-        <div class="px-nav"><button class="px-btn primary" data-px="again">New set (questions you haven't seen)</button>${wrongN ? `<button class="px-btn" data-px="retry">Retry the ${wrongN} wrong</button>` : ""}<button class="px-btn" data-px="setup">Back</button></div>
+        <div class="px-nav">${S.src === "day" ? `<button class="px-btn primary" data-px="again">New set (questions you haven't seen)</button>` : ""}${wrongN ? `<button class="px-btn" data-px="retry">Retry the ${wrongN} wrong</button>` : ""}<button class="px-btn" data-px="setup">Back</button></div>
         <h3 class="px-rh">Review</h3>${S.qs.map((q, i) => `<div class="px-rev"><p class="px-fine">Q${i + 1}</p>${qHtml(q, S, true)}</div>`).join("")}</section>`;
     }
-    function render() {
-      el.innerHTML = P.view === "quiz" && P.s ? quizHtml() : P.view === "result" && P.s ? resultHtml() : setupHtml();
-      const sel = el.querySelector("[data-px-day]");
-      if (sel) sel.onchange = () => load(sel.value);
+
+    // ── Revise ──
+    async function loadDeck() {
+      R.loading = true; render();
+      const ids = new Set(); const deck = [];
+      await Promise.all(((host.cardDays && host.cardDays()) || []).slice(0, 30).map(async (d) => {
+        try { const x = await host.loadCards(d); for (const c of (x && x.cards) || []) if (!ids.has(c.id)) { ids.add(c.id); deck.push({ ...c, day: c.day || d }); } } catch (e) { /* a day without cards */ }
+      }));
+      deck.sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));  // newest first
+      R.deck = deck; R.loaded = true; R.loading = false; plan(); render();
     }
+    function plan() {  // today's queue: cards due (the most overdue first), then new ones up to the day's limit
+      const st = srsStore.get(); const today = dayNo();
+      const due = R.deck.filter((c) => st.cards[c.id] && st.cards[c.id].due <= today).sort((a, b) => st.cards[a.id].due - st.cards[b.id].due);
+      const fresh = R.deck.filter((c) => !st.cards[c.id]).slice(0, Math.max(0, SRS_NEW - (st.day === today ? st.fresh : 0)));
+      R.queue = [...due, ...fresh]; R.due = due.length; R.fresh = fresh.length; R.i = 0; R.flip = false; R.done = 0;
+    }
+    function grade(g) {
+      const c = R.queue[R.i]; const st = srsStore.get(); const today = dayNo(); const prev = st.cards[c.id];
+      if (!prev) { if (st.day !== today) { st.day = today; st.fresh = 0; } st.fresh += 1; }
+      st.cards[c.id] = srsNext(prev, g, today); srsStore.set(st); R.done += 1;
+      if (g === 1) R.queue.splice(Math.min(R.i + 4, R.queue.length), 0, c);  // again: back in a few cards
+      R.i += 1; R.flip = false; render();
+    }
+    function reviseHtml() {
+      if (!R.loaded) { if (!R.loading) setTimeout(loadDeck); return `<section class="px">${tabsHtml()}<p class="px-fine">Loading your flashcards…</p></section>`; }
+      const st = srsStore.get();
+      if (R.on && R.i < R.queue.length) {
+        const c = R.queue[R.i]; const prev = st.cards[c.id];
+        return `<section class="px"><div class="px-top"><span>Card ${R.i + 1} of ${R.queue.length}</span><div class="px-bar"><i style="width:${Math.round((R.i * 100) / R.queue.length)}%"></i></div><button class="px-link" data-px="rv-end">End</button></div>
+          <article class="px-q px-card"><div class="px-tags"><span class="px-type">${prev ? "Review" : "New"}</span><span>${esc(L(c.subject))}</span><span>${esc(host.label(c.day))}</span></div>
+            <p class="px-cq">${esc(c.q)}</p>
+            ${R.flip ? `<p class="px-ca">${esc(c.a)}</p><p class="px-src">${c.url ? `<a href="${esc(safeUrl(c.url))}" target="_blank" rel="noopener">Source: ${esc(c.src || domainOf(c.url))} ↗</a> · ` : ""}${esc(c.title)}</p>`
+              : `<button class="px-go" data-px="rv-flip">Show answer</button>`}</article>
+          ${R.flip ? `<div class="px-grades">${["Again", "Hard", "Good", "Easy"].map((name, i) => `<button class="px-grade g${i + 1}" data-px="rv-grade" data-g="${i + 1}"><b>${name}</b><small>${srsWalk(prev, i + 1)}</small></button>`).join("")}</div>
+            <p class="px-fine">How well did you remember it? The card comes back just before you'd forget it.</p>` : ""}</section>`;
+      }
+      const s = srsStats();
+      const doneToday = R.on && R.i >= R.queue.length;
+      if (doneToday) R.on = false;
+      return `<section class="px">${tabsHtml()}
+        <header class="px-head"><div class="px-eyebrow">Revise · spaced repetition</div>
+          <h2>${doneToday ? `Done for now 🎉 ${R.done} card${R.done === 1 ? "" : "s"} revised` : R.queue.length ? `${R.queue.length} card${R.queue.length === 1 ? "" : "s"} for today` : R.deck.length ? "Nothing due today" : "No flashcards yet"}</h2>
+          <p>${R.deck.length ? `${R.due} due for review · ${R.fresh} new (up to ${SRS_NEW} a day) · ${s.learned} learned of ${R.deck.length} in your deck` : "Flashcards come with the AI notes of each Must-know and Prelims-facts story. They appear as the day's notes are written."}</p></header>
+        ${R.queue.length && !doneToday ? `<button class="px-go" data-px="rv-start">Start revision</button>` : doneToday ? `<button class="px-go" data-px="rv-more">Check for more</button>` : ""}
+        <p class="px-fine">Each card returns after 1 day, then 3, 7, 16… days: the longer you remember it, the longer the gap. A card you forget comes back soon. Your schedule stays on this device.</p>
+        ${toast()}</section>`;
+    }
+    const srsWalk = (prev, g) => srsWhen(prev, g);
+
+    // ── Mains ──
+    async function loadMains(day) {
+      M.day = day; M.stories = null; M.loading = true; M.err = ""; render();
+      try {
+        const x = await host.loadDay(day); const v = ((x && x.days) || {})[day] || {};
+        const by = new Map(((x && x.stories) || []).map((s) => [s.id, s]));
+        M.stories = [...(v.news || []), ...(v.prelims || []), ...(v.editorials || []), ...(v.explained || [])].map((id) => by.get(id))
+          .filter((s) => s && s.explain && !s.explain.auto && s.explain.mains);
+      } catch (e) { M.stories = []; M.err = "Couldn't load this day's brief."; }
+      M.loading = false; render();
+    }
+    function pickMains(id) {
+      const s = (M.stories || []).find((x) => x.id === id); if (!s) return;
+      M.pick = s; M.q = s.explain.mains; M.text = drafts.get(s.id); M.images = []; M.result = null; M.err = "";
+      M.marks = /\b10\s*marks?\b|150 words/i.test(M.q) ? 10 : 15; render();
+    }
+    async function evaluate() {
+      const s = M.pick;
+      if (!M.text.trim() && !M.images.length) { M.err = "Write your answer, or add a photo of it, first."; render(); return; }
+      M.busy = true; M.err = ""; render();
+      const e = s.explain || {};
+      const ctx = [`Headline: ${s.title}`, e.why_in_news && `Why in news: ${e.why_in_news}`, e.what && `What happened: ${e.what}`, e.background && `Background: ${e.background}`,
+        (e.significance || []).length && `Why it matters: ${e.significance.join("; ")}`, s.sum && s.sum.text && `ARTICLE (${s.sum.domain}):\n${s.sum.text}`].filter(Boolean).join("\n");
+      const limit = M.marks === 10 ? 150 : 250;
+      const parts = [{ text: `STORY CONTEXT\n${ctx}\n\nQUESTION (${M.marks} marks, ${limit} words): ${M.q}\n\nCANDIDATE'S ANSWER${M.images.length ? " (typed part, if any; the handwritten pages are the attached images)" : ""}:\n${M.text.trim() || "(see the attached pages)"}` },
+        ...M.images.map((im) => ({ inlineData: { mimeType: "image/jpeg", data: im.data } }))];
+      try {
+        const { data, model } = await gemini.json({ system: MAINS_SYSTEM.replace(/\{marks\}/g, M.marks), parts, schema: MAINS_SCHEMA });
+        const score = Math.max(0, Math.min(M.marks, Math.round((Number(data.score) || 0) * 2) / 2));
+        M.result = { ...data, score, max: M.marks, model, words: wordCount(M.text) || wordCount(data.transcript) };
+        mainsStore.add({ day: M.day, story_id: s.id, title: s.title, q: M.q, marks: M.marks, score, words: M.result.words, at: Date.now() });
+      } catch (err) { M.err = err.message; }
+      M.busy = false; render();
+    }
+    function keyFormHtml() {
+      return `<div class="mn-key"><p><b>✦ Switch on Intel AI to get answers evaluated.</b> Paste your free Google AI key (the same one as in Ask Intel); it stays on this device.</p>
+        <div class="gem-form"><input type="password" data-mn-key placeholder="Paste your free Google AI key" autocomplete="off" spellcheck="false" aria-label="Google AI key"><button data-px="mn-key">Save</button></div>
+        <p class="px-fine">Get one free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Your answer and the story go to Google's Gemini to be evaluated.</p></div>`;
+    }
+    function mainsHtml() {
+      if (M.stories == null && !M.loading) { setTimeout(() => loadMains(M.day)); }
+      if (M.pick && M.result) return mainsResultHtml();
+      if (M.pick) return mainsWriteHtml();
+      const hist = mainsStore.get().slice(-5).reverse();
+      const avg = hist.length ? Math.round(hist.reduce((x, h) => x + (h.score * 100) / h.marks, 0) / hist.length) : null;
+      return `<section class="px">${tabsHtml()}
+        <header class="px-head"><div class="px-eyebrow">Mains · answer writing · ${esc(host.label(M.day))}</div>
+          <h2>${M.loading ? "Loading the day's questions…" : (M.stories || []).length ? `${M.stories.length} Mains question${M.stories.length === 1 ? "" : "s"} from this day's brief` : "No Mains questions for this day yet"}</h2>
+          <p>Write an answer (or photograph your handwritten one) and Intel AI marks it like a UPSC examiner: a score, what works, what's missing, a better intro and conclusion, and a model outline.</p></header>
+        <div class="px-row"><span class="px-lab">Day</span>${daySelect(M.day, "data-mn-day")}</div>
+        ${(M.stories || []).map((s) => `<button class="mn-item" data-px="mn-pick" data-id="${esc(s.id)}"><span class="px-tags">${(s.gs || []).filter((g) => g !== "Prelims").map((g) => `<span>${esc(g)}</span>`).join("")}<span>${esc(L((s.subjects || [])[0]))}</span>${drafts.get(s.id) ? "<span class=\"px-type\">Draft</span>" : ""}</span>
+          <b>${esc(s.explain.mains)}</b><small>${esc(s.title)}</small></button>`).join("")}
+        ${M.err ? `<p class="px-toast">${esc(M.err)}</p>` : ""}
+        ${hist.length ? `<div class="px-hist"><h3>Your last answers${avg != null ? ` · average ${avg}%` : ""}</h3><ul>${hist.map((h) => `<li><b>${h.score} / ${h.marks}</b> · ${esc(h.title)} <span class="px-fine">${h.words} words</span></li>`).join("")}</ul></div>` : ""}
+        ${toast()}</section>`;
+    }
+    function mainsWriteHtml() {
+      const s = M.pick; const limit = M.marks === 10 ? 150 : 250; const wc = wordCount(M.text);
+      return `<section class="px"><div class="px-top"><button class="px-link" data-px="mn-back">← Questions</button><span class="px-sp"></span><span class="px-fine">${esc(host.label(M.day))}</span></div>
+        <article class="px-q"><div class="px-tags"><span class="px-type">Mains</span>${(s.gs || []).filter((g) => g !== "Prelims").map((g) => `<span>${esc(g)}</span>`).join("")}</div>
+          <p class="px-stem">${esc(M.q)}</p><p class="px-fine">From: ${esc(s.title)}</p>
+          <div class="px-row">${[10, 15].map((k) => `<button class="px-chip${M.marks === k ? " on" : ""}" data-px="mn-marks" data-n="${k}">${k} marks · ${k === 10 ? 150 : 250} words</button>`).join("")}</div>
+          <textarea class="mn-text" data-mn-text rows="12" placeholder="Write your answer here: introduction, body (points or sub-headings), conclusion with a way forward…"${M.busy ? " disabled" : ""}>${esc(M.text)}</textarea>
+          <div class="mn-bar"><span class="mn-wc${wc > limit * 1.1 ? " over" : ""}">${wc} / ${limit} words</span><span class="px-sp"></span>
+            <label class="px-btn mn-photo">📷 Add photo of handwritten answer<input type="file" accept="image/*" multiple data-mn-photo hidden${M.busy ? " disabled" : ""}></label></div>
+          ${M.images.length ? `<div class="mn-thumbs">${M.images.map((im, i) => `<figure><img src="${im.url}" alt="Page ${i + 1}"><button data-px="mn-unphoto" data-i="${i}" aria-label="Remove page ${i + 1}">✕</button></figure>`).join("")}</div>` : ""}
+        </article>
+        ${gemini.on() ? `<button class="px-go" data-px="mn-eval"${M.busy ? " disabled" : ""}>${M.busy ? "✦ Intel is evaluating your answer…" : "✦ Evaluate my answer"}</button>` : keyFormHtml()}
+        ${M.err ? `<p class="px-toast">${esc(M.err)}</p>` : ""}
+        <p class="px-fine">Your draft is kept on this device. Photos: up to 4 pages, written clearly.</p></section>`;
+    }
+    function mainsResultHtml() {
+      const r = M.result; const pct = Math.round((r.score * 100) / r.max);
+      const list = (title, items, cls = "") => (items && items.length ? `<div class="mn-block ${cls}"><h3>${title}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "");
+      return `<section class="px"><div class="px-top"><button class="px-link" data-px="mn-back">← Questions</button><span class="px-sp"></span><span class="px-fine" title="${esc(r.model)}">✦ Intel AI</span></div>
+        <header class="px-res"><div class="px-eyebrow">Evaluation · ${M.marks} marks · ${r.words} words</div>
+          <div class="px-score">${r.score} <small>/ ${r.max}</small></div><p><b>${pct}%</b> · ${esc(r.verdict)}</p></header>
+        <div class="px-sbars">${RUBRIC.map(([k, name]) => { const v = Math.max(0, Math.min(10, Number((r.rubric || {})[k]) || 0)); return `<div class="px-sbar"><span>${name}</span><div><i style="width:${v * 10}%"></i></div><b>${v}/10</b></div>`; }).join("")}</div>
+        ${list("What works", r.strengths, "ok")}${list("Improve", r.improve)}${list("Missed dimensions or points", r.missed, "bad")}
+        ${r.keywords && r.keywords.length ? `<div class="mn-block"><h3>Keywords to use</h3><p class="mn-kw">${r.keywords.map((k) => `<span>${esc(k)}</span>`).join("")}</p></div>` : ""}
+        ${list("Examples, data and reports to cite", r.examples)}
+        ${r.better_intro ? `<div class="mn-block"><h3>A stronger introduction</h3><p>${esc(r.better_intro)}</p></div>` : ""}
+        ${r.better_conclusion ? `<div class="mn-block"><h3>A stronger conclusion</h3><p>${esc(r.better_conclusion)}</p></div>` : ""}
+        ${r.outline && r.outline.length ? `<div class="mn-block"><h3>Model answer outline</h3><ol>${r.outline.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>` : ""}
+        <details class="mn-block"><summary>Your answer${r.transcript ? " (as Intel read it)" : ""}</summary><p class="mn-mine">${esc(r.transcript || M.text)}</p></details>
+        <div class="px-nav"><button class="px-btn primary" data-px="mn-rewrite">Rewrite it</button><button class="px-btn" data-px="mn-back">Another question</button></div>
+        <p class="px-fine">Marked by Intel AI as a UPSC examiner would; check the facts it adds against a source.</p></section>`;
+    }
+
+    // ── Weekly mock, Mistakes ──
+    function mockHtml() {
+      const mocks = pxStore.get().attempts.filter((a) => a.src === "mock").slice(-4).reverse();
+      return `<section class="px">${tabsHtml()}
+        <header class="px-head"><div class="px-eyebrow">Weekly mock</div><h2>${MOCK_N} questions from the last seven days</h2>
+          <p>${MOCK_MIN} minutes, exam mode (answers at the end), UPSC marking: +2 right, −0.66 wrong. Questions you haven't seen come first.</p></header>
+        <button class="px-go" data-px="mock"${P.loading ? " disabled" : ""}>${P.loading ? "Gathering the week's questions…" : `Start the ${MOCK_MIN}-minute mock`}</button>
+        ${mocks.length ? `<div class="px-hist"><h3>Your mocks</h3><ul>${mocks.map((a) => `<li><b>${a.score} / ${a.max}</b> · ${a.right} right, ${a.wrong} wrong · ${esc(a.label || "")}</li>`).join("")}</ul></div>` : ""}
+        ${toast()}</section>`;
+    }
+    function mistakesHtml() {
+      const wrong = Object.values(pxStore.get().wrong).sort((a, b) => (b.at || 0) - (a.at || 0));
+      const by = {}; for (const q of wrong) by[q.subject || "other"] = (by[q.subject || "other"] || 0) + 1;
+      return `<section class="px">${tabsHtml()}
+        <header class="px-head"><div class="px-eyebrow">Mistake notebook</div><h2>${wrong.length ? `${wrong.length} question${wrong.length === 1 ? "" : "s"} to get right` : "No mistakes to revisit 🎉"}</h2>
+          <p>Every question you answer wrong lands here, and leaves once you answer it right.${wrong.length ? ` By subject: ${Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${esc(L(k))} ${n}`).join(" · ")}.` : ""}</p></header>
+        ${wrong.length ? `<button class="px-go" data-px="mistakes">Re-test ${Math.min(20, wrong.length)} of them</button>
+          <ul class="mn-list">${wrong.slice(0, 8).map((q) => `<li>${esc(q.title || q.q)} <span class="px-fine">· ${esc(PX_TYPE[q.type] || q.type)} · missed ${q.misses || 1}×</span></li>`).join("")}</ul>` : ""}
+        ${toast()}</section>`;
+    }
+
+    function render() {
+      el.innerHTML = P.view === "quiz" && P.s ? quizHtml() : P.view === "result" && P.s ? resultHtml()
+        : P.tab === "revise" ? reviseHtml() : P.tab === "mains" ? mainsHtml() : P.tab === "mock" ? mockHtml() : P.tab === "mistakes" ? mistakesHtml() : setupHtml();
+      const on = el.querySelector(".px-tab.on");  // on a phone the mode row scrolls: keep the open one in view
+      if (on && on.parentElement) on.parentElement.scrollLeft = Math.max(0, on.offsetLeft - 24);
+    }
+    el.onchange = async (ev) => {
+      const t = ev.target;
+      if (t.matches("[data-px-day]")) load(t.value);
+      else if (t.matches("[data-mn-day]")) loadMains(t.value);
+      else if (t.matches("[data-mn-photo]")) {
+        const files = [...(t.files || [])].slice(0, Math.max(0, 4 - M.images.length));
+        try { for (const f of files) M.images.push(await shrinkImage(f)); } catch (err) { M.err = err.message; }
+        render();
+      }
+    };
+    el.oninput = (ev) => {
+      if (!ev.target.matches("[data-mn-text]")) return;
+      M.text = ev.target.value; drafts.set(M.pick.id, M.text);
+      const wc = el.querySelector(".mn-wc"); const limit = M.marks === 10 ? 150 : 250; const n = wordCount(M.text);
+      if (wc) { wc.textContent = `${n} / ${limit} words`; wc.classList.toggle("over", n > limit * 1.1); }
+    };
     el.onclick = async (ev) => {
       const t = ev.target.closest("[data-px]"); if (!t || !el.contains(t)) return;
       const a = t.dataset.px; const S = P.s;
-      if (a === "size") { P.size = Number(t.dataset.n); render(); }
+      if (a === "tab") { P.tab = t.dataset.t; P.view = "setup"; render(); }
+      else if (a === "size") { P.size = Number(t.dataset.n); render(); }
       else if (a === "mode") { P.mode = t.dataset.m; render(); }
       else if (a === "start" || a === "again") { const st = pxStore.get(); const qs = pxPick(P.pool || [], P.size, st.seen); if (qs.length) start(qs); }
-      else if (a === "retry") { const qs = S.qs.filter((q) => S.ans[q.id] != null && S.ans[q.id] !== q.answer); if (qs.length) start(qs); }
-      else if (a === "setup") { P.view = "setup"; render(); }
+      else if (a === "retry") { const qs = S.qs.filter((q) => S.ans[q.id] != null && S.ans[q.id] !== q.answer); if (qs.length) start(qs, { mode: "practice", src: "mistakes", label: "Retry" }); }
+      else if (a === "setup") { clearInterval(P.timer); P.view = "setup"; render(); }
       else if (a === "pick" && S) {
         const q = S.qs[S.i]; if (S.checked[q.id]) return;
         S.ans[q.id] = Number(t.dataset.i);
@@ -1403,23 +1731,139 @@ Rules:
       } else if (a === "prev" && S) { S.i = Math.max(0, S.i - 1); render(); }
       else if (a === "swap" && S) await swap();
       else if (a === "end" && S) finish();
-      else if (a === "claude") {
+      else if (a === "mock") await startMock();
+      else if (a === "mistakes") {
+        const qs = Object.values(pxStore.get().wrong).sort((x, y) => (x.at || 0) - (y.at || 0)).slice(0, 20);
+        if (qs.length) start(qs, { mode: "practice", src: "mistakes", label: "Mistake notebook" });
+      }
+      else if (a === "rv-start") { R.on = true; R.i = 0; render(); }
+      else if (a === "rv-flip") { R.flip = true; render(); }
+      else if (a === "rv-grade") grade(Number(t.dataset.g));
+      else if (a === "rv-end") { R.on = false; plan(); render(); }
+      else if (a === "rv-more") { plan(); R.on = !!R.queue.length; render(); }
+      else if (a === "mn-pick") pickMains(t.dataset.id);
+      else if (a === "mn-back") { M.pick = null; M.result = null; M.err = ""; render(); }
+      else if (a === "mn-marks") { M.marks = Number(t.dataset.n); render(); }
+      else if (a === "mn-unphoto") { M.images.splice(Number(t.dataset.i), 1); render(); }
+      else if (a === "mn-eval") await evaluate();
+      else if (a === "mn-rewrite") { M.result = null; render(); }
+      else if (a === "mn-key") {
+        const input = el.querySelector("[data-mn-key]");
+        try { await gemini.connect(input ? input.value : ""); M.err = ""; } catch (err) { M.err = err.message; }
+        render();
+      } else if (a === "claude") {
         const facts = (P.pool || []).filter((q) => q.why).slice(0, 25).map((q, i) => `${i + 1}. ${q.title}: ${q.why.replace(/^The report says: /, "")}`.slice(0, 400));
         host.claude(`Make 10 new UPSC Prelims-style MCQs (statement-based "consider the following statements", "how many pairs are correctly matched", and direct questions), each with four options, the answer and a one-line explanation, from these news facts of ${host.label(P.day)}:\n${facts.join("\n")}`);
       }
     };
     load(P.day);
-    return { setDay: (d) => { if (d && d !== P.day && P.view === "setup") load(d); }, render };
+    return { setDay: (d) => { if (d && d !== P.day && P.view === "setup" && P.tab === "mcq") load(d); }, render, tab: (k) => { P.tab = k; P.view = "setup"; render(); } };
   }
+
+  // ─────────────────────────── Listen: the day's brief read aloud ───────────────────────────
+  // The device's own voice (speechSynthesis): free and offline. Must-know stories (headline and key points), then the
+  // Prelims facts. Spoken a few sentences at a time (a long utterance stops after ~15 s in Chrome); pause cancels and
+  // play restarts the sentence (pausing speech is unreliable on Android). The UIs give a provider of the items and a
+  // [data-listen="start"] button; the mini-player bar is this module's own.
+  function listenItems(cards, facts = []) {  // story objects → [{id, title, text}]
+    const pts = (s) => {
+      const p = (s.sum && s.sum.points) || [];
+      if (p.length) return p.slice(0, 5);
+      const e = s.explain || {};
+      return [e.why_in_news, e.what].filter((x) => x && !WEAK.test(x));
+    };
+    const say = (t) => String(t || "").replace(/₹\s?|\bRs\.?\s?/g, "rupees ").replace(/\s+/g, " ").trim();
+    const out = cards.map((s, i) => ({ id: s.id, title: s.title, text: say(`Story ${i + 1}. ${s.title}. ${pts(s).join(" ")}`) }));
+    facts.forEach((s, i) => out.push({ id: s.id, title: s.title, text: say(`${i === 0 ? "Prelims facts. " : ""}${s.title}. ${pts(s)[0] || ""}`) }));
+    return out;
+  }
+  const listen = (() => {
+    const synth = () => root.speechSynthesis || null;
+    const S = { items: [], i: 0, chunks: [], c: 0, on: false, paused: false, rate: 1, gen: 0 };
+    const RATES = [1, 1.25, 1.5, 0.85];
+    let provider = null; let bar = null;
+    const voice = () => {
+      const vs = (synth() && synth().getVoices()) || [];
+      return vs.find((v) => /^en[-_]IN/i.test(v.lang)) || vs.find((v) => /^en[-_]GB/i.test(v.lang)) || vs.find((v) => /^en/i.test(v.lang)) || null;
+    };
+    const chunk = (t) => {  // a few sentences, up to ~220 characters
+      const out = []; let cur = "";
+      for (const x of String(t).match(/[^.!?]+[.!?]*\s*/g) || [t]) {
+        if (cur && (cur + x).length > 220) { out.push(cur.trim()); cur = x; } else cur += x;
+      }
+      if (cur.trim()) out.push(cur.trim());
+      return out;
+    };
+    function paint() {
+      if (typeof document === "undefined") return;
+      if (!bar) {
+        bar = document.createElement("div"); bar.className = "lsn"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Listen");
+        document.body.appendChild(bar);
+      }
+      bar.hidden = !S.on;
+      if (!S.on) return;
+      const it = S.items[S.i] || {};
+      bar.innerHTML = `<div class="lsn-t"><small>🎧 ${S.paused ? "Paused" : "Listening"} · ${S.i + 1} of ${S.items.length}</small><b>${esc(it.title || "")}</b></div>
+        <button data-listen="prev" aria-label="Previous story">⏮</button><button data-listen="toggle" class="lsn-main" aria-label="${S.paused ? "Play" : "Pause"}">${S.paused ? "▶" : "⏸"}</button><button data-listen="next" aria-label="Next story">⏭</button><button data-listen="rate" aria-label="Speed">${S.rate}×</button><button data-listen="stop" aria-label="Stop">✕</button>`;
+    }
+    function say() {
+      if (!S.on || S.paused) return;
+      while (S.c >= S.chunks.length) {
+        S.i += 1;
+        if (S.i >= S.items.length) { stop(); return; }
+        S.chunks = chunk(S.items[S.i].text); S.c = 0;
+      }
+      const g = S.gen; const u = new root.SpeechSynthesisUtterance(S.chunks[S.c]); const v = voice();
+      u.rate = S.rate;
+      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-IN";
+      u.onend = () => { if (g === S.gen && S.on && !S.paused) { S.c += 1; say(); } };
+      u.onerror = (e) => {  // (a cancelled sentence reports "interrupted"; a real failure stops, it doesn't race through the brief)
+        if (g !== S.gen || !S.on || S.paused || (e && /interrupted|canceled/.test(e.error || ""))) return;
+        fail(`Your device couldn't read aloud${e && e.error ? ` (${e.error})` : ""}. Check that a text-to-speech voice is installed.`);
+      };
+      synth().speak(u); paint();
+    }
+    function hush() { S.gen += 1; if (synth()) synth().cancel(); }  // a cancelled utterance's handlers see a stale generation
+    function jump(i) { hush(); S.i = Math.max(0, Math.min(S.items.length - 1, i)); S.chunks = chunk(S.items[S.i].text); S.c = 0; S.paused = false; say(); }
+    function play(items) { if (!synth() || !root.SpeechSynthesisUtterance || !items || !items.length) return false; S.items = items; S.on = true; jump(0); return true; }
+    function stop() { hush(); S.on = false; S.paused = false; paint(); }
+    function fail(msg) {
+      stop();
+      if (!bar) return;
+      bar.hidden = false; bar.innerHTML = `<div class="lsn-t"><small>🎧 Listen</small><b>${esc(msg)}</b></div><button data-listen="stop" aria-label="Close">✕</button>`;
+      setTimeout(() => { if (!S.on && bar) bar.hidden = true; }, 6000);
+    }
+    function toggle() {
+      if (!S.on) return;
+      if (S.paused) { S.paused = false; hush(); say(); } else { S.paused = true; hush(); }
+      paint();
+    }
+    function rate() { S.rate = RATES[(RATES.indexOf(S.rate) + 1) % RATES.length]; if (S.on && !S.paused) { hush(); say(); } else paint(); }
+    if (typeof document !== "undefined") {
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest && e.target.closest("[data-listen]"); if (!b) return;
+        const a = b.dataset.listen;
+        if (a === "start") play(provider ? provider() : []);
+        else if (a === "toggle") toggle();
+        else if (a === "next") jump(S.i + 1);
+        else if (a === "prev") jump(S.c > 0 ? S.i : S.i - 1);
+        else if (a === "rate") rate();
+        else if (a === "stop") stop();
+      });
+      root.addEventListener && root.addEventListener("pagehide", stop);
+    }
+    return { get supported() { return !!(synth() && root.SpeechSynthesisUtterance); }, provider: (fn) => { provider = fn; }, play, stop, toggle, next: () => jump(S.i + 1), prev: () => jump(S.i - 1), rate,
+      state: () => ({ on: S.on, paused: S.paused, i: S.i, n: S.items.length, rate: S.rate, text: S.chunks[S.c] || "" }) };
+  })();
 
   root.UPSCCore = Object.freeze({
     STOPW, stem, words, sentencesOf, FURNITURE, overlap, rank, summarize, brief, termOf, termFrom, searchQuery, esc, safeUrl,
     makeBot, intentOf, clozes, toHindi, cleanText, localPoints, WEAK,
     summaryNow, summaryFor, sourceHtml, prefetch, onSummary, readerLoad,
-    gemini: Object.freeze({ on: gemini.on, connect: gemini.connect, forget: gemini.forget, models: gemini.models, generate: gemini.generate, panel: geminiPanel, bind: bindGemini, rankModels }),
+    gemini: Object.freeze({ on: gemini.on, connect: gemini.connect, forget: gemini.forget, models: gemini.models, generate: gemini.generate, json: gemini.json, panel: geminiPanel, bind: bindGemini, rankModels }),
     mdHtml,
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
-    mountPractice, practiceStats, pxPick,
+    mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems,
   });
 })(window);

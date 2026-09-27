@@ -317,14 +317,40 @@ def figure_q(story: dict, sents: list[str], story_text: str) -> dict | None:
 
 
 def claude_qs(story: dict) -> list[dict]:
+    """The story's own MCQs from its AI note: Claude's study note, or the Gemini note (UPSC-style: statements,
+    the question, four options, the answer and why)."""
     ai = story.get("ai") or {}
+    e = story.get("explain") or {}
+    if ai.get("source") == "claude-notes":
+        mcqs, kind, tag = ai.get("mcqs") or [], "claude", "cl"
+    elif not e.get("auto"):
+        mcqs, kind, tag = e.get("mcqs") or [], "upsc", "up"
+    else:
+        return []
     out = []
-    for m in (ai.get("mcqs") or [])[:2] if ai.get("source") == "claude-notes" else []:
+    for m in mcqs[:2]:
         opts = [str(o) for o in m.get("options") or []]
         if len(opts) == 4 and isinstance(m.get("answer"), int) and 0 <= m["answer"] < 4:
-            out.append({**_base(story, "claude"), "id": qid("cl", story["id"], m.get("q")), "q": str(m.get("q") or ""),
-                        "items": [], "ask": "", "options": opts, "answer": m["answer"], "why": str(m.get("why") or "")})
+            out.append({**_base(story, kind), "id": qid(tag, story["id"], m.get("q"), *(m.get("statements") or [])),
+                        "q": str(m.get("q") or ""), "items": [str(x) for x in m.get("statements") or []],
+                        "ask": str(m.get("ask") or ""), "options": opts, "answer": m["answer"], "why": str(m.get("why") or "")})
     return out
+
+
+def flashcards(payload: dict, day: str) -> dict:
+    """The day's revision flashcards (data/cards/<day>.json): each card's AI-note flashcards, with its story."""
+    v = (payload.get("days") or {}).get(day) or {}
+    by_id = {s["id"]: s for s in payload.get("stories") or []}
+    out = []
+    for sid in [i for k in ("news", "prelims", "editorials", "explained") for i in v.get(k) or [] if i in by_id]:
+        s = by_id[sid]
+        e = s.get("explain") or {}
+        for c in [] if e.get("auto") else e.get("flashcards") or []:
+            if c.get("q") and c.get("a"):
+                b = _base(s, "card")
+                out.append({"id": qid("fc", sid, c["q"]), "story_id": sid, "q": c["q"], "a": c["a"], "day": day,
+                            "subject": b["subject"], "gs": b["gs"], "title": b["title"], "url": b["url"], "src": b["src"]})
+    return {"day": day, "n": len(out), "cards": out}
 
 
 def pairs_q(week: list[dict], texts: dict[str, str], day: str) -> list[dict]:

@@ -119,11 +119,30 @@ Week and Month views recap everything the daily briefs covered.
   - **About the day:** top stories, one GS paper or subject, or a topic search ("RBI", "Manipur").
   - **Ask Claude ↗:** opens claude.ai in a new tab with the story and your question filled in (and copied, in case it opens empty). Claude answers on **your own Claude account**, and the free plan works. No API key, and nothing is sent from the site.
   - **Limits:** it never makes things up. Summaries and answers quote what the outlets published. When nothing answers the question, it says so and offers Wikipedia, a web search or Ask Claude.
-- **Practice (website tab and app tab):** a daily set of UPSC Prelims-style MCQs from that day's brief.
-  - **Question types:** "Consider the following statements… which is/are correct?" (the report's own lines, one name or figure swapped for a same-kind decoy the story never mentions), "How many of the above pairs are correctly matched?" over the week (exercise and partner country, place and state), fact and figure blanks, and Claude-written ones when a study note has them. About 40-60 a day in the pool.
-  - **A set:** pick the day, 10, 15 or 20 questions, and **Practice** (answer and explanation after each) or **Exam** (answers at the end). **↻ Swap** replaces a question with one you've never seen (from that day, then the week before). Questions you've seen wait until the unseen ones run out.
-  - **Result:** UPSC marking (+2 right, −0.66 wrong), accuracy, time, a subject breakdown, a review with every answer's source line and link, **New set** and **Retry the wrong ones**. Your history stays on your device (shared by the website and the app); the app's Insights shows your practice accuracy by subject.
-  - **No AI:** every answer is a line a report carries. **Make 10 more with Claude ↗** hands the day's facts to claude.ai on your own plan for more.
+- **Practice hub (website tab and app tab):** five modes in one row: **MCQs · Revise · Mains · Weekly mock · Mistakes**. Everything you do stays on your device (shared by the website and the app).
+  - **MCQs:** a daily set of UPSC Prelims-style questions from that day's brief.
+    - **Question types:**
+      - **UPSC-style** (first in every set): two per Must-know and Prelims-facts story, written by Intel AI with the story's notes, in the exam's own form: "Consider the following statements… Which of the statements given above is/are correct?" or "How many of the above statements are correct?", with options like "1 and 2 only" or "Only two". The second may be a direct question. Each answer is explained from the article.
+      - "Consider the following statements…" made from the report's own lines, with one name or figure swapped for a same-kind decoy the story never mentions
+      - "How many of the above pairs are correctly matched?" over the week (exercise and partner country, place and state)
+      - fact and figure blanks
+      - Claude-written ones, when a study note has them
+    - **A set:** pick the day, 10, 15 or 20 questions, and **Practice** (answer and explanation after each) or **Exam** (answers at the end). **↻ Swap** replaces a question with one you've never seen (from that day, then the week before). Questions you've seen wait until the unseen ones run out.
+    - **Result:** UPSC marking (+2 right, −0.66 wrong), accuracy, time, a subject breakdown, a review with every answer's source line and link, **New set** and **Retry the wrong ones**. The app's Insights shows your practice accuracy by subject.
+  - **Revise (spaced-repetition flashcards):** each Intel AI note carries 3-4 flashcards (a crisp question, a one-line answer from the article). The deck grows with every day's notes.
+    - Tap a card to flip it, then grade yourself: **Again / Hard / Good / Easy**. Each button shows when you'll see the card next. Intervals work like Anki: a card you know drifts to days, weeks and months; one you miss comes back tomorrow.
+    - Each day: the cards that are due, plus up to 20 new ones. The header counts due, new and learned.
+  - **Mains (answer writing, evaluated by Intel AI):** pick a day and one of its Mains questions, then **type your answer** or **add photos of your handwritten pages** (up to 4, shrunk on the phone before sending).
+    - Set 10 marks (150 words) or 15 marks (250 words). A live word count shows how close you are, and your draft is saved as you type.
+    - **Evaluate with Intel AI** marks it like a UPSC examiner against the story: a score out of 10 or 15, and a verdict.
+    - It also gives a rubric (demand, content, dimensions, structure, examples and data, presentation), what works, what to improve, points you missed and keywords to use.
+    - To finish, it writes a better introduction and conclusion, and a model answer outline. For photos, it shows what it read from your handwriting.
+    - It runs on your own Intel AI key (the same one as in Ask Intel; the form is right there if it isn't on yet). Your last answers and your average are listed.
+  - **Weekly mock:** 50 questions from the last seven days, 60 minutes on a clock, exam mode with UPSC marking. Unseen questions come first.
+  - **Mistakes:** every question you answer wrong, in any mode, lands here with how often you missed it. **Re-test** runs them as a set, and a question leaves once you answer it right.
+- **Listen (🎧 on the day's brief, website and app):** reads the day aloud in your device's own voice: each Must-know story's headline and key points, then the Prelims facts. It's free and works offline.
+  - A small player shows the story being read: play/pause, previous, next, speed (1×, 1.25×, 1.5×, 0.85×) and stop.
+  - It uses an Indian English voice when the device has one.
 - **Daily Brief PDF (Export on the website, the export sheet in the app):** a real PDF of the day, built with the site and laid out like a newspaper brief:
   - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, the syllabus line and a clickable source link
   - Prelims facts (2-3 lines each), **Editorial Watch** (each editorial's argument in 2-3 sentences, with its link), Explained, Also in the news (one line each)
@@ -137,7 +156,7 @@ Week and Month views recap everything the daily briefs covered.
     - Brief: week strip, the day's hero, GS chips, Must-know cards, Prelims facts and "Also in the news"
     - Read: editorials by GS paper, explainers
     - Insights: streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
-    - Practice: the daily MCQ sets
+    - Practice: MCQs, Revise, Mains, Weekly mock and Mistakes
     - Review: week and month
     - Saved: stars and notes, PDF
   - **Story view:** the article's 8-point summary (read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
@@ -295,7 +314,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 194 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 197 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -305,10 +324,11 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
 
 1. **Study notes written by the build.** Add the key as a repository secret named `GEMINI_API_KEY`: *Settings → Secrets and variables → Actions → New repository secret*.
    - Each Pages run then writes notes for up to 15 new brief cards (`UPSC_GEMINI_MAX_PER_RUN`), a few seconds apart to stay within the free per-minute limit. A day's cards are covered within an hour or two.
-   - **What's in a note:** an 8-point summary of the full article, plus what happened, why in news, background, why it matters, Prelims facts, a Mains question and a video search query.
+   - **What's in a note:** an 8-point summary of the full article, plus what happened, why in news, background, why it matters, Prelims facts, a Mains question, a video search query, 3-4 revision flashcards and 2 UPSC-style MCQs (Practice uses both; see "Practice hub").
+   - **Older notes:** notes from today and yesterday written before flashcards and MCQs existed are rewritten once, after the new cards.
    - **Where it shows:** the card's Summary, the story view, the bot and the Daily Brief PDF, labelled "✦ Written by Intel AI from the full article on …".
    - **Model:** the newest stable Gemini Flash the key can use. A model that is busy (503) is skipped for that card only. One whose quota is used up (429) is skipped for the rest of the run, stepping down to the next and then Flash-Lite. `UPSC_GEMINI_MODEL` pins one.
-   - **Fact guard:** a summary line or Prelims fact whose figure isn't in the article is dropped.
+   - **Fact guard:** a summary line, Prelims fact or flashcard whose figure isn't in the article is dropped. An MCQ needs four options and a valid answer.
    - **Safe to lose:** the step is `continue-on-error`, so a used-up quota or an outage never holds back the site. The cards keep their quoted summary until a note is written.
 2. **Intel AI in the Ask bot, on your phone and browser.** In Ask Intel, tap **✦ Intel AI**, paste the key and tap Save.
    - **Where the key lives:** only in that browser's storage. It is sent only to Google's Gemini API, in a request header, and never reaches this site or the repository.
