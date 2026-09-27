@@ -177,7 +177,7 @@ def build_glossary(settings: Settings, db: DB, days: list[str], http=None, pause
     todo = _todo(db, days)
     if not todo:
         return {"enabled": True, "cards": 0, "terms": 0, "places": 0, "topics": 0, "calls": 0, "left": 0}
-    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http)
+    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http, db=db)
     now = iso(datetime.now(timezone.utc))
     cards = new = n_places = n_topics = calls = 0
     note = ""

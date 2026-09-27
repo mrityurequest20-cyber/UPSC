@@ -565,6 +565,19 @@
     get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) { /* private mode */ } },
   };
+  // A model whose daily free quota ran out is skipped until the quota resets (midnight Pacific, 12:30 PM IST), then
+  // it's the first choice again: {day (Pacific), models}
+  const GEM_OUT = "upsc-gemini-out";
+  const PT_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" });
+  const gemOut = {
+    list() { try { const v = JSON.parse(gemStore.get(GEM_OUT) || "{}") || {}; return v.day === PT_FMT.format(new Date()) && Array.isArray(v.models) ? v.models : []; } catch (e) { return []; } },
+    add(m) { const l = gemOut.list(); if (!l.includes(m)) gemStore.set(GEM_OUT, JSON.stringify({ day: PT_FMT.format(new Date()), models: [...l, m] })); },
+  };
+  async function dailyLimit(r) {  // a 429 whose details name the per-day quota (not the per-minute one)
+    try { const j = await r.clone().json(); return (((j || {}).error || {}).details || []).some((d) => (d.violations || []).some((v) => /PerDay/.test(v.quotaId || ""))); }
+    catch (e) { return false; }
+  }
+  const QUOTA_MSG = "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, after 12:30 PM IST.";
   function rankModels(names) {  // the newest stable Flash, the next one, the newest Flash-Lite, then the "latest" aliases
     const ver = (n) => parseFloat((n.match(/^gemini-(\d+(?:\.\d+)?)-/) || [])[1] || 0);
     const by = (rx) => names.filter((n) => rx.test(n)).sort((a, b) => ver(b) - ver(a));
@@ -591,22 +604,25 @@
       if (!r.ok) throw fail("key", r.status === 400 || r.status === 403 ? "Google refused that key: check it was copied whole." : `Google's AI service answered with an error (${r.status}).`);
       const names = (((await r.json()).models) || []).filter((m) => (m.supportedGenerationMethods || []).includes("generateContent")).map((m) => String(m.name).replace(/^models\//, ""));
       const models = rankModels(names);
-      gemStore.set(GEM_KEY, key); gemStore.set(GEM_MODELS, JSON.stringify(models));
+      gemStore.set(GEM_KEY, key); gemStore.set(GEM_MODELS, JSON.stringify(models)); gemStore.set(GEM_OUT, "");
       return models;
     },
-    forget() { gemStore.set(GEM_KEY, ""); gemStore.set(GEM_MODELS, ""); gemStore.set(GEM_TTS, ""); },
+    forget() { gemStore.set(GEM_KEY, ""); gemStore.set(GEM_MODELS, ""); gemStore.set(GEM_TTS, ""); gemStore.set(GEM_OUT, ""); },
     // → {text, model}; onText(textSoFar) as it streams
     async generate({ system, contents, onText, signal, temperature = 0.4 }) {
       const key = gemStore.get(GEM_KEY);
       if (!key) throw fail("nokey", "Switch on ✦ Intel AI first.");
       // (a "thinking" model counts its thinking in the output budget: room for both)
       const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature, maxOutputTokens: 8192 } });
-      const models = gemini.models();
+      const models = gemini.models(); const out = gemOut.list(); let gone = false;
       for (const model of models) {
+        if (out.includes(model)) continue;  // its daily quota is used up: not until the reset
         let r;
         try {
           r = await fetch(`${GEM_API}/models/${model}:streamGenerateContent?alt=sse`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body, signal });
         } catch (e) { if (signal && signal.aborted) throw e; throw fail("net", "Couldn't reach Google's AI service."); }
+        if (r.status === 429 && await dailyLimit(r)) gemOut.add(model);
+        if (r.status === 404) gone = true;
         if (r.status === 429 || r.status === 404 || r.status >= 500) continue;  // quota used up, gone or busy: the next model
         if (r.status === 401 || r.status === 403 || (r.status === 400 && /API_KEY/.test(await r.clone().text()))) throw fail("key", "Google refused the key: add it again in ✦ Intel AI.");
         if (!r.ok) throw fail("http", `Intel AI couldn't answer (${r.status}).`);
@@ -623,10 +639,10 @@
           take(buf);
         } else take(await r.text());
         if (!text) throw fail("blocked", reason === "RECITATION" ? "Intel AI stopped: the answer would have copied the article word for word. Try asking in a different way." : `Intel AI gave no answer${reason ? ` (${reason.toLowerCase()})` : ""}.`);
-        if (models[0] !== model) gemStore.set(GEM_MODELS, JSON.stringify([model, ...models.filter((m) => m !== model)]));  // start with the one that works
+        if (gone && models[0] !== model) gemStore.set(GEM_MODELS, JSON.stringify([model, ...models.filter((m) => m !== model)]));  // a model gone for good: start with the one that works
         return { text, model };
       }
-      throw fail("quota", "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
+      throw fail("quota", QUOTA_MSG);
     },
     // One JSON answer to a schema (Gemini's form: "OBJECT", "STRING"…); parts may carry images ({inlineData}). → {data, model}
     async json({ system, parts, schema, signal, temperature = 0.3 }) {
@@ -634,12 +650,15 @@
       if (!key) throw fail("nokey", "Switch on ✦ Intel AI first.");
       const body = JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts }],
         generationConfig: { temperature, maxOutputTokens: 8192, responseMimeType: "application/json", responseSchema: schema } });
-      const models = gemini.models();
+      const models = gemini.models(); const out = gemOut.list(); let gone = false;
       for (const model of models) {
+        if (out.includes(model)) continue;
         let r;
         try {
           r = await fetch(`${GEM_API}/models/${model}:generateContent`, { method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, body, signal });
         } catch (e) { if (signal && signal.aborted) throw e; throw fail("net", "Couldn't reach Google's AI service."); }
+        if (r.status === 429 && await dailyLimit(r)) gemOut.add(model);
+        if (r.status === 404) gone = true;
         if (r.status === 429 || r.status === 404 || r.status >= 500) continue;  // quota used up, gone or busy: the next model
         if (r.status === 401 || r.status === 403 || (r.status === 400 && /API_KEY/.test(await r.clone().text()))) throw fail("key", "Google refused the key: add it again in ✦ Intel AI.");
         if (!r.ok) throw fail("http", `Intel AI couldn't answer (${r.status}).`);
@@ -648,10 +667,10 @@
         if (!text) throw fail("blocked", `Intel AI gave no answer${c.finishReason ? ` (${String(c.finishReason).toLowerCase()})` : ""}.`);
         let data;
         try { data = JSON.parse(text); } catch (e) { throw fail("http", "Intel AI's reply was cut short: try again."); }
-        if (models[0] !== model) gemStore.set(GEM_MODELS, JSON.stringify([model, ...models.filter((m) => m !== model)]));
+        if (gone && models[0] !== model) gemStore.set(GEM_MODELS, JSON.stringify([model, ...models.filter((m) => m !== model)]));
         return { data, model };
       }
-      throw fail("quota", "The free AI quota is used up for now. Try again in a minute; if it's the daily limit, tomorrow.");
+      throw fail("quota", QUOTA_MSG);
     },
   };
   // Gemini's text-to-speech models the key can use: Flash before Pro (more free quota), newest first
@@ -1605,7 +1624,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     function grade(g) {
       const c = R.queue[R.i]; const st = srsStore.get(); const today = dayNo(); const prev = st.cards[c.id];
       if (!prev) { if (st.day !== today) { st.day = today; st.fresh = 0; } st.fresh += 1; }
-      st.cards[c.id] = srsNext(prev, g, today); srsStore.set(st); R.done += 1;
+      st.cards[c.id] = { ...srsNext(prev, g, today), at: Date.now() }; srsStore.set(st); R.done += 1;  // (at: a backup merge keeps the latest review)
       if (g === 1) R.queue.splice(Math.min(R.i + 4, R.queue.length), 0, c);  // again: back in a few cards
       R.i += 1; R.flip = false; render();
     }
@@ -2469,6 +2488,110 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       state: () => ({ on: S.on, paused: S.paused, i: S.i, l: S.l, n: S.items.length, rate: S.rate, lang: S.lang, mode: S.mode, busy: S.busy, note: S.note, text: S.chunks[S.c] || "" }) };
   })();
 
+  // ─────────────────────────── Backup: this device's progress, to a file and back ───────────────────────────
+  // Marks, notes, streaks, flashcards, practice scores, Mains answers and follows live only in this browser (the site
+  // and the app share them). A backup file carries them to another phone or through a cleared browser. Restoring
+  // MERGES the file in: nothing on this device is lost, and a done mark, a star or a reviewed flashcard from either side
+  // is kept. Only the keys below are read or written: the Gemini key never goes into a file and a file can't set it.
+  const BACKUP_KEYS = ["upsc-marks", "upsc-app-log", "upsc-app-saved", "upsc-practice", "upsc-srs", "upsc-mains", "upsc-mains-draft",
+    "upsc-follow", "upsc-plan", "upsc-syl", "upsc-sum-v2", "upsc-hinglish", "upsc-listen", "upsc-app-pdf", "upsc-theme", "upsc-groupby", "upsc-sort"];
+  const BACKUP_AT = "upsc-backup-at"; const BACKUP_MAX = 4.5e6;  // characters in one key (the browser keeps about 5 MB in all)
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } };
+  const asObj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+  const parse = (v) => { try { return JSON.parse(v); } catch (e) { return undefined; } };
+  // a: this device, b: the file → every key of both; `pick(a's, b's)` where both have one
+  const unite = (a, b, pick) => { const out = { ...asObj(b) }; for (const [k, v] of Object.entries(asObj(a))) out[k] = k in out ? pick(v, out[k]) : v; return out; };
+  const keep = (x) => x;
+  const newer = (x, y) => ((y && (y.at || 0)) > (x && (x.at || 0)) ? y : x);
+  const MERGE = {
+    "upsc-marks": (a, b) => unite(a, b, (x, y) => ({ ...asObj(y), ...asObj(x), starred: !!(x.starred || y.starred), read: !!(x.read || y.read),
+      note: String(x.note || "").length >= String(y.note || "").length ? x.note || "" : y.note })),
+    "upsc-app-log": (a, b) => unite(a, b, (x, y) => ({ ...asObj(y), ...asObj(x) })),
+    "upsc-srs": (a, b) => ({ ...asObj(b), ...asObj(a),  // a card: the side reviewed last (else the later due day, then more reviews)
+      cards: unite(asObj(a).cards, asObj(b).cards, (x, y) => (x.at || y.at ? newer(x, y)
+        : (y.due || 0) > (x.due || 0) || ((y.due || 0) === (x.due || 0) && (y.reps || 0) > (x.reps || 0)) ? y : x)) }),
+    "upsc-practice": (a, b) => {
+      const A = asObj(a); const B = asObj(b); const seen = new Set();
+      const attempts = [...(B.attempts || []), ...(A.attempts || [])].filter((x) => { const k = `${x.at}|${x.day}|${x.n}`; if (seen.has(k)) return false; seen.add(k); return true; })
+        .sort((x, y) => (x.at || 0) - (y.at || 0)).slice(-80);
+      return { seen: unite(A.seen, B.seen, (x, y) => Math.max(Number(x) || 0, Number(y) || 0)), attempts, wrong: unite(A.wrong, B.wrong, newer) };
+    },
+    "upsc-mains": (a, b) => { const seen = new Set(); return [...(Array.isArray(b) ? b : []), ...(Array.isArray(a) ? a : [])]
+      .filter((x) => { const k = `${x.at}|${x.story_id}`; if (seen.has(k)) return false; seen.add(k); return true; }).sort((x, y) => (x.at || 0) - (y.at || 0)).slice(-100); },
+  };
+  function backupFile() {
+    const keys = {};
+    for (const k of BACKUP_KEYS) { const v = lsGet(k); if (v != null && v !== "") keys[k] = v; }
+    return { app: "UPSC Intel", kind: "progress-backup", v: 1, at: new Date().toISOString(), keys };
+  }
+  // → {merged: [keys], failed: [keys]}; throws on a file that isn't a UPSC Intel backup
+  function restoreBackup(file) {
+    const f = typeof file === "string" ? parse(file) : file;
+    if (!f || f.app !== "UPSC Intel" || f.kind !== "progress-backup" || !f.keys || typeof f.keys !== "object") throw new Error("That file isn't a UPSC Intel backup.");
+    const merged = []; const failed = [];
+    for (const k of BACKUP_KEYS) {
+      const raw = f.keys[k];
+      if (typeof raw !== "string" || !raw || raw.length > BACKUP_MAX) continue;
+      const cur = lsGet(k);
+      let next = raw;
+      if (cur != null && cur !== "") {
+        const a = parse(cur); const b = parse(raw);
+        if (a === undefined || b === undefined || typeof a !== "object" || typeof b !== "object" || a === null || b === null) next = cur;  // a setting: this device's
+        else next = JSON.stringify((MERGE[k] || ((x, y) => (Array.isArray(x) ? x : unite(x, y, keep))))(a, b));
+      } else if (parse(raw) === undefined && !/^[\w-]{1,20}$/.test(raw)) continue;  // not JSON and not a plain setting word
+      if (next === cur) continue;
+      (lsSet(k, next) ? merged : failed).push(k);
+    }
+    return { merged, failed };
+  }
+  function backupInfo() {
+    const m = asObj(parse(lsGet("upsc-marks") || "{}")); const srs = asObj(parse(lsGet("upsc-srs") || "{}"));
+    const px = asObj(parse(lsGet("upsc-practice") || "{}")); const mains = parse(lsGet("upsc-mains") || "[]");
+    const at = Number(lsGet(BACKUP_AT)) || 0;
+    return { done: Object.values(m).filter((x) => x && x.read).length, starred: Object.values(m).filter((x) => x && x.starred).length,
+      notes: Object.values(m).filter((x) => x && x.note).length, cards: Object.keys(asObj(srs.cards)).length,
+      sets: (px.attempts || []).length, answers: Array.isArray(mains) ? mains.length : 0, at, days: at ? Math.floor((Date.now() - at) / 864e5) : null };
+  }
+  function backupHtml(msg = "") {
+    const b = backupInfo(); const any = b.done + b.starred + b.cards + b.sets + b.answers > 0;
+    const when = b.at ? (b.days === 0 ? "today" : b.days === 1 ? "yesterday" : `${b.days} days ago`) : "never";
+    const stale = any && (!b.at || b.days >= 14);
+    return `<section class="backup${stale ? " stale" : ""}" data-backup-root><div class="bk-h">Backup your progress</div>
+      <p class="bk-t">Your marks, notes, flashcards, practice scores and Mains answers are kept only in this browser${any ? ` (${[
+        b.done && `${b.done} done`, b.starred && `${b.starred} starred`, b.cards && `${b.cards} flashcards`, b.sets && `${b.sets} practice sets`, b.answers && `${b.answers} Mains answers`].filter(Boolean).join(", ")})` : ""}.
+        Save a backup file to move them to another device or keep them safe if the browser is cleared. Restoring adds a file's progress to this device's: nothing here is lost. Your ✦ Intel AI key is never put in the file.</p>
+      <div class="bk-acts"><button class="btn-p" type="button" data-backup="save">Download backup</button><button class="btn-o" type="button" data-backup="load">Restore from a file</button>
+        <input type="file" accept=".json,application/json" data-backup-file hidden></div>
+      <p class="bk-when${stale ? " warn" : ""}" role="status">${msg ? esc(msg) : `Last backup: ${when}${stale ? " · time for a new one" : ""}`}</p></section>`;
+  }
+  function paintBackup(msg) { document.querySelectorAll("[data-backup-root]").forEach((el) => { el.outerHTML = backupHtml(msg); }); }
+  if (typeof document !== "undefined") {
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest && e.target.closest("[data-backup]"); if (!b) return;
+      if (b.dataset.backup === "save") {
+        const blob = new Blob([JSON.stringify(backupFile())], { type: "application/json" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+        a.download = `upsc-intel-backup-${new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date())}.json`;
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        lsSet(BACKUP_AT, String(Date.now())); paintBackup("Backup saved to your downloads.");
+      } else if (b.dataset.backup === "load") {
+        const inp = b.closest("[data-backup-root]").querySelector("[data-backup-file]"); if (inp) inp.click();
+      }
+    });
+    document.addEventListener("change", (e) => {
+      const inp = e.target; if (!inp || !inp.matches || !inp.matches("[data-backup-file]") || !inp.files || !inp.files[0]) return;
+      const file = inp.files[0];
+      if (file.size > 20e6) { paintBackup("That file is too big to be a backup."); return; }
+      file.text().then((txt) => {
+        const r = restoreBackup(txt);
+        if (!r.merged.length && !r.failed.length) { paintBackup("Nothing new in that file: this device already has it all."); return; }
+        paintBackup(r.failed.length ? `Restored, except ${r.failed.length} part${r.failed.length > 1 ? "s" : ""} the browser had no room for. Reloading…` : "Restored. Reloading…");
+        setTimeout(() => location.reload(), 900);
+      }).catch((err) => paintBackup(err && err.message ? err.message : "Couldn't read that file."));
+    });
+  }
+
   root.UPSCCore = Object.freeze({
     STOPW, stem, words, sentencesOf, FURNITURE, overlap, rank, summarize, brief, termOf, termFrom, searchQuery, esc, safeUrl,
     makeBot, intentOf, clozes, toHindi, cleanText, localPoints, WEAK,
@@ -2479,5 +2602,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     wiki, expandAcronym, claudePrompt, openClaude,
     mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss, mountRanks, ranksHtml, rankMove,
     mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn, dossierStory, rankStory, staticFor, staticHtml,
+    backup: Object.freeze({ file: backupFile, restore: restoreBackup, info: backupInfo, html: backupHtml, KEYS: BACKUP_KEYS }),
   });
 })(window);

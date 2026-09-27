@@ -101,6 +101,8 @@ def cmd_enrich(args) -> int:
             res["rankings"] = update_rankings(s, db, recent_days())
         except Exception as exc:
             res["rankings"] = {"error": type(exc).__name__}
+        from .pipeline.enrich import Ledger
+        res["quota"] = Ledger(db).today()  # the build's requests per model today (Pacific day), limits, used-up models
     print(json.dumps(res, indent=2))
     return 0
 

@@ -199,7 +199,7 @@ def triage(settings: Settings, db: DB, clf: Classifier, days: list[str], http=No
         return {"enabled": True, "graded": 0, "calls": 0, "left": len(todo), "waiting": True}  # a call for a few: later
     subjects = set(clf.subject_meta)
     system = SYSTEM.format(subjects="\n".join(f"- {k}: {v['label']}" for k, v in clf.subject_meta.items()))
-    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http)
+    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http, db=db, lite=True)  # sorting: Flash-Lite first
     graded = calls = 0
     note = ""
     now = iso(datetime.now(timezone.utc))
@@ -257,7 +257,7 @@ def dedupe(settings: Settings, db: DB, days: list[str], http=None) -> dict:
             new = set(ids) - set(json.loads(p["ids"] or "[]"))
             if p["sig"] == sig or (len(new) < 3 and (p["at"] or "") > iso(now - timedelta(minutes=DEDUPE_EVERY_MIN))):
                 continue
-        gem = gem or Gemini(settings.gemini_api_key, settings.gemini_model, http=http)
+        gem = gem or Gemini(settings.gemini_api_key, settings.gemini_model, http=http, db=db, lite=True)
         calls += 1
         try:
             reply, _ = gem.generate(DEDUPE_SYSTEM, "\n".join(f"{n}. {r['title']}" for n, r in enumerate(rows, 1)), DEDUPE_SCHEMA)

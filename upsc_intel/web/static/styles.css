@@ -1015,3 +1015,16 @@ button.gl:hover, button.gl[aria-expanded="true"] { color: var(--accent-strong); 
 .sumsub { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 2px 0 6px; }
 .sum-static { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .sumnote { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+/* backup your progress (Starred tab) */
+.backup { margin: 18px 0 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.backup.stale { border-color: var(--warning); }
+.bk-h { font-weight: 750; font-size: 14px; }
+.bk-t { margin: 6px 0 12px; font-size: 13px; line-height: 1.55; color: var(--ink-2); max-width: 820px; }
+.bk-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.backup .btn-p, .backup .btn-o { height: 32px; border-radius: 8px; padding: 0 12px; font: 650 13px var(--font); cursor: pointer; }
+.backup .btn-p { border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.backup .btn-p:hover { background: var(--accent-strong); }
+.backup .btn-o { border: 1px solid var(--border); background: var(--surface); color: var(--accent-strong); }
+.backup .btn-o:hover { background: var(--surface-2); }
+.bk-when { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.bk-when.warn { color: var(--critical); font-weight: 650; }

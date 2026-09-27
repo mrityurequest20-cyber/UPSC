@@ -280,7 +280,7 @@ def update_rankings(settings: Settings, db: DB, days: list[str], http=None, sear
     if not settings.gemini_api_key:
         return {"enabled": False}
     indices = load_indices(settings)
-    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http)
+    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http, db=db, lite=True)  # extraction: Flash-Lite first
     now = iso(datetime.now(timezone.utc))
     out: dict = {"enabled": True}
     try:

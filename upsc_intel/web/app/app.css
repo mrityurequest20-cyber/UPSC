@@ -800,3 +800,11 @@ button.gl:hover, button.gl[aria-expanded="true"] { color: var(--accent-strong); 
 .sumsub { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 2px 0 6px; }
 .sum-static { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .sumnote { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+/* backup your progress (Progress → My 30 days) */
+.backup { margin: 0 16px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; min-width: 0; }
+.backup.stale { border-color: var(--amber); }
+.bk-h { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); font-weight: 700; }
+.bk-t { margin: 8px 0 12px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.bk-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.bk-when { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.bk-when.warn { color: var(--critical); font-weight: 650; }

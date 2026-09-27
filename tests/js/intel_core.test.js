@@ -340,7 +340,7 @@ test("the Claude prompt carries the story and the question", () => {
 });
 
 // ── Gemini (the viewer's own key, on the device) ──
-function gemStub({ busy = [], reply = "### Section 24\n- The **RTI Act** exempts intelligence and security bodies.\n- Corruption and human-rights information must still be given." } = {}) {
+function gemStub({ busy = [], daily = [], reply = "### Section 24\n- The **RTI Act** exempts intelligence and security bodies.\n- Corruption and human-rights information must still be given." } = {}) {
   const seen = [];
   const prev = global.fetch;
   global.fetch = async (url, init = {}) => {
@@ -351,6 +351,8 @@ function gemStub({ busy = [], reply = "### Section 24\n- The **RTI Act** exempts
       .map((n) => ({ name: `models/${n}`, supportedGenerationMethods: n.includes("embedding") ? ["embedContent"] : ["generateContent"] })) }), { status: 200 });
     const model = u.split("/models/")[1].split(":")[0];
     if (busy.includes(model)) return new Response(JSON.stringify({ error: { code: 429 } }), { status: 429 });
+    if (daily.includes(model)) return new Response(JSON.stringify({ error: { code: 429, details: [{ "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+      violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier", quotaValue: "250" }] }] } }), { status: 429 });
     const half = Math.floor(reply.length / 2);
     const sse = [reply.slice(0, half), reply.slice(half)].map((t, i) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: t }] }, ...(i ? { finishReason: "STOP" } : {}) }] })}\r\n\r\n`).join("");
     return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
@@ -392,7 +394,7 @@ test("Gemini: a free question is answered from the article, streamed, with a use
     assert.ok(partial.length >= 2 && partial[0].length < partial[partial.length - 1].length, "the answer streams in");
     const body = JSON.parse(g.seen.find((x) => x.u.includes("flash-lite:streamGenerateContent")).init.body);
     assert.ok(body.systemInstruction.parts[0].text.includes("Section 24(4) of the RTI Act means information held"), "the full article is in the context");
-    assert.strictEqual(JSON.parse(mem["upsc-gemini-models"])[0], "gemini-2.5-flash-lite", "the model that worked goes first next time");
+    assert.strictEqual(JSON.parse(mem["upsc-gemini-models"])[0], "gemini-2.5-flash", "a busy model keeps its place: it's tried first next time");
     await bot.answer(TN, "And what are the exceptions?");
     const second = JSON.parse(g.seen[g.seen.length - 1].init.body);
     assert.strictEqual(second.contents.length, 3, "a follow-up carries the earlier turn");
@@ -407,6 +409,62 @@ test("Gemini: when every model's quota is used up, the reports answer instead, s
     const html = await C.makeBot({}).answer(TN, "Make 2 Prelims MCQs");
     assert.ok(/✦ The free AI quota is used up.*from the reports instead/.test(html) && !/Intel AI, from/.test(html), html.slice(0, 200));
   } finally { g.restore(); }
+});
+
+test("Gemini: a model whose daily quota ran out is skipped until the Pacific-midnight reset", async () => {
+  const mem = memStore({ "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash", "gemini-2.5-flash-lite"]) });
+  let g = gemStub({ daily: ["gemini-2.5-flash"] });
+  try {
+    const a = await C.gemini.generate({ system: "s", contents: [{ role: "user", parts: [{ text: "q" }] }] });
+    assert.strictEqual(a.model, "gemini-2.5-flash-lite");
+    assert.deepStrictEqual(JSON.parse(mem["upsc-gemini-out"]).models, ["gemini-2.5-flash"]);
+    const n = g.seen.length;
+    await C.gemini.generate({ system: "s", contents: [{ role: "user", parts: [{ text: "q" }] }] });
+    assert.ok(g.seen.slice(n).every((x) => !x.u.includes("/gemini-2.5-flash:")), "not asked again today");
+  } finally { g.restore(); }
+  mem["upsc-gemini-out"] = JSON.stringify({ day: "2000-01-01", models: ["gemini-2.5-flash"] });  // an earlier Pacific day
+  g = gemStub({});
+  try {
+    const b = await C.gemini.generate({ system: "s", contents: [{ role: "user", parts: [{ text: "q" }] }] });
+    assert.strictEqual(b.model, "gemini-2.5-flash", "after the reset the best model is first again");
+  } finally { g.restore(); }
+});
+
+test("Backup: the file carries this device's progress but never the AI key; restoring merges without losing anything", () => {
+  const mem = memStore({
+    "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-theme": "dark",
+    "upsc-marks": JSON.stringify({ a: { starred: true, read: false, note: "" }, b: { starred: false, read: true, note: "mine" } }),
+    "upsc-srs": JSON.stringify({ cards: { c1: { due: 10, reps: 2, at: 200 }, c2: { due: 5, reps: 1, at: 100 } }, day: 3, fresh: 4 }),
+    "upsc-mains": JSON.stringify([{ at: 1, story_id: "a", score: 6 }]),
+    "upsc-practice": JSON.stringify({ seen: { q1: 5 }, attempts: [{ at: 1, day: "d", n: 10, right: 5 }], wrong: {} }),
+  });
+  const f = C.backup.file();
+  assert.ok(f.app === "UPSC Intel" && f.keys["upsc-marks"] && !("upsc-gemini-key" in f.keys) && !JSON.stringify(f).includes("AIzaSy"), "no key in the file");
+  const other = { app: "UPSC Intel", kind: "progress-backup", v: 1, at: "x", keys: {
+    "upsc-gemini-key": "AIzaSyEVIL-0000000000000000000", "upsc-theme": "light", "evil-key": "x",
+    "upsc-marks": JSON.stringify({ a: { starred: false, read: true, note: "longer note from the phone" }, c: { starred: true, read: false, note: "" } }),
+    "upsc-srs": JSON.stringify({ cards: { c1: { due: 4, reps: 1, at: 100 }, c2: { due: 9, reps: 3, at: 300 }, c3: { due: 2, reps: 1, at: 50 } } }),
+    "upsc-mains": JSON.stringify([{ at: 1, story_id: "a", score: 6 }, { at: 2, story_id: "b", score: 7 }]),
+    "upsc-practice": JSON.stringify({ seen: { q1: 3, q2: 9 }, attempts: [{ at: 1, day: "d", n: 10, right: 5 }, { at: 5, day: "e", n: 10, right: 8 }], wrong: { q9: { at: 1 } } }),
+    "upsc-follow": JSON.stringify({ "india-canada": "2026-09-20" }),
+  } };
+  const r = C.backup.restore(JSON.stringify(other));
+  assert.ok(r.merged.includes("upsc-marks") && !r.failed.length);
+  assert.strictEqual(mem["upsc-gemini-key"], "AIzaSyTESTKEY-0123456789abcdef", "a file can't set the key");
+  assert.ok(!("evil-key" in mem) && mem["upsc-theme"] === "dark", "only known keys; this device's settings stay");
+  const m = JSON.parse(mem["upsc-marks"]);
+  assert.deepStrictEqual(m.a, { starred: true, read: true, note: "longer note from the phone" });
+  assert.ok(m.b.read && m.b.note === "mine" && m.c.starred, "marks from both sides");
+  const srs = JSON.parse(mem["upsc-srs"]);
+  assert.deepStrictEqual([srs.cards.c1.at, srs.cards.c2.at, srs.cards.c3.due, srs.day], [200, 300, 2, 3], "each card's latest review");
+  assert.strictEqual(JSON.parse(mem["upsc-mains"]).length, 2, "answers: one copy each");
+  const px = JSON.parse(mem["upsc-practice"]);
+  assert.deepStrictEqual([px.attempts.length, px.seen.q1, px.seen.q2, !!px.wrong.q9], [2, 5, 9, true]);
+  assert.ok(JSON.parse(mem["upsc-follow"])["india-canada"], "a key this device didn't have is taken whole");
+  assert.deepStrictEqual(C.backup.restore(JSON.stringify(other)).merged, [], "restoring twice changes nothing");
+  assert.throws(() => C.backup.restore('{"hello": 1}'), /isn't a UPSC Intel backup/);
+  const info = C.backup.info(); assert.ok(info.done === 2 && info.starred === 2 && info.cards === 3 && info.answers === 2 && info.at === 0);
+  assert.ok(C.backup.html().includes("Last backup: never") && C.backup.html().includes('data-backup="save"'));
 });
 
 test("Gemini's Markdown is rendered safely", () => {

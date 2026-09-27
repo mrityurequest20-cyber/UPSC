@@ -213,7 +213,7 @@ def build_dossiers(settings: Settings, db: DB, today: str | None = None, http=No
     todo.sort(key=lambda x: bool(x[0]["summary"]))  # the ones without a story so far first
     if not settings.gemini_api_key or not todo:
         return {"dossiers": n, "written": 0, "calls": 0, "left": len(todo)}
-    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http)
+    gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http, db=db)
     written = calls = 0
     note = ""
     for i in range(0, len(todo), PER_CALL):

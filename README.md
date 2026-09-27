@@ -106,6 +106,15 @@ Week and Month views recap everything the daily briefs covered.
   - Top 10 / Top 15
   - everything the daily briefs covered, grouped by subject and dated
 - **Progress tracking:** tick **Mark done** on each card, and the bar at the top shows how much of the day's brief you've finished. Stars and notes build your revision list.
+- **Backup your progress:** marks, notes, streaks, flashcards, practice scores, Mains answers and followed dossiers live only in your browser. The website and the app share them.
+  - **Download backup** (in the website's Starred tab or the app's Progress → My 30 days) saves them to a small `.json` file.
+  - **Restore from a file** on any device adds that file's progress to the device's own. It's a merge, so nothing on the device is lost:
+    - a done mark or a star from either side is kept
+    - the longer note wins
+    - each flashcard keeps its latest review
+    - practice sets and Mains answers are kept once each
+  - Your ✦ Intel AI key is never written to the file, and a file can only restore the app's own progress keys.
+  - The panel says when you last saved a backup, and turns amber after two weeks.
 - **Ask bot:** an **Ask** button on every brief card and list line, plus a floating **Ask** button for the whole day. The same bot is **Ask Intel** in the app. Switch on **✦ Intel AI** (a free Google key) and it answers any question in its own words from the story's article (see "✦ Intel AI" below).
   - **It reads the full article on the web.**
     - **Summary** reads the story's own source when that site is free to read.
@@ -219,7 +228,7 @@ Week and Month views recap everything the daily briefs covered.
     - Read: editorials by GS paper, explainers
     - Track: dossiers, the places map and India's ranks
     - Practice: MCQs, Revise, Mains, Weekly mock and Mistakes
-    - Progress: My 30 days (streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, a 30-min catch-up plan), and the week or month in review
+    - Progress: My 30 days (streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, a 30-min catch-up plan, backup), and the week or month in review
     - Saved: stars and notes, PDF
   - **Kept uncluttered:** a brief card shows one row of labels (rank, GS paper, subject; its section is its grade) and the write-up's short headline. A story without a matched video gets a YouTube search link with its sources instead of an empty video box. The website groups Dossiers, Map and India's Ranks under one **Trackers** tab, and old links to those tabs (and the app's old Insights and Review links) still land in the right place.
   - **Refresh (the ↻ button in the top bar):** checks for the latest build now instead of waiting for the app's own 5-minute check. It says what it found: new stories, "you're up to date" with when the next update is due, or that the scheduled update is running late. It also looks for a newer version of the app. On the local server it fetches every source, like the website's Refresh.
@@ -384,7 +393,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 218 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 223 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -438,7 +447,11 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
      - A story without a grade (quota out) keeps the rules.
    - **`off`:** no calls.
 
-- **One key does all this.** The build and your questions share the key's free daily quota. If you ever run short, a second key made in a new Google Cloud project has its own quota.
+- **One key does all this, within its free daily quota.** The build and your phone (Ask Intel, Mains marking, Hinglish Listen) share it. The quota resets at midnight Pacific time: 12:30 PM IST (1:30 PM when the US is on winter time). The build spends it carefully:
+  - **Flash-Lite first for sorting.** Grading every story, folding same-event cards and reading ranks are simple sorting and extraction jobs, so they ask Flash-Lite first (it has the bigger free quota). Flash is kept for the study notes and dossier summaries, where quality matters.
+  - **A used-up model rests until the reset.** When Google answers that a model's *daily* quota is used up, the build notes it in the database (`gemini_usage`: requests per model per Pacific day). No step of any run asks that model again until the reset, so no request is wasted every 20 minutes. A *per-minute* limit only skips the model for the rest of that run. Your phone does the same: a model that ran out for the day is skipped until the reset, then it's the first choice again.
+  - **A reserve for your phone.** Once a model's daily limit is known (Google names it when the model runs out), the build stops using that model 25 requests short of it, at most a fifth of a small limit. That leaves room for your own questions. `UPSC_GEMINI_RESERVE` changes the number. The enrich step's log prints the day's use per model.
+  - **When everything's out,** the site still updates. Sorting falls back to the rules, cards keep their quoted summaries, and the bot answers from the articles.
 - **Privacy:** on the free tier Google may use what is sent (public news text and your questions) to improve its products. Don't type anything private into the bot.
 
 ## AI explainers with an Anthropic key (alternative)
