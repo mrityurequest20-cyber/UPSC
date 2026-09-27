@@ -34,7 +34,8 @@ class FakeGemini:
             t = m.group(3)
             up = 3 if re.search(r"Cabinet|Bill", t) else 2 if re.search(r"[Ee]xercise|species", t) else 0 if re.search(r"Bigg Boss|IPL", t) else 1
             subj = "polity" if "Bill" in t else "defence" if "xercise" in t else "economy"
-            items.append({"n": int(m.group(1)), "upsc": up, "subject": subj, "gs": ["GS2"], "prelims": up == 2, "why": f"graded {up}"})
+            items.append({"n": int(m.group(1)), "upsc": up, "subject": subj, "gs": ["GS2"], "prelims": up == 2,
+                          "news": not t.startswith("Strengthening"), "why": f"graded {up}"})
         text = __import__("json").dumps({"items": items})
         return Resp(200, {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": text}]}}]})
 
@@ -64,7 +65,7 @@ def test_verdicts_keep_only_well_formed_items():
                        {"n": 2, "upsc": 0, "subject": "astrology", "gs": [], "prelims": False, "why": "no"}]}
     v = T.verdicts(reply, batch, {"polity", "economy"})
     assert v["a"]["upsc"] == 3 and v["a"]["gs"] == ["GS2"] and len(v["a"]["why"]) == 120 and v["a"]["t"] == T.title_key("One")
-    assert v["b"] == {"upsc": 0, "subject": "", "gs": [], "prelims": False, "why": "no", "t": T.title_key("Two")}
+    assert v["b"] == {"upsc": 0, "subject": "", "gs": [], "prelims": False, "news": True, "why": "no", "t": T.title_key("Two")}
 
 
 def test_stories_are_graded_in_batches_once_per_headline(db, settings, clf):
@@ -221,3 +222,13 @@ def test_cards_on_the_same_event_fold_into_one(db, settings, clf):
     assert len(http.calls) == n
     settings.ai_triage = "shadow"
     assert T.dedupe(settings, db, [DAY], http=http) == {"enabled": False}
+
+
+def test_an_evergreen_page_is_a_line_not_a_card(db, settings, clf):
+    story(db, "ev", "Strengthening parliamentary oversight of every Bill", score=7.0, grade="NOTE")  # graded 3, not news
+    story(db, "nw", "Cabinet approves the National Research Foundation scheme", score=6.0)
+    db.commit()
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+    T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
+    ai = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True)}
+    assert ai["nw"] == "top" and ai["ev"] == "more"
