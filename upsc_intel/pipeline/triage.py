@@ -22,8 +22,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 from ..config import Settings
 from ..db import DB, iso
@@ -49,12 +51,17 @@ For each numbered story (its kind, headline, outlet and a line of its text) deci
       space or defence. Roughly the top 5-10% of a day's stories.
   2 = useful: a concrete, examinable development of secondary weight: a scheme or mission detail, a species,
       a place in the news, a military exercise, an award, a report, an appointment to a constitutional or
-      statutory post, an MoU, a new index, a state-level policy of wider interest.
+      statutory post, an MoU, a new index, a state-level policy of wider interest. Also any political,
+      constitutional or economic development in India's neighbourhood (Pakistan, China, Nepal, Bhutan, Bangladesh,
+      Sri Lanka, Maldives, Myanmar, Afghanistan): a constitutional amendment, an election result or change of
+      government, a crisis, an IMF or debt deal. At least 2, and 3 when it directly affects India.
   1 = marginal: syllabus-related but routine: political statements and reactions, previews, spats, local
       administration, minor events, opinion without substance, individual court cases without a wider principle.
   0 = not UPSC material: sports results, entertainment and celebrities, crime without a policy angle, markets and
       stock tips, company earnings, weather alerts, accidents, election horse-race and party politics, lifestyle,
-      another country's domestic news with no India or global angle.
+      another country's domestic news with no India or global angle (India's neighbours excepted, see 2), and
+      coaching-institute posts: ads, course or test-series promotions, essay or answer-writing challenges,
+      toppers' talks, timetables (a coaching site's explainer of a real news topic is judged by its topic).
   Be strict: most stories are 0 or 1. An EDITORIAL or EXPLAINER is judged by its topic's weight.
 - subject: the single best subject key from the list below.
 - gs: the GS papers it maps to (GS1 history, culture, geography, society; GS2 polity, governance, IR, social
@@ -95,6 +102,30 @@ def mode(settings: Settings) -> str:
 
 
 VERDICT = "v2"  # v2 added "news": a new version grades every story again, over the next few runs
+# The prompt's revision. A change that only affects a few kinds of story re-asks just those, once (recheck):
+# 2 made India's neighbourhood politics at least a 2 and coaching-institute posts a 0.
+PROMPT_REV = 2
+NEIGHBOURS = re.compile(r"\b(Pakistan|Nepal|Bhutan|Bangladesh|Sri Lanka|Lankan|Maldiv\w*|Myanmar|Afghan\w*|Taliban|"
+                        r"Kathmandu|Dhaka|Colombo|Islamabad|Thimphu|Kabul|Naypyidaw)\b", re.I)
+COACHING = re.compile(r"essay challenge|answer[- ]writing|answer evaluation|test series|mock test|toppers?\b|"
+                      r"mentorship|admissions? open|new batch|webinar|scholarship test", re.I)
+
+
+NEIGHBOUR_TLD = {"lk": "Sri Lanka", "np": "Nepal", "bd": "Bangladesh", "pk": "Pakistan", "mv": "Maldives",
+                 "af": "Afghanistan", "mm": "Myanmar", "bt": "Bhutan"}  # an outlet's country, from its web address
+
+
+def outlet_country(url: str) -> str:
+    host = urlparse(url or "").hostname or ""
+    return NEIGHBOUR_TLD.get(host.rsplit(".", 1)[-1], "")
+
+
+def recheck(title: str, text: str, url: str, v: dict) -> bool:
+    """A verdict from before PROMPT_REV that the new prompt would likely change: asked again, once."""
+    if v.get("r", 1) >= PROMPT_REV:
+        return False
+    near = NEIGHBOURS.search(f"{title} {text}") or outlet_country(url)
+    return bool((v.get("upsc", 0) <= 1 and near) or (v.get("upsc", 0) >= 1 and COACHING.search(title)))
 
 
 def title_key(title: str) -> str:
@@ -109,14 +140,15 @@ def _todo(db: DB, days: list[str]) -> list:
     """The days' stories without a verdict for their current headline: the brief's cards first (a new verdict
     version re-checks what readers see before the rest), then best-scored first."""
     rows = db.q(
-        f"SELECT id, title, COALESCE(summary,'') AS summary, publishers, is_editorial, is_explained, triage, score, first_seen "
+        f"SELECT id, title, COALESCE(summary,'') AS summary, COALESCE(url,'') AS url, publishers, is_editorial, is_explained, "
+        f"triage, score, first_seen "
         f"FROM stories WHERE date_ist IN ({','.join('?' * len(days))}) AND is_library=0 AND is_private=0 "
         f"ORDER BY EXISTS (SELECT 1 FROM brief_picks b WHERE b.story_id = stories.id "
         f"AND COALESCE(b.tier, 'top') IN ('top', 'prelims')) DESC, score DESC", days)
     out = []
     for r in rows:
         t = json.loads(r["triage"]) if r["triage"] else None
-        if t and t.get("t") == title_key(r["title"]):
+        if t and t.get("t") == title_key(r["title"]) and not recheck(r["title"], r["summary"], r["url"], t):
             continue
         out.append(r)
     return out
@@ -126,6 +158,8 @@ def _prompt(batch: list) -> str:
     lines = []
     for n, r in enumerate(batch, 1):
         pub = (json.loads(r["publishers"] or "[]") or [""])[0]
+        where = outlet_country(r["url"] if "url" in r.keys() else "")  # a neighbour's own outlet: say which country
+        pub = f"{pub}, {where}" if where and pub else pub or where
         text = " ".join((r["summary"] or "").split())[:TEXT_CHARS]
         lines.append(f"{n}. [{_kind(r)}] {r['title']} ({pub})" + (f": {text}" if text else ""))
     return "\n".join(lines)
@@ -142,7 +176,7 @@ def verdicts(reply: dict, batch: list, subjects: set[str]) -> dict[str, dict]:
         subj = x.get("subject") if x.get("subject") in subjects else ""
         out[r["id"]] = {"upsc": up, "subject": subj, "gs": [g for g in x.get("gs") or [] if g in ("GS1", "GS2", "GS3", "GS4")],
                         "prelims": bool(x.get("prelims")), "news": x.get("news") is not False,
-                        "why": str(x.get("why") or "")[:120], "t": title_key(r["title"])}
+                        "why": str(x.get("why") or "")[:120], "t": title_key(r["title"]), "r": PROMPT_REV}
     return out
 
 
