@@ -103,6 +103,10 @@ button:disabled { cursor: default; }
 .ib { width: 36px; height: 36px; border-radius: 11px; border: 1px solid var(--border); background: var(--surface); display: grid; place-items: center; color: var(--ink-2); flex: none; padding: 0; }
 .ib svg { width: 17px; height: 17px; }
 .ib.primary { background: var(--btn); border-color: var(--btn); color: #fff; }
+.ib.busy svg { animation: spin .9s linear infinite; }
+.ib:disabled { cursor: default; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ib.busy svg { animation: none; opacity: .5; } }
 
 .screen { padding-bottom: calc(96px + var(--safe-b)); }
 .loading { padding: 60px 16px; text-align: center; color: var(--muted); font-size: 14px; }

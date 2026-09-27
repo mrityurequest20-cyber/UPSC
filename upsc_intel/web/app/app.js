@@ -343,7 +343,7 @@
     const lowRow = (s) => `<div class="mrow low" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(s.title)}<small>${esc(srcName(s))}${s.ai_why ? ` · ✦ ${esc(s.ai_why)}` : ""}</small></div></div>`;
     return `${head}${hero}${chips}
       <div class="sechead"><h2>Must-know</h2><span>${cards.length} · make notes</span></div>
-      <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${esc(A.gs)} must-know story ${L.news.length ? "among today's cards" : "yet"}.</div>`}</div>
+      <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${A.gs === "All" ? "" : `${esc(A.gs)} `}must-know story ${L.news.length ? "among today's cards" : "yet"}.</div>`}</div>
       ${G.note.length ? `<div class="sechead"><h2>More to make notes on</h2><span>${G.note.length} · as one-liners</span></div>${lines(G.note, "note")}` : ""}
       ${facts.length || G.quick.length ? `<div class="sechead"><h2>Quick read</h2><span>${facts.length ? `${plural(facts.length, "Prelims fact")}` : ""}${facts.length && G.quick.length ? " + " : ""}${G.quick.length ? `${G.quick.length} more` : ""} · know the key fact</span></div>
         ${facts.length ? `<div class="list">${facts.map((s) => card(s, null)).join("")}</div>` : ""}${G.quick.length ? lines(G.quick, "quick") : ""}` : ""}
@@ -965,6 +965,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
       case "export": A.exp.scope = t.dataset.scope || (A.open ? "story" : A.tab === "saved" ? "saved" : "brief"); A.exp.story = A.open; openSheet("export"); break;
       case "runexport": runExport(); break;
       case "search": openSheet("search"); break;
+      case "refresh": refreshNow(t); break;
       case "searchwide": doSearch(A.search.q, true); break;
       case "askday": openBot({ kind: "brief" }); break;
       case "askstory": openBot({ kind: "story", id: A.open }); break;
@@ -989,22 +990,60 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
   window.addEventListener("offline", renderLive);
 
   // ─────────────────────────── boot ───────────────────────────
-  async function poll() {  // a new build every ~20 minutes: pick it up without a reload
-    try {
-      const m = await api.meta();
-      if (m.built_at !== A.meta.built_at) {
-        const size = () => { const L = lists(); return L.news.length + L.prelims.length + L.more.length; };
-        const before = A.briefDay === todayIST() ? size() : null;
-        A.meta = m; A.months.clear();
-        if (A.day === todayIST()) {
-          await loadDay(A.day, true);
-          const after = size();
-          if (before != null && after > before) toast(`Updated: ${plural(after - before, "new story", "new stories")} in today's brief.`);
-        }
-        if (!A.open && !A.sheet) renderScreen();
+  async function checkBuild() {  // → {changed, added} (added: new stories in today's brief), or null when unreachable
+    let m;
+    try { m = await api.meta(); } catch (e) { renderLive(); return null; }
+    let added = 0; const changed = m.built_at !== A.meta.built_at || (!STATIC && JSON.stringify(m.last_run) !== JSON.stringify(A.meta.last_run));
+    if (changed) {
+      const size = () => { const L = lists(); return L.news.length + L.prelims.length + L.more.length; };
+      const before = A.briefDay === todayIST() ? size() : null;
+      A.meta = m; A.months.clear();
+      if (A.day === todayIST()) {
+        await loadDay(A.day, true);
+        if (before != null) added = Math.max(0, size() - before);
       }
-    } catch (e) { /* offline: try again next time */ }
+      if (!A.open && !A.sheet) renderScreen();
+    } else A.meta = m;
     renderLive();
+    return { changed, added };
+  }
+  async function poll() {  // a new build every ~20 minutes: pick it up without a reload
+    const r = await checkBuild();
+    if (r && r.added) toast(`Updated: ${plural(r.added, "new story", "new stories")} in today's brief.`);
+  }
+  // Refresh: on the site, look for a newer build now (and a newer app); on the local server, fetch every source
+  const LATE_GRACE_MIN = 15;  // as the website's Refresh
+  async function refreshNow(btn) {
+    if (btn.disabled) return;
+    const busy = (on) => { btn.disabled = on; btn.classList.toggle("busy", on); };
+    busy(true);
+    try {
+      if (!STATIC) {
+        try { await api.json("../api/refresh", { method: "POST" }); } catch (e) { toast("Couldn't reach the server. Is it still running?"); return; }
+        toast("Fetching every source now. This takes 1–3 minutes; keep reading.");
+        for (let i = 0; i < 60; i++) {  // up to 4 minutes
+          await new Promise((res) => setTimeout(res, 4000));
+          let m; try { m = await api.meta(); } catch (e) { continue; }
+          if (!m.running) {
+            const r = await checkBuild(); const L = m.last_run || {};
+            toast(`Done: ${L.n_ok ?? "?"} of ${L.n_sources ?? "?"} sources fetched${r && r.added ? `, ${plural(r.added, "new story", "new stories")} in today's brief` : ""}.`);
+            return;
+          }
+        }
+        toast("Still fetching: new stories appear on their own when it's done.");
+        return;
+      }
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistration) {  // a newer app: the reopen toast says so
+        navigator.serviceWorker.getRegistration().then((reg) => reg && reg.update()).catch(() => {});
+      }
+      const r = await checkBuild();
+      if (!r) { toast(navigator.onLine === false ? `You're offline: showing data from ${ago(A.meta.built_at)}.` : "Couldn't reach the site. Check your connection and try again."); return; }
+      if (r.changed) { toast(r.added ? `Updated: ${plural(r.added, "new story", "new stories")} in today's brief.` : "Updated to the latest data."); return; }
+      const every = A.meta.refresh_min || 20; const built = new Date(A.meta.built_at).getTime();
+      const due = Math.round((built + every * 60000 - Date.now()) / 60000);
+      if (built && Date.now() - built > (every + LATE_GRACE_MIN) * 60000) toast(`No newer data yet: the update due every ${every} min is running late. Try again in a few minutes.`);
+      else toast(`You're up to date: updated ${ago(A.meta.built_at)}${due > 1 ? `, the next update is due in about ${due} min` : ", the next update is due any minute"}.`);
+    } finally { busy(false); }
   }
   async function boot() {
     try { [A.meta, A.marks] = await Promise.all([api.meta(), api.marks()]); }
