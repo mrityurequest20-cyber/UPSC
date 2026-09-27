@@ -68,13 +68,14 @@ def story_out(s: dict, labels: dict | None = None, explain: bool = False, text: 
         "summary": s.get("summary") or "",
         "sources": srcs[:MAX_SOURCES_PER_STORY],
         "n_src": len(srcs),
-        "ai": s.get("ai") or None,
+        # Claude's study note (its MCQs, Hindi, outline); an AI write-up (Gemini, Anthropic) travels as `explain`
+        "ai": s.get("ai") if (s.get("ai") or {}).get("source") == "claude-notes" else None,
         "video": s.get("video") or None,
         "video_hi": s.get("video_hi") or None,
     }
     if explain:
         ai = s.get("ai")
-        out["explain"] = ai if has_ai_explainer(ai) else auto_explain(
+        out["explain"] = {k: v for k, v in ai.items() if k != "points"} if has_ai_explainer(ai) else auto_explain(
             {**s, "sources": srcs, "date_ist": s.get("date_ist")}, labels or {}, text=text, clf=clf)
     return out
 
@@ -215,6 +216,9 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             a = articles.get(i)
             if a and a["points"]:  # the free full article's key points (pipeline/articles.py), with its link
                 o["sum"] = {"points": a["points"], "url": a["url"], "domain": a["domain"], "via": a["via"] or ""}
+                ai = stories[i].get("ai") or {}
+                if len(ai.get("points") or []) >= 3 and ai.get("src") == "article" and ai.get("source") != "claude-notes":
+                    o["sum"].update(points=ai["points"], by=ai.get("by") or "AI")  # written by the AI from that article
                 if full:  # and some of its text, for the Ask bot's answers
                     o["sum"]["text"] = _clip("\n".join(a["paragraphs"]), ARTICLE_TEXT)
             out_stories.append(o)

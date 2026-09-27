@@ -32,6 +32,7 @@ jobs:
     timeout-minutes: 25
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # free Google AI Studio key: Gemini writes the study notes
       UPSC_SITE_REFRESH_MIN: "20"  # keep in step with the cron above (shown on the page)
       UPSC_KEEP_DAYS: "45"         # the working database; finished months live on in the archive branch
     steps:
@@ -62,8 +63,10 @@ jobs:
           UPSC_BROWSER_FALLBACK: "0"
         run: python -m upsc_intel fetch --public-only
 
-      - name: AI notes (only if the secret is set)
-        if: env.ANTHROPIC_API_KEY != ''
+      # Gemini's free tier allows a few requests a minute: each run writes notes for up to 15 new cards.
+      - name: AI notes (only if a key secret is set)
+        if: env.ANTHROPIC_API_KEY != '' || env.GEMINI_API_KEY != ''
+        continue-on-error: true  # an AI outage or a used-up quota never holds back the site
         run: python -m upsc_intel enrich
 
       # Finished months, frozen as the site showed them: kept forever on the `archive` branch.

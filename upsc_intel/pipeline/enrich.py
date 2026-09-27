@@ -2,9 +2,11 @@
 Prelims facts · Mains question — the format UPSC notes are written in.
 
 Two tiers:
-* AI explainer (when ANTHROPIC_API_KEY is set): Claude writes it from the fetched text. News facts
-  come only from that text; the Background line may use well-established static knowledge
-  (what an institution is, which Article applies) and is left empty when unsure.
+* AI explainer (when GEMINI_API_KEY, a free Google AI Studio key, or ANTHROPIC_API_KEY is set): the model
+  writes it from the free full article the build read (pipeline/articles.py) and the outlets' reports,
+  plus an 8-point summary of the article. News facts come only from that text (a summary line or Prelims
+  fact carrying a number the text doesn't have is dropped); the Background line may use well-established
+  static knowledge (what an institution is, which Article applies) and is left empty when unsure.
 * Auto explainer (always available, no key): built from the feed text and the classifier's tags.
   Shorter, extractive, never invents anything.
 Each story is explained once; results are cached in the database.
@@ -14,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
@@ -35,8 +38,12 @@ Rules:
   relevant Article or convention). Use only well-established facts; leave it "" if unsure.
 - Plain, simple English. No hype. Short sentences.
 - If the text is too thin, set "insufficient": true and keep fields short rather than guessing.
+- Write in your own words: never copy whole sentences from the text.
 
 Fields:
+- points: 6-8 bullet points summarising the article for revision, most important first. One sentence
+  each, at most 30 words, facts only from the text (names, numbers, places, bodies, the decision and
+  its reasons). For an editorial: the author's main arguments and proposals.
 - headline: a clear factual headline, at most 14 words.
 - what: 1-2 sentences, what happened.
 - why_in_news: 1 sentence, the trigger that put it in the news now.
@@ -62,6 +69,7 @@ SCHEMA = {
     "type": "object",
     "properties": {
         "headline": {"type": "string"},
+        "points": {"type": "array", "items": {"type": "string"}},
         "what": {"type": "string"},
         "why_in_news": {"type": "string"},
         "background": {"type": "string"},
@@ -76,7 +84,7 @@ SCHEMA = {
         "video_query": {"type": "string"},
         "insufficient": {"type": "boolean"},
     },
-    "required": ["headline", "what", "why_in_news", "background", "significance", "prelims", "mains",
+    "required": ["headline", "points", "what", "why_in_news", "background", "significance", "prelims", "mains",
                  "gs", "keywords", "when", "where", "who", "video_query", "insufficient"],
     "additionalProperties": False,
 }
@@ -239,7 +247,11 @@ def auto_explain(story: dict, labels: dict, text: str | None = None, clf=None) -
 
 
 # ─────────────────────────── AI explainer ───────────────────────────
+ARTICLE_CHARS = 12000
+
+
 def _story_text(db: DB, story: dict, kind: str) -> str:
+    art = db.articles([story["id"]]).get(story["id"])
     rows = db.q(
         "SELECT i.publisher, i.section, i.title, i.summary, f.body FROM items i "
         "LEFT JOIN items_fts f ON f.item_id = i.id WHERE i.story_id=? ORDER BY i.tier='official' DESC LIMIT 6",
@@ -248,6 +260,9 @@ def _story_text(db: DB, story: dict, kind: str) -> str:
     label = {"editorial": "EDITORIAL / opinion", "explained": "EXPLAINER"}.get(kind, "NEWS")
     parts = [f"Type: {label}",
              f"Headline: {story['title']}", f"Reported on: {', '.join(story.get('dates') or [])}"]
+    if art and not art["miss"] and art["paragraphs"]:
+        text = "\n".join(art["paragraphs"])[:ARTICLE_CHARS]
+        parts.append(f"\n--- FULL ARTICLE ({art['domain']}{', a free report of the same story' if art['via'] == 'search' else ''})\n{text}")
     for r in rows:
         body = (r["body"] or r["summary"] or "").strip()
         parts.append(f"\n--- {r['publisher']}{(' · ' + r['section']) if r['section'] else ''}\n"
@@ -298,14 +313,143 @@ def enrich_story(client, settings: Settings, db: DB, story: dict, kind: str = "n
     return data
 
 
+# ─────────────────────────── the fact guard ───────────────────────────
+_NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers(text: str) -> set[str]:
+    return {n.replace(",", "").rstrip(".") for n in _NUM.findall(text or "")}
+
+
+def supported(line: str, source: str) -> bool:
+    """Every figure in the line is in the source text (small counts like "two" → "2" are let through)."""
+    have = _numbers(source)
+    return all(n in have or (n.isdigit() and int(n) <= 12) for n in _numbers(line))
+
+
+def guard(data: dict, source: str) -> dict:
+    """Drops summary lines and Prelims facts whose figures the text doesn't carry."""
+    for k in ("points", "prelims"):
+        kept = [x for x in data.get(k) or [] if x and supported(x, source)]
+        if len(kept) < len(data.get(k) or []):
+            log.info("AI notes: dropped %d %s line(s) with figures not in the text", len(data[k]) - len(kept), k)
+        data[k] = kept
+    return data
+
+
+# ─────────────────────────── Gemini (a free Google AI Studio key) ───────────────────────────
+GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
+GEMINI_PAUSE = 4.5  # seconds between calls: the free tier allows about 10-15 requests a minute
+GEMINI_FALLBACK = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+BLOCKED = {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "LANGUAGE"}
+
+
+class GeminiStop(Exception):
+    """The key is refused, or every model's quota is used up: stop for this run."""
+
+
+def rank_models(names: list[str]) -> list[str]:
+    """The key's Flash models, best first: the newest stable Flash, the next one, then the newest Flash-Lite
+    (higher free quota) and the "latest" aliases."""
+    def ver(n: str) -> float:
+        m = re.match(r"gemini-(\d+(?:\.\d+)?)-", n)
+        return float(m.group(1)) if m else 0.0
+    flash = sorted((n for n in names if re.fullmatch(r"gemini-\d+(?:\.\d+)?-flash", n)), key=ver, reverse=True)
+    lite = sorted((n for n in names if re.fullmatch(r"gemini-\d+(?:\.\d+)?-flash-lite", n)), key=ver, reverse=True)
+    alias = [n for n in ("gemini-flash-latest", "gemini-flash-lite-latest") if n in names]
+    return flash[:2] + lite[:1] + alias or list(GEMINI_FALLBACK)
+
+
+def gemini_schema(sch: dict) -> dict:
+    """JSON Schema → the OpenAPI subset Gemini's responseSchema takes."""
+    out: dict = {"type": sch["type"].upper()}
+    if "enum" in sch:
+        out["enum"] = sch["enum"]
+    if sch["type"] == "object":
+        out["properties"] = {k: gemini_schema(v) for k, v in sch["properties"].items()}
+        out["required"] = list(sch.get("required", []))
+        out["propertyOrdering"] = list(sch["properties"])
+    elif sch["type"] == "array":
+        out["items"] = gemini_schema(sch["items"])
+    return out
+
+
+class Gemini:
+    """Gemini's REST API with the key in a header (never in a URL, so it never reaches a log)."""
+
+    def __init__(self, key: str, model: str = "", http=None):
+        import httpx
+
+        self.key = key
+        self.http = http or httpx.Client(timeout=120)
+        self.models: list[str] | None = [model] if model else None
+
+    def _headers(self) -> dict:
+        return {"x-goog-api-key": self.key, "Content-Type": "application/json"}
+
+    def pick(self) -> list[str]:
+        if self.models is None:
+            r = self.http.get(f"{GEMINI_API}/models", headers=self._headers(), params={"pageSize": 200})
+            if r.status_code in (400, 401, 403):
+                raise GeminiStop(f"the key was refused (HTTP {r.status_code})")
+            names = [m.get("name", "").split("/", 1)[-1] for m in (r.json().get("models") or [])
+                     if "generateContent" in (m.get("supportedGenerationMethods") or [])] if r.status_code == 200 else []
+            self.models = rank_models(names)
+            log.info("Gemini models: %s", ", ".join(self.models))
+        return self.models
+
+    def generate(self, system: str, text: str, schema: dict) -> tuple[dict | None, str]:
+        """→ (the JSON reply, or {"skipped": reason} for this card; the model that answered). Raises GeminiStop."""
+        body = {"systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": text}]}],
+                # (a "thinking" model counts its thinking in the output budget: room for both)
+                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 16384, "responseMimeType": "application/json",
+                                     "responseSchema": gemini_schema(schema)}}
+        for model in list(self.pick()):
+            r = self.http.post(f"{GEMINI_API}/models/{model}:generateContent", headers=self._headers(), json=body)
+            if r.status_code in (429, 404) or r.status_code >= 500:  # this model's quota is used up, or it's gone
+                log.warning("Gemini %s: HTTP %s, trying the next model", model, r.status_code)
+                self.models.remove(model)
+                continue
+            if r.status_code in (401, 403) or (r.status_code == 400 and "API_KEY" in r.text):
+                raise GeminiStop(f"the key was refused (HTTP {r.status_code})")
+            if r.status_code >= 400:  # a bad request is the same for every card (e.g. an API change): stop, mark nothing
+                raise GeminiStop(f"Gemini refused the request (HTTP {r.status_code}): {r.text[:200]}")
+            j = r.json()
+            cand = (j.get("candidates") or [{}])[0]
+            reason = cand.get("finishReason") or (j.get("promptFeedback") or {}).get("blockReason") or ""
+            if reason in BLOCKED or (j.get("promptFeedback") or {}).get("blockReason"):
+                return {"skipped": reason.lower() or "blocked"}, model
+            out = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts") or [] if not p.get("thought"))
+            try:
+                return json.loads(out), model
+            except ValueError:  # cut short or malformed: this card is skipped, not retried every run
+                log.warning("Gemini %s: non-JSON reply (%s)", model, reason)
+                return {"skipped": f"bad reply ({reason.lower() or 'not JSON'})"}, model
+        raise GeminiStop("every model's free quota is used up for now")
+
+
+def enrich_story_gemini(gem: Gemini, db: DB, story: dict, kind: str = "news") -> dict | None:
+    text = _story_text(db, story, kind)
+    data, model = gem.generate(SYSTEM, text, SCHEMA)
+    now = iso(datetime.now(timezone.utc))
+    if data.get("skipped"):
+        return {**data, "model": model, "at": now}
+    data = guard(data, text)
+    data["points"] = data.get("points", [])[:8]
+    data["prelims"] = [p for p in data.get("prelims", []) if p][:4]
+    data["significance"] = [p for p in data.get("significance", []) if p][:3]
+    data.update({"model": model, "by": "Gemini", "src": "article" if "--- FULL ARTICLE" in text else "reports", "at": now})
+    return data
+
+
 def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int = 2) -> dict:
     """Explain the brief's cards (Must-know and Prelims facts, then explainers, then editorials) of the last
     `days` days; the "Also in the news" list and folded reports don't carry a write-up."""
     if not settings.ai_enabled:
         return {"enabled": False}
-    import anthropic
-
-    limit = limit or settings.ai_max_per_run
+    gemini = settings.ai_provider == "gemini"
+    limit = limit or (settings.gemini_max_per_run if gemini else settings.ai_max_per_run)
     since = (date.fromisoformat(today_ist()) - timedelta(days=days - 1)).isoformat()
     rows = db.q(
         "SELECT s.id, s.title, s.dates, s.ai, b.kind FROM brief_picks b JOIN stories s ON s.id=b.story_id "
@@ -313,15 +457,22 @@ def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int =
         "ORDER BY b.date_ist DESC, b.kind DESC, b.rank",
         (since,),
     )
+    arts = db.articles([r["id"] for r in rows])
     todo = []
     for r in rows:
         ai = json.loads(r["ai"]) if r["ai"] else None
-        if has_ai_explainer(ai) or (ai and ai.get("skipped")):
+        a = arts.get(r["id"])
+        upgrade = bool(ai and ai.get("src") == "reports" and a and not a["miss"])  # the full article came in since
+        if (has_ai_explainer(ai) and not upgrade) or (ai and ai.get("skipped")) or (ai and ai.get("source") == "claude-notes"):
             continue
         todo.append(({"id": r["id"], "title": r["title"], "dates": json.loads(r["dates"] or "[]")}, r["kind"]))
-    todo = todo[:limit]
+    todo = _unique(todo)[:limit]  # a story can sit in two days' briefs
     if not todo:
-        return {"enabled": True, "enriched": 0}
+        return {"enabled": True, "provider": settings.ai_provider, "enriched": 0}
+    if gemini:
+        return _enrich_gemini(settings, db, todo)
+    import anthropic
+
     client = _client(settings)
     done = skipped = 0
     stop = False
@@ -349,4 +500,50 @@ def enrich_top(settings: Settings, db: DB, limit: int | None = None, days: int =
                      (story["id"],))
             done += 1
     db.commit()
-    return {"enabled": True, "model": settings.ai_model, "enriched": done, "skipped": skipped}
+    return {"enabled": True, "provider": "anthropic", "model": settings.ai_model, "enriched": done, "skipped": skipped}
+
+
+def _unique(todo: list) -> list:
+    seen: set[str] = set()
+    out = []
+    for story, kind in todo:
+        if story["id"] not in seen:
+            seen.add(story["id"])
+            out.append((story, kind))
+    return out
+
+
+def _save(db: DB, story: dict, ai: dict) -> None:
+    db.set_story_ai(story["id"], ai)
+    if ai.get("video_query"):  # re-search the video with the better query next run
+        db.x("UPDATE stories SET video_checked_at=NULL WHERE id=? AND (video IS NULL OR video NOT LIKE '%\"id\"%')",
+             (story["id"],))
+
+
+def _enrich_gemini(settings: Settings, db: DB, todo: list, pause: float = GEMINI_PAUSE, http=None) -> dict:
+    """One card at a time, a few seconds apart (the free tier's per-minute limit); stops at a used-up quota."""
+    gem = Gemini(settings.gemini_api_key or "", settings.gemini_model, http=http)
+    done = skipped = 0
+    note = ""
+    for i, (story, kind) in enumerate(todo):
+        if i and pause:
+            time.sleep(pause)
+        try:
+            ai = enrich_story_gemini(gem, db, story, kind)
+        except GeminiStop as exc:
+            note = str(exc)
+            log.warning("AI notes paused: %s", note)
+            break
+        except Exception as exc:  # a network hiccup: this card waits for the next run
+            log.warning("AI notes: %s for %s", type(exc).__name__, story["id"])
+            skipped += 1
+            continue
+        if ai is None:
+            skipped += 1
+            continue
+        _save(db, story, ai)
+        done += not ai.get("skipped")
+        skipped += bool(ai.get("skipped"))
+        db.commit()
+    return {"enabled": True, "provider": "gemini", "models": gem.models or [], "enriched": done, "skipped": skipped,
+            **({"paused": note} if note else {})}

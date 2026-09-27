@@ -559,3 +559,15 @@ button:disabled { cursor: default; }
 .pdfdl span { display: grid; gap: 2px; }
 .pdfdl b { font-size: 15px; }
 .pdfdl small { font-size: 12px; opacity: .9; line-height: 1.35; }
+
+/* ✦ Gemini: the chip that opens the key form, and the form itself (in the bot's log) */
+:root { --gem: #6a4fd8; --gem-soft: rgba(106, 79, 216, 0.12); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --gem: #a896ff; --gem-soft: rgba(168, 150, 255, 0.16); } }
+:root[data-theme="dark"] { --gem: #a896ff; --gem-soft: rgba(168, 150, 255, 0.16); }
+.bot-chips button.gem { border-color: var(--gem); color: var(--gem); }
+.bot-chips button.gem.on { background: var(--gem-soft); }
+.gem-form { display: flex; gap: 8px; margin: 8px 0; }
+.gem-form input { flex: 1; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); padding: 0 12px; font: inherit; font-size: 16px; color: var(--ink); outline: none; }
+.gem-form input:focus { border-color: var(--gem); }
+.gem-form button { flex: none; height: 44px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--gem); color: #fff; font-weight: 700; }
+.gem-form button:disabled { opacity: 0.6; }

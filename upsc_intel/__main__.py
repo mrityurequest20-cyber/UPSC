@@ -80,7 +80,7 @@ def cmd_enrich(args) -> int:
 
     s = get_settings()
     if not s.ai_enabled:
-        print("Set ANTHROPIC_API_KEY to enable AI notes.", file=sys.stderr)
+        print("Set GEMINI_API_KEY (free, from Google AI Studio) or ANTHROPIC_API_KEY to enable AI notes.", file=sys.stderr)
         return 1
     print(json.dumps(enrich_top(s, _db(s), limit=args.limit), indent=2))
     return 0
@@ -144,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     rc = sub.add_parser("reclassify", help="re-tag stored items after editing config/topics.yaml")
     rc.set_defaults(fn=cmd_reclassify)
 
-    en = sub.add_parser("enrich", help="write AI notes for top stories (needs ANTHROPIC_API_KEY)")
+    en = sub.add_parser("enrich", help="write AI notes for the brief cards (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)")
     en.add_argument("--limit", type=int)
     en.set_defaults(fn=cmd_enrich)
 

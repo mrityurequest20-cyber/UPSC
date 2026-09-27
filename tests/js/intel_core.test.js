@@ -339,6 +339,78 @@ test("the Claude prompt carries the story and the question", () => {
   assert.ok(p.includes("RBI keeps repo rate unchanged") && p.includes("The MPC held the rate.") && p.includes("https://www.rbi.org.in/x") && p.endsWith("MY QUESTION: What is the MPC?"));
 });
 
+// ── Gemini (the viewer's own key, on the device) ──
+function gemStub({ busy = [], reply = "### Section 24\n- The **RTI Act** exempts intelligence and security bodies.\n- Corruption and human-rights information must still be given." } = {}) {
+  const seen = [];
+  const prev = global.fetch;
+  global.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (!u.startsWith("https://generativelanguage.googleapis.com/")) return prev(url, init);
+    seen.push({ u, init });
+    if (u.includes("/models?")) return new Response(JSON.stringify({ models: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "text-embedding-004"]
+      .map((n) => ({ name: `models/${n}`, supportedGenerationMethods: n.includes("embedding") ? ["embedContent"] : ["generateContent"] })) }), { status: 200 });
+    const model = u.split("/models/")[1].split(":")[0];
+    if (busy.includes(model)) return new Response(JSON.stringify({ error: { code: 429 } }), { status: 429 });
+    const half = Math.floor(reply.length / 2);
+    const sse = [reply.slice(0, half), reply.slice(half)].map((t, i) => `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: t }] }, ...(i ? { finishReason: "STOP" } : {}) }] })}\r\n\r\n`).join("");
+    return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  };
+  return { seen, restore: () => { global.fetch = prev; } };
+}
+const TN = { id: "tn", title: "Tamil Nadu government exempts Public (Law and Order) Department from RTI Act", date: "2026-09-27", subjects: ["polity"], gs: ["GS2"], tags: [],
+  sources: [{ p: "Times of India", u: "https://timesofindia.indiatimes.com/tn.cms" }], explain: { why_in_news: "A Gazette notification exempted the department.", auto: true },
+  sum: { points: ["x"], url: "https://timesofindia.indiatimes.com/tn.cms", domain: "timesofindia.indiatimes.com", via: "",
+    text: "NEW DELHI: The Tamil Nadu government has exempted the Public (Law and Order) Department from the ambit of the RTI Act under Section 24(4).\nEven exempted bodies must disclose information on corruption and human-rights violations." } };
+
+test("Gemini: the key is checked with Google and kept on the device; models ranked best first", async () => {
+  const mem = {}; global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
+  const g = gemStub();
+  try {
+    await assert.rejects(C.gemini.connect("short"), /doesn't look like/);
+    const models = await C.gemini.connect("  AIzaSyTESTKEY-0123456789abcdef  ");
+    assert.deepStrictEqual(models, ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]);
+    assert.ok(C.gemini.on() && mem["upsc-gemini-key"] === "AIzaSyTESTKEY-0123456789abcdef");
+    assert.ok(g.seen.every((x) => !x.u.includes("key=") && x.init.headers["x-goog-api-key"]), "the key travels only in a header");
+    C.gemini.forget(); assert.ok(!C.gemini.on());
+  } finally { g.restore(); }
+});
+
+test("Gemini: a free question is answered from the article, streamed, with a used-up model skipped", async () => {
+  const mem = { "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash", "gemini-2.5-flash-lite"]) };
+  global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
+  PAGES["https://timesofindia.indiatimes.com/tn.cms"] = "NEW DELHI: The Tamil Nadu government has exempted the Public (Law and Order) Department from the ambit of the Right to Information Act, classifying it as an intelligence organisation.\n\nThe notification under Section 24(4) of the RTI Act means information held by the department is outside the scope of requests.\n\nEven organisations covered by the provision must provide information relating to allegations of corruption and human-rights violations.";
+  const g = gemStub({ busy: ["gemini-2.5-flash"] });
+  try {
+    const bot = C.makeBot({ labels: () => ({ subjects: { polity: "Polity" }, subject_gs: { polity: "GS2" } }) });
+    const partial = [];
+    const html = await bot.answer(TN, "What does Section 24 of the RTI Act do here?", { onPartial: (h) => partial.push(h) });
+    assert.ok(html.includes("<b>RTI Act</b>") && html.includes("<p class=\"bot-sub\">Section 24</p>") && html.includes("Written by Gemini (gemini-2.5-flash-lite)"), html);
+    assert.ok(partial.length >= 2 && partial[0].length < partial[partial.length - 1].length, "the answer streams in");
+    const body = JSON.parse(g.seen.find((x) => x.u.includes("flash-lite:streamGenerateContent")).init.body);
+    assert.ok(body.systemInstruction.parts[0].text.includes("Section 24(4) of the RTI Act means information held"), "the full article is in the context");
+    assert.strictEqual(JSON.parse(mem["upsc-gemini-models"])[0], "gemini-2.5-flash-lite", "the model that worked goes first next time");
+    await bot.answer(TN, "And what are the exceptions?");
+    const second = JSON.parse(g.seen[g.seen.length - 1].init.body);
+    assert.strictEqual(second.contents.length, 3, "a follow-up carries the earlier turn");
+  } finally { g.restore(); }
+});
+
+test("Gemini: when every model's quota is used up, the reports answer instead, saying why", async () => {
+  const mem = { "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash"]) };
+  global.localStorage = { getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: (k) => { delete mem[k]; } };
+  const g = gemStub({ busy: ["gemini-2.5-flash"] });
+  try {
+    const html = await C.makeBot({}).answer(TN, "Make 2 Prelims MCQs");
+    assert.ok(/✦ Gemini&#39;s free quota is used up.*from the reports instead/.test(html) && !/Written by Gemini/.test(html), html.slice(0, 200));
+  } finally { g.restore(); }
+});
+
+test("Gemini's Markdown is rendered safely", () => {
+  const h = C.mdHtml("## Head\n- **bold** <img src=x onerror=alert(1)>\n1. [ok](https://pib.gov.in/x) [bad](javascript:alert(1))");
+  assert.ok(h.includes("<p class=\"bot-sub\">Head</p>") && h.includes("<ul><li><b>bold</b> &lt;img") && h.includes('<a href="https://pib.gov.in/x"'));
+  assert.ok(!/<img|href="javascript/.test(h), h);
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {
