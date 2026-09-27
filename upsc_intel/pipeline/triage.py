@@ -106,11 +106,13 @@ def _kind(r) -> str:
 
 
 def _todo(db: DB, days: list[str]) -> list:
-    """The days' stories without a verdict for their current headline, best-scored first."""
+    """The days' stories without a verdict for their current headline: the brief's cards first (a new verdict
+    version re-checks what readers see before the rest), then best-scored first."""
     rows = db.q(
         f"SELECT id, title, COALESCE(summary,'') AS summary, publishers, is_editorial, is_explained, triage, score, first_seen "
         f"FROM stories WHERE date_ist IN ({','.join('?' * len(days))}) AND is_library=0 AND is_private=0 "
-        f"ORDER BY score DESC", days)
+        f"ORDER BY EXISTS (SELECT 1 FROM brief_picks b WHERE b.story_id = stories.id "
+        f"AND COALESCE(b.tier, 'top') IN ('top', 'prelims')) DESC, score DESC", days)
     out = []
     for r in rows:
         t = json.loads(r["triage"]) if r["triage"] else None
