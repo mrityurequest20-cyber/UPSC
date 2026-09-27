@@ -109,6 +109,9 @@
   // how deep to study it (the grader's NOTE / SKIM / READ, in words): Must-know cards are all NOTE, Prelims facts a quick read
   const GRADE_LABEL = { NOTE: "Make notes", SKIM: "Quick read", READ: "Background", LOW: "Low" };
   const gradeName = (g) => GRADE_LABEL[g] || g;
+  // the pill's tooltip: what the grade means, and Gemini's reason when Intel AI graded the story
+  const gradeTip = (s) => `${GRADE_HELP[s.grade] || ""}${s.ai_why != null ? ` · ✦ Graded by Intel AI${s.ai_why ? `: ${s.ai_why}` : ""}` : ""}`;
+  const GRADE_RANK = { NOTE: 0, SKIM: 1, READ: 2, LOW: 3 };
   const PAPERS = ["GS1", "GS2", "GS3", "GS4", "Prelims"];
   const BRIEF_TABS = new Set(["brief", "editorials", "explained", "videos"]);
   // how each kind of piece is labelled on its card
@@ -235,7 +238,7 @@
   function sortStories(list) {
     const by = S.sort === "latest"
       ? (a, b) => (b.last_seen || "").localeCompare(a.last_seen || "") || b.score - a.score
-      : (a, b) => b.score - a.score || b.n_pub - a.n_pub;
+      : (a, b) => (GRADE_RANK[a.grade] ?? 3) - (GRADE_RANK[b.grade] ?? 3) || b.score - a.score || b.n_pub - a.n_pub;  // Intel AI's grade leads
     return list.sort(by);
   }
 
@@ -425,7 +428,7 @@
           ${opts.rank ? `<span class="rank">${opts.rank}</span>` : ""}
           ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
           ${opts.day ? `<span class="pill daychip">${esc(dayShort(opts.day))}</span>` : ""}
-          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${gradeName(s.grade)}</span>
+          <span class="pill g-${s.grade}" title="${esc(gradeTip(s))}">${gradeName(s.grade)}</span>
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${opts.showSubject && s.subjects[0] ? `<span class="pill subj">${esc(labels[s.subjects[0]] || s.subjects[0])}</span>` : ""}
           ${s.tags.filter((t) => t !== "Data/Stats").slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}
@@ -452,7 +455,7 @@
     const mk = mark(s); const open = S.openCards.has(s.id);
     const pub = (s.sources[0] && s.sources[0].p) || "";
     return `<li class="mrow ${open ? "open" : ""} ${mk.read ? "read" : ""}" data-id="${s.id}">
-      <button class="mhead" data-act="toggle" aria-expanded="${open}"><span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${gradeName(s.grade)}</span><span class="mtitle">${esc(s.title)}</span><span class="msrc">${esc(pub)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></button>
+      <button class="mhead" data-act="toggle" aria-expanded="${open}"><span class="pill g-${s.grade}" title="${esc(gradeTip(s))}">${gradeName(s.grade)}</span><span class="mtitle">${esc(s.title)}</span><span class="msrc">${esc(pub)}${s.n_pub > 1 ? ` +${s.n_pub - 1}` : ""}</span></button>
       ${open ? `<div class="mbody">${summaryBox(s)}
         <p class="srcs">${(s.sources || []).map((x) => `<a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(x.p || "Source")}</a>`).join("")}</p>
         <div class="bactions">${videoChip(s)}<button class="vchip ask" data-act="ask" title="Ask Intel"><span class="adot"></span><span>Ask Intel</span></button><span class="spacer"></span>
@@ -721,7 +724,7 @@
       <div class="card-top">
         <div class="pills">
           ${S.freshIds.has(s.id) ? '<span class="pill new">NEW</span>' : ""}
-          <span class="pill g-${s.grade}" title="${GRADE_HELP[s.grade] || ""}">${gradeName(s.grade)}</span>
+          <span class="pill g-${s.grade}" title="${esc(gradeTip(s))}">${gradeName(s.grade)}</span>
           ${s.gs.map((g) => `<span class="pill gs">${g}</span>`).join("")}
           ${s.subjects.slice(0, 2).map((x) => `<span class="pill subj">${esc(labels[x] || x)}</span>`).join("")}
           ${s.tags.slice(0, 2).map((t) => `<span class="pill tag">${esc(t)}</span>`).join("")}

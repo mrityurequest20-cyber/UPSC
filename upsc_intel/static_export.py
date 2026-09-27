@@ -31,7 +31,7 @@ from .pipeline.brief import audit_day, ensure_range, recent_days
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
 from .pipeline.practice import build_practice, flashcards
-from .web.app import APP_DIR, STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
+from .web.app import APP_DIR, STATIC_DIR, ai_list, annotate, brief_payload, build_meta, sources_out, story_out
 
 log = logging.getLogger("upsc_intel.export")
 # per-day files next to data/day/, frozen into the archive with their month: (folder, file pattern)
@@ -171,12 +171,12 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
             continue  # frozen: served from the archive below
         lo, hi = _month_bounds(m)
         lo, hi = max(lo, start.isoformat()), min(hi, today.isoformat())
-        rows = db.stories_between(lo, hi, include_low=False, library=False, include_private=include_private)
+        ai_on = (settings.ai_triage or "").lower() == "on"
+        rows = db.stories_between(lo, hi, include_low=False, library=False, include_private=include_private, ai=ai_on)
         if not rows:
             continue
         stories = []
-        for s in rows:
-            o = story_out(s)
+        for o in ai_list([story_out(s) for s in rows], rows, clf, ai_on, include_low=False):  # Gemini's grades
             if len(o["summary"]) > SUMMARY_CHARS:
                 o["summary"] = o["summary"][:SUMMARY_CHARS].rsplit(" ", 1)[0] + "…"
             o["sources"] = o["sources"][:8]

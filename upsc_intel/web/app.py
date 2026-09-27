@@ -80,15 +80,34 @@ def story_out(s: dict, labels: dict | None = None, explain: bool = False, text: 
     return out
 
 
+AI_GRADE = {3: "NOTE", 2: "SKIM", 1: "READ", 0: "LOW"}  # Gemini's 0-3 in the dashboard's grade words
+
+
 def ai_lead(o: dict, s: dict, clf: Classifier) -> dict:
-    """With Gemini's verdicts on (UPSC_AI_TRIAGE=on): its subject leads the story's subjects, its GS papers are used."""
+    """With Gemini's verdicts on (UPSC_AI_TRIAGE=on): its subject leads the story's subjects, its GS papers are used,
+    and its 0-3 is the story's grade (ai_why: its reason). A story the rules rejected needs a 2 or 3 to come back,
+    as in the brief."""
     v = s.get("triage") or {}
     subj = v.get("subject")
     if subj in clf.subject_meta:
         o["subjects"] = [subj] + [x for x in o["subjects"] if x != subj]
         papers = set(v.get("gs") or []) or {clf.subject_meta[subj].get("gs")}
         o["gs"] = [g for g in GS_ORDER if g in papers or (g == "Prelims" and "Prelims" in o["gs"])]
+    up = v.get("upsc")
+    if up in AI_GRADE:
+        o["grade"] = "LOW" if up < 2 and s.get("grade") == "LOW" else AI_GRADE[up]
+        o["ai_why"] = str(v.get("why") or "")
     return o
+
+
+def ai_list(outs: list[dict], rows: list[dict], clf: Classifier, on: bool, include_low: bool = True) -> list[dict]:
+    """A story list (the Everything tab, search) with Gemini's grades and subjects when triage is on; a story
+    Gemini grades LOW leaves a list that hides LOW."""
+    if not on:
+        return outs
+    by = {s["id"]: s for s in rows}
+    outs = [ai_lead(o, by.get(o["id"]) or {}, clf) for o in outs]
+    return outs if include_low else [o for o in outs if o["grade"] != "LOW"]
 
 
 def outlet_texts(db: DB, story_ids: list[str], include_private: bool, per_story: int = 4,
@@ -216,6 +235,7 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             heavy.add(sid)
     by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
     articles = db.articles([i for i in ids if i in heavy])
+    must = {i for v in days.values() for i in v["news"]}  # a Must-know card reads NOTE, whatever its grade
     out_stories = []
     for i in ids:
         if i not in stories:
@@ -225,6 +245,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             o = story_out(stories[i], labels, explain=True, text=" ".join(p["x"] for p in parts)[:2400] or None, clf=clf)
             if ai_on:
                 ai_lead(o, stories[i], clf)
+                if i in must:  # (a light day's Must-know is topped up with Gemini's 2s)
+                    o["grade"] = "NOTE"
             if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
                 o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
             a = articles.get(i)
@@ -348,11 +370,13 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         a, b = _valid_date(date_from, "from"), _valid_date(date_to, "to")
         if (date.fromisoformat(b) - date.fromisoformat(a)).days > 93:
             raise HTTPException(400, "range too large (max ~3 months)")
+        ai_on = (settings.ai_triage or "").lower() == "on"
         rows = db.stories_between(a, b, include_low=include_low, library=False, since=since,
-                                  include_private=not public_only)
+                                  include_private=not public_only, ai=ai_on)
         clf, _ = classifier()
+        outs = ai_list([story_out(s) for s in rows], rows, clf, ai_on, include_low)
         return {"from": a, "to": b, "generated_at": iso(datetime.now(timezone.utc)),
-                "stories": annotate([story_out(s) for s in rows], db, clf)}
+                "stories": annotate(outs, db, clf)}
 
     @app.get("/api/brief")
     def brief(date_from: str = Query(..., alias="from"), date_to: str = Query(..., alias="to")):
@@ -409,7 +433,9 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
     def stories_by_ids(payload: dict = Body(...)):
         ids = [i for i in (payload.get("ids") or []) if isinstance(i, str)][:1000]
         by_id = {s["id"]: s for s in db.stories_by_ids(ids)}
-        return {"stories": [story_out(by_id[i]) for i in ids if i in by_id]}
+        clf, _ = classifier()
+        return {"stories": ai_list([story_out(by_id[i]) for i in ids if i in by_id], list(by_id.values()), clf,
+                                   (settings.ai_triage or "").lower() == "on")}
 
     @app.get("/api/library")
     def library():
@@ -420,7 +446,9 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         ids = db.search(q, limit=min(limit, 500))
         by_id = {s["id"]: s for s in db.stories_by_ids(ids)}
         clf, _ = classifier()
-        return {"q": q, "stories": annotate([story_out(by_id[i]) for i in ids if i in by_id], db, clf)}
+        outs = ai_list([story_out(by_id[i]) for i in ids if i in by_id], list(by_id.values()), clf,
+                       (settings.ai_triage or "").lower() == "on")
+        return {"q": q, "stories": annotate(outs, db, clf)}
 
     @app.get("/api/sources")
     def sources():

@@ -274,7 +274,7 @@
   const GRADE_LABEL = { NOTE: "Make notes", SKIM: "Quick read", READ: "Background", LOW: "Low" };
   const GRADE_HELP = { NOTE: "High yield: make notes on it", SKIM: "Know the key facts: a quick read is enough", READ: "Background only", LOW: "Probably not examinable" };
   const gradeName = (g) => GRADE_LABEL[g] || g;
-  const gradePill = (s) => `<span class="grade g-${esc(s.grade)}" title="${esc(GRADE_HELP[s.grade] || "")}">${esc(gradeName(s.grade))}</span>`;
+  const gradePill = (s) => `<span class="grade g-${esc(s.grade)}" title="${esc(`${GRADE_HELP[s.grade] || ""}${s.ai_why != null ? ` · ✦ Graded by Intel AI${s.ai_why ? `: ${s.ai_why}` : ""}` : ""}`)}">${esc(gradeName(s.grade))}</span>`;
   const gsPills = (s) => (s.gs || []).map((g) => `<span class="gsp">${esc(g)}</span>`).join("");
   function card(s, rank) {
     const done = isDone(s); const star = isStar(s); const tag = tagOf(s); const why = whyOf(s);
