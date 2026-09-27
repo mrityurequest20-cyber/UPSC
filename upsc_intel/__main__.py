@@ -94,6 +94,20 @@ def cmd_import_notes(args) -> int:
     return 0
 
 
+def cmd_articles(args) -> int:
+    from datetime import date, timedelta
+
+    from .config import load_topics
+    from .pipeline.articles import read_brief_articles
+    from .pipeline.normalize import today_ist
+
+    s = get_settings()
+    t = date.fromisoformat(args.day or today_ist())
+    days = [(t - timedelta(days=i)).isoformat() for i in range(args.days)]
+    print(json.dumps(read_brief_articles(_db(s), load_topics(s), days, limit=args.limit)))
+    return 0
+
+
 def cmd_export(args) -> int:
     from .static_export import export_static
 
@@ -137,6 +151,12 @@ def main(argv: list[str] | None = None) -> int:
     im = sub.add_parser("import-notes", help="store Claude-written study notes (notes/*.json) as story write-ups")
     im.add_argument("folder")
     im.set_defaults(fn=cmd_import_notes)
+
+    ar = sub.add_parser("articles", help="read the free full text of the brief's cards (free sites only)")
+    ar.add_argument("--day", help="last day (YYYY-MM-DD, default today IST)")
+    ar.add_argument("--days", type=int, default=2, help="how many days back from --day")
+    ar.add_argument("--limit", type=int, default=40)
+    ar.set_defaults(fn=cmd_articles)
 
     ex = sub.add_parser("export-static", help="build the static site (GitHub Pages)")
     ex.add_argument("--out", default="site")

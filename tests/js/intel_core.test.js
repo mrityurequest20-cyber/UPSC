@@ -6,6 +6,7 @@ const path = require("path");
 
 global.window = globalThis;
 const PAGES = {};  // url → markdown the stubbed reader returns
+const WIKI = {};   // part of a Wikipedia search query → the pages it returns (else a default pair)
 let calls = [];
 global.fetch = async (url) => {
   calls.push(url);
@@ -17,7 +18,9 @@ global.fetch = async (url) => {
     return { ok: true, status: 200, json: async () => ({ code: 200, data: { title: "A page", url: target, content: md } }) };
   }
   if (u.includes("wikipedia.org/w/rest.php")) {
-    return { ok: true, json: async () => ({ pages: [
+    const q = decodeURIComponent((u.match(/[?&]q=([^&]+)/) || [])[1] || "").replace(/\+/g, " ");
+    const hit = Object.keys(WIKI).find((k) => q.toLowerCase().includes(k.toLowerCase()));
+    return { ok: true, json: async () => ({ pages: hit ? WIKI[hit] : [
       { key: "European_Space_Agency", title: "European Space Agency", description: "Space agency of Europe", excerpt: "space exploration" },
       { key: "Western_Ghats", title: "Western Ghats", description: "Mountain range in India", excerpt: "Kerala Karnataka forests ecologically sensitive" },
     ] }) };
@@ -215,6 +218,62 @@ test("the day bot lists the Must-know cards and the Prelims facts separately", a
   assert.ok(facts.includes("VARUNA") && facts.includes("Begonia") && !facts.includes("Judicature"));
   const p = bot.claudeFor(null, "");
   assert.ok(p.includes("MUST-KNOW") && p.includes("PRELIMS FACTS") && p.includes("Begonia"));
+});
+
+const RUSSIAN_OIL = { id: "ro1", title: "Tariffs, Russian oil and the uneasy India-US relationship", editorial: true, grade: "READ", gs: ["GS2"],
+  subjects: ["ir"], tags: [], summary: "Talking trade amid coercive tariffs", explain: { keywords: [] },
+  sources: [{ p: "Deccan Herald", u: "https://www.deccanherald.com/opinion/tariffs-russian-oil" }] };
+
+test("background: a story's topic, never a country page for a headline", async () => {
+  assert.strictEqual(C.termOf(RUSSIAN_OIL), "India–United States relations");
+  const jai = { title: "Jaishankar at UN urges end to war, flags Gulf and Ukraine risks", sources: [], explain: {} };
+  assert.notStrictEqual(C.termOf(jai), "Gulf and Ukraine");
+  WIKI["India–United States relations"] = [
+    { key: "India", title: "India", description: "Country in South Asia", excerpt: "India United States relations trade tariffs" },
+    { key: "India–United_States_relations", title: "India–United States relations", description: "Bilateral relations", excerpt: "diplomatic relations" }];
+  PAGES["https://www.deccanherald.com/opinion/tariffs-russian-oil"] = "Not much seems to have changed since the last copy of the first edition of that book was sold, and it shows.";
+  const bot = C.makeBot({});
+  const html = await bot.answer(RUSSIAN_OIL, "Static background");
+  assert.ok(html.includes("India–United States relations") && !html.includes("Country in South Asia"), html);
+  assert.ok(!html.includes("may not be what this story means"));
+});
+
+test("background: no page that fits the story means none is shown", async () => {
+  const st = { id: "nf1", title: "Zorblat committee meets on quibble norms", grade: "SKIM", gs: [], subjects: ["polity"], tags: [], sources: [], explain: { keywords: ["Zorblat committee"] } };
+  WIKI["Zorblat"] = [{ key: "India", title: "India", description: "Country in South Asia", excerpt: "a country" }];
+  WIKI["quibble"] = [{ key: "Pakistan", title: "Pakistan", description: "Country in South Asia", excerpt: "a country" }];
+  const html = await C.makeBot({}).answer(st, "Static background");
+  assert.ok(html.includes("No Wikipedia page clearly fits this story") && !html.includes("Country in South Asia"), html);
+});
+
+test("a question about the story is answered from the article, not Wikipedia", async () => {
+  const st = { id: "q1", title: "Jaishankar at UN urges end to war, flags Gulf and Ukraine risks", grade: "SKIM", gs: ["GS2"], subjects: ["ir"], tags: [],
+    explain: {}, sources: [{ p: "India Today", u: "https://news.google.com/rss/articles/x" }],
+    sum: { points: ["India told the UN that endless war must give way to an end to war."], url: "https://www.indiatoday.in/world/story/jaishankar-unga", domain: "indiatoday.in", via: "search",
+      text: "India told world leaders at the United Nations that endless war must give way now to an end to war.\nHe said there is an urgent need to address the security of seafarers, and the supply of food grains and energy to the Global South." } };
+  const calls0 = calls.length;
+  const html = await C.makeBot({}).answer(st, "What is the issue with food and energy supplies?");
+  assert.ok(html.includes("From the full article") && html.includes("food grains and energy"), html);
+  assert.ok(!calls.slice(calls0).some((u) => String(u).includes("wikipedia")), "no Wikipedia lookup for a question about the story");
+  assert.strictEqual(C.summaryNow(st).from, "web");  // the build's points show on the card straight away
+});
+
+test("an acronym question gets the page that spells it out", async () => {
+  WIKI["CBAM"] = [{ key: "UK_CBAM", title: "UK CBAM", description: "UK tariff", excerpt: "tariffs imports United Kingdom India" },
+    { key: "Carbon_Border_Adjustment_Mechanism", title: "Carbon Border Adjustment Mechanism", description: "EU carbon tariff", excerpt: "carbon" }];
+  const html = await C.makeBot({}).answer(RUSSIAN_OIL, "What is CBAM?");
+  assert.ok(html.includes("Background: <b>Carbon Border Adjustment Mechanism"), html);
+});
+
+test("an editorial's summary gives the argument, not the opening anecdote", () => {
+  const sents = ["Not much seems to have changed since the last copy of the first edition of that book was sold in 1995.",
+    "India and the US remain estranged even though both still need each other in a world of power conflicts.",
+    "The tariffs on Indian goods over purchases of Russian oil have strained the trade negotiations badly.",
+    "New Delhi must diversify its crude imports and should keep talking trade with Washington.",
+    "India needs to balance its energy security with its strategic partnership with the United States.",
+    "The way forward is a limited trade deal that separates the oil question from the tariff talks."].map((text) => ({ text }));
+  const pts = C.summarize(sents, 3, { editorial: true }).map((x) => x.text);
+  assert.ok(!pts.includes(sents[0].text) && pts.some((p) => /must|needs to|way forward/.test(p)), pts.join(" | "));
 });
 
 test("the Claude prompt carries the story and the question", () => {

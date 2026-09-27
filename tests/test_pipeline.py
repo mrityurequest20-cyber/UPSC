@@ -84,6 +84,8 @@ def fake_env(monkeypatch):
         RawItem("Two new Ramsar sites designated in Bihar | Wetlands explained", "https://www.youtube.com/watch?v=abcDEF12345",
                 published=NOW)])
     monkeypatch.setattr(run_mod, "load_sources", fake_sources)
+    # the brief's free full text is read from the web: tested on its own (test_articles.py)
+    monkeypatch.setattr(run_mod, "read_brief_articles", lambda db, topics, days, **k: {"read": 0, "missed": 0})
     import upsc_intel.web.app as web_app
     monkeypatch.setattr(web_app, "load_sources", fake_sources)
 

@@ -162,6 +162,11 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
 
 LIGHT_SUMMARY = 320  # the "Also in the news" list and folded reports carry a short summary, no write-up
 OUTLET_TEXT = 700    # each outlet's text on a day's full cards, for the Ask bot
+ARTICLE_TEXT = 2500  # the free full article's opening text on a day's cards, for the Ask bot
+
+
+def _clip(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
 
 
 def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, date_to: str,
@@ -197,6 +202,7 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             day[BRIEF_KEYS.get(p["kind"], "news")].append(sid)
             heavy.add(sid)
     by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
+    articles = db.articles([i for i in ids if i in heavy])
     out_stories = []
     for i in ids:
         if i not in stories:
@@ -206,6 +212,11 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             o = story_out(stories[i], labels, explain=True, text=" ".join(p["x"] for p in parts)[:2400] or None, clf=clf)
             if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
                 o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
+            a = articles.get(i)
+            if a and a["points"]:  # the free full article's key points (pipeline/articles.py), with its link
+                o["sum"] = {"points": a["points"], "url": a["url"], "domain": a["domain"], "via": a["via"] or ""}
+                if full:  # and some of its text, for the Ask bot's answers
+                    o["sum"]["text"] = _clip("\n".join(a["paragraphs"]), ARTICLE_TEXT)
             out_stories.append(o)
         else:
             o = story_out(stories[i], labels)
