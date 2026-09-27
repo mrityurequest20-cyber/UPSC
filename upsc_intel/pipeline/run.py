@@ -15,7 +15,8 @@ from ..fetchers.describe import describe_new, page_description
 from ..fetchers.http import Http
 from ..models import RawItem
 from .articles import read_brief_articles
-from .brief import build_day, update_recent
+from .triage import triage as ai_triage
+from .brief import build_day, recent_days, update_recent
 from .classify import Classifier
 from .cluster import Clusterer, aggregate_story, merge_republished, split_mixed_stories
 from .kinds import EDITORIAL, EXPLAINED, NEWS, content_kind, item_kind
@@ -194,6 +195,12 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     db.x("DELETE FROM fetch_log WHERE id < (SELECT MAX(id) - 50000 FROM fetch_log)")
     db.commit()
 
+    triage_stats = {}
+    if not only:
+        try:  # Gemini grades the new stories before the brief is picked (a used-up quota leaves them to the rules)
+            triage_stats = ai_triage(settings, db, clf, recent_days())
+        except Exception:
+            log.exception("AI triage failed")
     brief_days = update_recent(settings, db, clf)
     video_stats = {}
     article_stats = {}
@@ -226,7 +233,8 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     db.save_run(summary)
     summary.update({"failed": failed, "pruned": pruned, "warnings": ctx.warnings, "new_videos": n_videos,
                     "described": n_described,
-                    "videos": video_stats, "articles": article_stats, "duration_s": round(time.monotonic() - t0, 1)})
+                    "videos": video_stats, "articles": article_stats, "triage": triage_stats,
+                    "duration_s": round(time.monotonic() - t0, 1)})
     return summary
 
 

@@ -16,7 +16,7 @@ from .. import __version__
 from ..config import Settings, get_settings, load_sources, load_topics
 from ..db import DB, iso
 from ..pipeline.brief import ensure_range
-from ..pipeline.classify import Classifier
+from ..pipeline.classify import GS_ORDER, Classifier
 from ..pipeline.enrich import auto_explain, has_ai_explainer
 from ..pipeline.normalize import clean_summary, publisher_key, today_ist
 from ..pipeline.videos import daily_videos
@@ -78,6 +78,17 @@ def story_out(s: dict, labels: dict | None = None, explain: bool = False, text: 
         out["explain"] = {k: v for k, v in ai.items() if k != "points"} if has_ai_explainer(ai) else auto_explain(
             {**s, "sources": srcs, "date_ist": s.get("date_ist")}, labels or {}, text=text, clf=clf)
     return out
+
+
+def ai_lead(o: dict, s: dict, clf: Classifier) -> dict:
+    """With Gemini's verdicts on (UPSC_AI_TRIAGE=on): its subject leads the story's subjects, its GS papers are used."""
+    v = s.get("triage") or {}
+    subj = v.get("subject")
+    if subj in clf.subject_meta:
+        o["subjects"] = [subj] + [x for x in o["subjects"] if x != subj]
+        papers = set(v.get("gs") or []) or {clf.subject_meta[subj].get("gs")}
+        o["gs"] = [g for g in GS_ORDER if g in papers or (g == "Prelims" and "Prelims" in o["gs"])]
+    return o
 
 
 def outlet_texts(db: DB, story_ids: list[str], include_private: bool, per_story: int = 4,
@@ -183,6 +194,7 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
     stories = {s["id"]: s for s in db.stories_by_ids(ids)}
     if not include_private:
         stories = {k: v for k, v in stories.items() if not v.get("is_private")}
+    ai_on = (settings.ai_triage or "").lower() == "on"
     labels = clf.labels()
     days: dict[str, dict] = {}
     heavy: set[str] = set()  # full cards get the write-up; list entries and folded reports stay light
@@ -211,6 +223,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
         if i in heavy:
             parts = by_outlet.get(i) or []
             o = story_out(stories[i], labels, explain=True, text=" ".join(p["x"] for p in parts)[:2400] or None, clf=clf)
+            if ai_on:
+                ai_lead(o, stories[i], clf)
             if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
                 o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
             a = articles.get(i)
@@ -224,6 +238,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             out_stories.append(o)
         else:
             o = story_out(stories[i], labels)
+            if ai_on:
+                ai_lead(o, stories[i], clf)
             if len(o["summary"]) > LIGHT_SUMMARY:
                 o["summary"] = o["summary"][:LIGHT_SUMMARY].rsplit(" ", 1)[0] + "…"
             o["sources"] = o["sources"][:4]

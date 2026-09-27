@@ -180,7 +180,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
 """
 
 JSON_COLS_ITEMS = {"tokens", "subjects", "tags", "watch", "extra"}
-JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi"}
+JSON_COLS_STORIES = {"dates", "publishers", "subjects", "gs", "tags", "watch", "tokens", "ai", "video", "video_hi", "triage"}
 MIGRATIONS = [  # (table, column, type): added when missing, so old databases keep working
     ("stories", "video", "TEXT"),
     ("stories", "video_checked_at", "TEXT"),
@@ -191,6 +191,7 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("brief_picks", "tier", "TEXT"),  # "top" (Must-know card) / "prelims" (Prelims facts card) / "more" (the list)
     ("brief_picks", "lead", "TEXT"),  # folded into this story's card (same event, another outlet)
     ("article_text", "published", "TEXT"),  # the article's own publish date ("": the page doesn't say; NULL: not checked)
+    ("stories", "triage", "TEXT"),  # Gemini's verdict for the brief: {upsc 0-3, subject, gs, prelims, why, t}
 ]
 
 

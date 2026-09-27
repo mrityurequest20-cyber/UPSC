@@ -1672,6 +1672,7 @@ brief:
   hard_news: 1.0
   talk_weight: 1.0
   must_know: 6.25
+  must_know_max: 25   # with Gemini's verdicts (UPSC_AI_TRIAGE=on): at most this many Must-know cards; the rest become facts or lines
   also: 4.75
   floor_cards: 20
   floor_total: 40

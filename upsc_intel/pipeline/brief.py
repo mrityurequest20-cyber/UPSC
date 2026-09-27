@@ -110,17 +110,20 @@ def _fold(items: list[dict], rarity: _Rarity, threshold: float) -> list[list[dic
 
 
 def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
-               ex_size: int | None = None) -> list[tuple[str, str, int, str, str | None]]:
+               ex_size: int | None = None, use_ai: bool = False) -> list[tuple[str, str, int, str, str | None]]:
     """[(story_id, kind, rank, tier, lead)] for one day. kind: news / editorial / explained; tier: "top"
     (Must-know card), "prelims" (Prelims facts card) or "more" (the list under the cards); lead: the story
-    whose card this one is folded into."""
+    whose card this one is folded into.
+    use_ai: follow Gemini's verdicts (pipeline/triage.py) where a story has one: 0 leaves the brief, 3 is a
+    Must-know card, 2 a Prelims-facts card (with a checkable fact) or a line, 1 a line if the rules take it;
+    its subject leads. A story without a verdict keeps the rules."""
     b = clf.brief
     skim = dict(clf.grade_cut)["SKIM"]
     ed_size = int(b["editorials_floor"] if ed_size is None else ed_size)
     ex_size = int(b["explained_floor"] if ex_size is None else ex_size)
     rows = db.q(
         "SELECT id, title, COALESCE(summary,'') AS summary, score, grade, subjects, tags, is_editorial, is_explained, "
-        "publishers, tokens, length(COALESCE(summary,'')) AS slen, a.published FROM stories "
+        "publishers, tokens, length(COALESCE(summary,'')) AS slen, a.published, triage FROM stories "
         "LEFT JOIN article_text a ON a.story_id = stories.id WHERE date_ist=? AND is_library=0 "
         "ORDER BY score DESC",
         (day,),
@@ -128,19 +131,26 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
     news, eds, exps = [], [], []
     for r in rows:
         subjects = json.loads(r["subjects"] or "[]")
+        v = json.loads(r["triage"]) if use_ai and r["triage"] else None
+        if v and v.get("upsc") == 0:  # Gemini: not UPSC material
+            continue
+        if v and v.get("subject"):
+            subjects = [v["subject"]] + [x for x in subjects if x != v["subject"]]
         if not subjects or is_stale(r["published"] or "", day):  # its own article is weeks old: a feed re-dated it
             continue
         publisher = (json.loads(r["publishers"] or "[]") or [""])[0]
         item = {"id": r["id"], "score": r["score"], "subject": subjects[0], "publisher": publisher,
-                "tokens": set(json.loads(r["tokens"] or "[]"))}
-        opinion_ok = r["grade"] != "LOW" or r["score"] >= OPINION_MIN_SCORE
+                "tokens": set(json.loads(r["tokens"] or "[]")), "ai": v.get("upsc") if v else None,
+                "ai_fact": bool(v and v.get("prelims"))}
+        opinion_ok = (v["upsc"] >= 2 or r["grade"] != "LOW" or r["score"] >= OPINION_MIN_SCORE) if v else \
+            r["grade"] != "LOW" or r["score"] >= OPINION_MIN_SCORE
         if r["is_editorial"]:
             if opinion_ok:
                 eds.append(item)
         elif r["is_explained"]:
             if opinion_ok:
                 exps.append(item)
-        elif r["grade"] != "LOW":
+        elif r["grade"] != "LOW" or (v and v["upsc"] >= 2):
             title = r["title"] or ""
             event, _, talk = clf.brief_signals(title, publisher)
             item["bs"] = clf.brief_score(r["score"], title, publisher)
@@ -153,7 +163,19 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
     news.sort(key=lambda it: -it["bs"])
     picked: list[dict] = []
     for i, it in enumerate(news):  # 1. the bar and the tiers
-        if it["bs"] >= b["also"] or (i < b["floor_total"] and it["bs"] >= b["floor_min"]):  # 2. floor_total
+        bar = it["bs"] >= b["also"] or (i < b["floor_total"] and it["bs"] >= b["floor_min"])  # 2. floor_total
+        if it["ai"] is not None:  # Gemini's verdict
+            if it["ai"] == 3:
+                it["tier"] = "top"
+            elif it["ai"] == 2:
+                it["tier"] = "prelims" if it["ai_fact"] or it["fact"] else "more"
+            elif bar:
+                it["tier"] = "more"
+            else:
+                continue
+            picked.append(it)
+            continue
+        if bar:
             if it["bs"] >= b["must_know"] and it["note"]:
                 it["tier"] = "top"
             elif it["bs"] >= b["must_know"] and it["fact"]:
@@ -161,6 +183,11 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
             else:
                 it["tier"] = "more"
             picked.append(it)
+    if use_ai:  # a heavy day: past must_know_max, the lesser Must-know stories become facts or lines
+        tops = sorted((it for it in picked if it["tier"] == "top"),
+                      key=lambda it: (-(it["ai"] if it["ai"] is not None else 2.5), -it["bs"]))
+        for it in tops[int(b.get("must_know_max", 25)):]:
+            it["tier"] = "prelims" if it["ai_fact"] or it["fact"] else "more"
     cards = sum(1 for it in picked if it["tier"] != "more")
     for it in picked:  # 2. a light day: the best remaining facts become cards
         if cards >= b["floor_cards"]:
@@ -202,16 +229,54 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
     return out
 
 
+def audit_day(db: DB, clf: Classifier, day: str) -> dict | None:
+    """The brief with and without Gemini's verdicts, side by side (data/triage.json): what the AI would move."""
+    rows = {r["id"]: r for r in db.q("SELECT id, title, subjects, triage FROM stories WHERE date_ist=? AND is_library=0", (day,))}
+    verdict = {k: json.loads(r["triage"]) for k, r in rows.items() if r["triage"]}
+    if not verdict:
+        return None
+
+    def tiers(use_ai: bool) -> dict[str, str]:
+        return {sid: (tier if kind == "news" else kind) for sid, kind, _, tier, lead in select_day(db, clf, day, use_ai=use_ai)
+                if lead is None}
+    rules, ai = tiers(False), tiers(True)
+
+    def row(sid: str) -> dict:
+        v = verdict.get(sid) or {}
+        return {"title": rows[sid]["title"], "rules": rules.get(sid, "out"), "ai": ai.get(sid, "out"), "upsc": v.get("upsc"),
+                "subject": v.get("subject"), "why": v.get("why", ""), "rule_subject": (json.loads(rows[sid]["subjects"] or "[]") or [""])[0]}
+    count = lambda t: {k: sum(1 for x in t.values() if x == k) for k in ("top", "prelims", "more", "editorial", "explained")}
+    cards = ("top", "prelims")
+    return {
+        "day": day, "stories": len(rows), "graded": len(verdict),
+        "upsc": {str(k): sum(1 for v in verdict.values() if v.get("upsc") == k) for k in range(4)},
+        "rules": count(rules), "ai": count(ai),
+        "to_must_know": [row(s) for s in ai if ai[s] == "top" and rules.get(s) != "top"],
+        "from_must_know": [row(s) for s in rules if rules[s] == "top" and ai.get(s) != "top"],
+        "to_cards": [row(s) for s in ai if ai[s] in cards and rules.get(s) not in cards],
+        "from_cards": [row(s) for s in rules if rules[s] in cards and ai.get(s) not in cards],
+        "dropped": [row(s) for s in rules if s not in ai],
+        "added": [row(s) for s in ai if s not in rules],
+        "subject_changes": [row(s) for s in ai if ai[s] in cards and (verdict.get(s) or {}).get("subject")
+                            and verdict[s]["subject"] != row(s)["rule_subject"]],
+    }
+
+
 def build_day(settings: Settings, db: DB, clf: Classifier, day: str) -> int:
-    picks = select_day(db, clf, day)
+    picks = select_day(db, clf, day, use_ai=(settings.ai_triage or "").lower() == "on")
     db.save_brief(day, picks)
     return len(picks)
 
 
+def recent_days() -> list[str]:
+    """Today and yesterday (IST): the days whose brief is still rebuilt as items arrive."""
+    today = date.fromisoformat(today_ist())
+    return [today.isoformat(), (today - timedelta(days=1)).isoformat()]
+
+
 def update_recent(settings: Settings, db: DB, clf: Classifier) -> list[str]:
     """Rebuild today's and yesterday's brief (late items keep arriving); older days stay frozen."""
-    today = date.fromisoformat(today_ist())
-    days = [today.isoformat(), (today - timedelta(days=1)).isoformat()]
+    days = recent_days()
     for d in days:
         build_day(settings, db, clf, d)
     db.commit()
