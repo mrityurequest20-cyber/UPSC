@@ -157,7 +157,7 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
         publisher = (json.loads(r["publishers"] or "[]") or [""])[0]
         item = {"id": r["id"], "score": r["score"], "subject": subjects[0], "publisher": publisher,
                 "tokens": set(json.loads(r["tokens"] or "[]")), "ai": v.get("upsc") if v else None,
-                "ai_fact": bool(v and v.get("prelims"))}
+                "ai_fact": bool(v and v.get("prelims")), "ai_news": not v or v.get("news") is not False}
         opinion_ok = (v["upsc"] >= 2 or r["grade"] != "LOW" or r["score"] >= OPINION_MIN_SCORE) if v else \
             r["grade"] != "LOW" or r["score"] >= OPINION_MIN_SCORE
         if r["is_editorial"]:
@@ -191,7 +191,9 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
         tier = rule
         if it["ai"] is not None:  # Gemini's verdict. A 3 is Must-know and a 2 at least a line, taken or not by the
             # rules; a Prelims-facts card needs a story the rules take as well, so a card is never an evergreen post
-            if it["ai"] == 3:
+            if not it["ai_news"]:  # an evergreen topic page or analysis, however weighty the topic: a line, not a card
+                tier = "more" if it["ai"] >= 2 or rule else None
+            elif it["ai"] == 3:
                 tier = "top"
             elif it["ai"] == 2:
                 tier = "prelims" if rule and (it["ai_fact"] or it["fact"]) else "more"
@@ -211,7 +213,7 @@ def select_day(db: DB, clf: Classifier, day: str, ed_size: int | None = None,
         by_bs = lambda it: -it["bs"]
         # a light day for Gemini: the rules' Must-know stories that it rates useful fill Must-know to must_know_min
         need = int(b.get("must_know_min", 8)) - sum(1 for it in picked if it["tier"] == "top")
-        for it in sorted((it for it in picked if it["ai"] == 2 and it["rule_tier"] == "top"), key=by_bs)[:max(0, need)]:
+        for it in sorted((it for it in picked if it["ai"] == 2 and it["ai_news"] and it["rule_tier"] == "top"), key=by_bs)[:max(0, need)]:
             it["tier"] = "top"
         # a heavy day: past must_know_max the lesser Must-know stories become facts or lines; past prelims_max, lines
         tops = sorted((it for it in picked if it["tier"] == "top"),

@@ -295,7 +295,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 192 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 193 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -322,6 +322,7 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
    - an **importance grade**: 3 must-know, 2 an examinable fact or development, 1 marginal, 0 not UPSC material
    - its **subject** and **GS papers**
    - whether it holds a **Prelims fact**
+   - whether it is **news**: a specific new development, not an evergreen topic page or analysis ("India's Strategic Autonomy"). Evergreen pieces are lines, never cards.
    - a few words on **why**
 
    Grades are kept per story and asked again only when the headline changes. A quiet run with fewer than 10 new stories waits for the next, unless one has waited an hour. `UPSC_AI_TRIAGE` in the workflow sets how the brief uses them (it is **on**):

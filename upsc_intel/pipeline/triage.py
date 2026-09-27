@@ -60,6 +60,9 @@ For each numbered story (its kind, headline, outlet and a line of its text) deci
 - gs: the GS papers it maps to (GS1 history, culture, geography, society; GS2 polity, governance, IR, social
   justice; GS3 economy, environment, S&T, security, disaster, agriculture, infrastructure; GS4 ethics).
 - prelims: true when it carries a specific checkable fact (a name, place, species, scheme, index, number, date).
+- news: true when it reports a specific new development: something happened, was announced, decided, ruled,
+  released, launched or signed. False for an evergreen topic page ("India's Strategic Autonomy", "Making India
+  resilient to…"), a general analysis or explainer, or an opinion without a new development.
 - why: at most 12 words on why it matters for UPSC, or why it doesn't.
 
 Subjects:
@@ -70,8 +73,8 @@ Answer for every story, using its number."""
 SCHEMA_ITEM = {"type": "object", "properties": {
     "n": {"type": "integer"}, "upsc": {"type": "integer"}, "subject": {"type": "string"},
     "gs": {"type": "array", "items": {"type": "string", "enum": ["GS1", "GS2", "GS3", "GS4"]}},
-    "prelims": {"type": "boolean"}, "why": {"type": "string"}},
-    "required": ["n", "upsc", "subject", "gs", "prelims", "why"]}
+    "prelims": {"type": "boolean"}, "news": {"type": "boolean"}, "why": {"type": "string"}},
+    "required": ["n", "upsc", "subject", "gs", "prelims", "news", "why"]}
 SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": SCHEMA_ITEM}}, "required": ["items"]}
 
 
@@ -91,8 +94,11 @@ def mode(settings: Settings) -> str:
     return m if m in ("on", "shadow", "off") else "off"
 
 
+VERDICT = "v2"  # v2 added "news": a new version grades every story again, over the next few runs
+
+
 def title_key(title: str) -> str:
-    return hashlib.sha1((title or "").strip().lower().encode()).hexdigest()[:10]
+    return hashlib.sha1(f"{VERDICT}|{(title or '').strip().lower()}".encode()).hexdigest()[:10]
 
 
 def _kind(r) -> str:
@@ -133,7 +139,8 @@ def verdicts(reply: dict, batch: list, subjects: set[str]) -> dict[str, dict]:
         r = batch[n - 1]
         subj = x.get("subject") if x.get("subject") in subjects else ""
         out[r["id"]] = {"upsc": up, "subject": subj, "gs": [g for g in x.get("gs") or [] if g in ("GS1", "GS2", "GS3", "GS4")],
-                        "prelims": bool(x.get("prelims")), "why": str(x.get("why") or "")[:120], "t": title_key(r["title"])}
+                        "prelims": bool(x.get("prelims")), "news": x.get("news") is not False,
+                        "why": str(x.get("why") or "")[:120], "t": title_key(r["title"])}
     return out
 
 
