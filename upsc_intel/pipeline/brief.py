@@ -294,6 +294,16 @@ def audit_day(db: DB, clf: Classifier, day: str) -> dict | None:
     }
 
 
+def ai_dropped(db: DB, clf: Classifier, day: str) -> list[str]:
+    """The stories the rules would have put in the day's brief that Gemini grades 0 (not UPSC material), in the
+    rules' order: the brief's "Low" list, so a reader can see what the AI took out."""
+    zero = {r["id"] for r in db.q("SELECT id, triage FROM stories WHERE date_ist=? AND triage IS NOT NULL", (day,))
+            if json.loads(r["triage"]).get("upsc") == 0}
+    if not zero:
+        return []
+    return [sid for sid, kind, _, tier, lead in select_day(db, clf, day) if kind == "news" and lead is None and sid in zero]
+
+
 def build_day(settings: Settings, db: DB, clf: Classifier, day: str) -> int:
     picks = select_day(db, clf, day, use_ai=(settings.ai_triage or "").lower() == "on")
     db.save_brief(day, picks)

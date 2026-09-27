@@ -188,7 +188,7 @@ button:disabled { cursor: default; }
 .done-btn svg { width: 15px; height: 15px; }
 .done-btn.on { background: var(--good); border-color: var(--good); color: #fff; }
 
-/* one-line rows: "Also in the news" */
+/* one-line rows: the one-liners under the cards, and Low */
 .more { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; margin: 0 16px 20px; overflow: hidden; }
 .mrow { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-top: 1px solid var(--grid); cursor: pointer; min-width: 0; }
 .mrow:first-child { border-top: 0; }
@@ -198,6 +198,10 @@ button:disabled { cursor: default; }
 .mrow.done .mrow-t { color: var(--muted); }
 .mrow .star { margin: -4px -6px -4px 0; }
 .showmore { display: block; width: 100%; border: 0; border-top: 1px solid var(--grid); background: transparent; padding: 11px; font-size: 13px; font-weight: 700; color: var(--accent-strong); }
+.lowbox { border-style: dashed; }
+.lowbox .showmore { border-top: 0; color: var(--ink-2); }
+.lowbox .mrow:first-of-type { border-top: 1px solid var(--grid); }
+.mrow.low .mrow-t { font-weight: 500; color: var(--ink-2); }
 
 /* ── Read ── */
 .seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 2px; }

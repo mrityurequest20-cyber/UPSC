@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..config import Settings, get_settings, load_sources, load_topics
 from ..db import DB, iso
-from ..pipeline.brief import ensure_range
+from ..pipeline.brief import ai_dropped, ensure_range
 from ..pipeline.classify import GS_ORDER, Classifier
 from ..pipeline.enrich import auto_explain, has_ai_explainer
 from ..pipeline.normalize import clean_summary, publisher_key, today_ist
@@ -204,8 +204,10 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
                   include_private: bool = True, full: bool | None = None) -> dict:
     """The brief for a range. days[d]: news (the Must-know cards, best first), prelims (the Prelims facts
     cards), more (the "Also in the news" list), folded ({lead id: [same-event reports]}), editorials,
-    explained. full (default: a single day) includes more and folded; a week or month review carries only
-    the cards."""
+    explained, and with Gemini's verdicts on, low (what the rules would have picked that Gemini grades 0).
+    full (default: a single day) includes more, folded and low; a week or month review carries only the cards.
+    A card's grade is its place: a Must-know card reads NOTE (make notes), a Prelims-facts card SKIM (quick read);
+    the pages lay the day out by grade."""
     ensure_range(settings, db, clf, date_from, date_to)
     full = (date_from == date_to) if full is None else full
     picks = [p for p in db.brief_between(date_from, date_to) if full or (p["tier"] in CARD_TIERS and not p["lead"])]
@@ -235,7 +237,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             heavy.add(sid)
     by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
     articles = db.articles([i for i in ids if i in heavy])
-    must = {i for v in days.values() for i in v["news"]}  # a Must-know card reads NOTE, whatever its grade
+    must = {i for v in days.values() for i in v["news"]}
+    facts = {i for v in days.values() for i in v["prelims"]}
     out_stories = []
     for i in ids:
         if i not in stories:
@@ -245,8 +248,8 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             o = story_out(stories[i], labels, explain=True, text=" ".join(p["x"] for p in parts)[:2400] or None, clf=clf)
             if ai_on:
                 ai_lead(o, stories[i], clf)
-                if i in must:  # (a light day's Must-know is topped up with Gemini's 2s)
-                    o["grade"] = "NOTE"
+            if i in must or i in facts:  # the card's grade is its place (a light day's Must-know is topped up with
+                o["grade"] = "NOTE" if i in must else "SKIM"  # Gemini's 2s; a 3 over the cap steps down to a fact)
             if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
                 o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
             a = articles.get(i)
@@ -266,6 +269,19 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
                 o["summary"] = o["summary"][:LIGHT_SUMMARY].rsplit(" ", 1)[0] + "…"
             o["sources"] = o["sources"][:4]
             out_stories.append(o)
+    if ai_on and full:  # Low: what Gemini took out, with its reason, so a reader can check it
+        for d, v in days.items():
+            v["low"] = ai_dropped(db, clf, d)
+        rows = [s for s in db.stories_by_ids(sorted({i for v in days.values() for i in v["low"]}))
+                if include_private or not s.get("is_private")]
+        for s in rows:
+            o = ai_lead(story_out(s, labels), s, clf)
+            o["summary"] = _clip(o["summary"], LIGHT_SUMMARY)
+            o["sources"] = o["sources"][:4]
+            out_stories.append(o)
+        kept = {s["id"] for s in rows}
+        for v in days.values():
+            v["low"] = [i for i in v["low"] if i in kept]
     return {
         "from": date_from, "to": date_to, "generated_at": iso(datetime.now(timezone.utc)), "full": full,
         "days": days,
