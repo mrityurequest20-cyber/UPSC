@@ -65,7 +65,8 @@ def test_verdicts_keep_only_well_formed_items():
                        {"n": 2, "upsc": 0, "subject": "astrology", "gs": [], "prelims": False, "why": "no"}]}
     v = T.verdicts(reply, batch, {"polity", "economy"})
     assert v["a"]["upsc"] == 3 and v["a"]["gs"] == ["GS2"] and len(v["a"]["why"]) == 120 and v["a"]["t"] == T.title_key("One")
-    assert v["b"] == {"upsc": 0, "subject": "", "gs": [], "prelims": False, "news": True, "why": "no", "t": T.title_key("Two")}
+    assert v["b"] == {"upsc": 0, "subject": "", "gs": [], "prelims": False, "news": True, "why": "no", "t": T.title_key("Two"),
+                      "r": T.PROMPT_REV}
 
 
 def test_stories_are_graded_in_batches_once_per_headline(db, settings, clf):
@@ -301,3 +302,26 @@ def test_the_brief_is_laid_out_by_grade(db, settings, clf):
     assert "low" not in brief_payload(settings, db, clf, DAY, DAY, full=False)["days"][DAY]  # a review: cards only
     settings.ai_triage = "shadow"
     assert "low" not in brief_payload(settings, db, clf, DAY, DAY)["days"][DAY]
+
+
+def test_a_prompt_revision_rechecks_only_the_stories_it_changes(db, settings, clf):
+    """PROMPT_REV 2 (India's neighbours at least a 2, coaching posts a 0) re-asks, once, only the old verdicts it
+    would likely change: a neighbour's news graded 0-1 (named, or from the neighbour's own outlet) and a coaching
+    post graded 1+. The neighbour's outlet is named with its country in the prompt."""
+    story(db, "lk", "22A approved with win for NPP as IMF agreements remain pending", url="https://www.themorning.lk/articles/22a")
+    story(db, "np", "Nepal parliament elects new Prime Minister", score=5.5)
+    story(db, "ins", "Insights Weekly Essay Challenges 2026 - Week 36", score=5.0)
+    story(db, "cab", "Cabinet approves new fertiliser subsidy scheme", score=5.0)
+    db.commit()
+    old = lambda up: json.dumps({"upsc": up, "subject": "ir", "gs": ["GS2"], "prelims": False, "news": True, "why": "old", "t": ""})
+    for sid, up in (("lk", 0), ("np", 1), ("ins", 1), ("cab", 3)):
+        t = json.loads(old(up)); t["t"] = T.title_key(db.q("SELECT title FROM stories WHERE id=?", (sid,))[0]["title"])
+        db.x("UPDATE stories SET triage=? WHERE id=?", (json.dumps(t), sid))
+    db.commit()
+    assert {r["id"] for r in T._todo(db, [DAY])} == {"lk", "np", "ins"}  # the Cabinet story's 3 stands
+    settings.gemini_api_key, settings.ai_triage = "test-key", "on"
+    http = FakeGemini()
+    assert T.triage(settings, db, clf, [DAY], http=http, pause=0, min_batch=1)["graded"] == 3
+    assert "22A approved with win for NPP as IMF agreements remain pending (PIB, Sri Lanka)" in http.calls[0][2]["contents"][0]["parts"][0]["text"]
+    assert T._todo(db, [DAY]) == []  # asked once: the new verdicts carry the revision
+    assert json.loads(db.q("SELECT triage FROM stories WHERE id='lk'")[0]["triage"])["r"] == T.PROMPT_REV

@@ -325,7 +325,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 199 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 200 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -355,6 +355,12 @@ The bot and the notes are always **Intel**; Google's Gemini is the engine undern
    - whether it holds a **Prelims fact**
    - whether it is **news**: a specific new development, not an evergreen topic page or analysis ("India's Strategic Autonomy"). Evergreen pieces are lines, never cards.
    - a few words on **why**
+
+   Two standing rules in the prompt:
+   - Political, constitutional or economic news from India's neighbours (Pakistan, China, Nepal, Bhutan, Bangladesh, Sri Lanka, Maldives, Myanmar, Afghanistan) is at least a 2. A neighbour's own outlet (a `.lk`, `.np`, `.bd`, `.pk`… site) is named with its country, so a headline like "22A approved with win for NPP" is read as Sri Lankan.
+   - Coaching-institute posts (ads, test series, essay or answer-writing challenges) are a 0. A coaching site's explainer of a real topic is graded on its topic.
+
+   When the prompt changes like this, only the old grades it would likely change are asked again, once. Here that means a neighbour's news graded 0-1 and a coaching post graded 1 or more (`PROMPT_REV` in `pipeline/triage.py`).
 
    Grades are kept per story and asked again only when the headline changes. A quiet run with fewer than 10 new stories waits for the next, unless one has waited an hour. `UPSC_AI_TRIAGE` in the workflow sets how the brief uses them (it is **on**):
    - **`shadow`:** grades are kept and the brief stays on the rules. In both modes the export writes `data/triage.json`. That file shows, for today and yesterday, what the AI would move: to and from Must-know, cards added or dropped, subject changes, each with Gemini's reason.
