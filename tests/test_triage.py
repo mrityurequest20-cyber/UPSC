@@ -232,3 +232,11 @@ def test_an_evergreen_page_is_a_line_not_a_card(db, settings, clf):
     T.triage(settings, db, clf, [DAY], http=FakeGemini(), pause=0, min_batch=1)
     ai = {sid: tier for sid, kind, _, tier, lead in select_day(db, clf, DAY, use_ai=True)}
     assert ai["nw"] == "top" and ai["ev"] == "more"
+
+
+def test_the_brief_cards_are_graded_first(db, settings, clf):
+    seed(db)
+    db.save_brief(DAY, [("gen", "news", 1, "top", None)])  # the lowest-scored story is a card
+    db.commit()
+    rows = T._todo(db, [DAY])
+    assert rows[0]["id"] == "gen" and [r["id"] for r in rows[1:]] == ["bb", "ex", "cab", "bill"]
