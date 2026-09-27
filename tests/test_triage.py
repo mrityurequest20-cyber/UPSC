@@ -306,9 +306,11 @@ def test_the_brief_is_laid_out_by_grade(db, settings, clf):
 
 def test_a_prompt_revision_rechecks_only_the_stories_it_changes(db, settings, clf):
     """PROMPT_REV 2 (India's neighbours at least a 2, coaching posts a 0) re-asks, once, only the old verdicts it
-    would likely change: a neighbour's news graded 0-1 (named, or from the neighbour's own outlet) and a coaching
-    post graded 1+. The neighbour's outlet is named with its country in the prompt."""
-    story(db, "lk", "22A approved with win for NPP as IMF agreements remain pending", url="https://www.themorning.lk/articles/22a")
+    would likely change: a neighbour's news graded 0-1 (named, or from the neighbour's own outlet, a Google News
+    link's included) and a coaching post graded 1+. The neighbour's outlet is named with its country in the prompt."""
+    story(db, "lk", "22A approved with win for NPP as IMF agreements remain pending", url="https://news.google.com/rss/articles/CBMi22a")
+    db.x("INSERT INTO items (id, source_id, story_id, url, extra) VALUES ('i-lk', 'gnews', 'lk', 'https://news.google.com/rss/articles/CBMi22a', ?)",
+         (json.dumps({"origin": "https://www.themorning.lk"}),))  # Google News: the outlet's own address rides on the item
     story(db, "np", "Nepal parliament elects new Prime Minister", score=5.5)
     story(db, "ins", "Insights Weekly Essay Challenges 2026 - Week 36", score=5.0)
     story(db, "cab", "Cabinet approves new fertiliser subsidy scheme", score=5.0)
