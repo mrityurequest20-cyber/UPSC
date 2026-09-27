@@ -162,6 +162,18 @@ CREATE TABLE IF NOT EXISTS brief_picks (
 );
 CREATE INDEX IF NOT EXISTS idx_brief_story ON brief_picks(story_id);
 
+-- the free full text of a brief card, read at build time (pipeline/articles.py); miss=1: no free copy yet
+CREATE TABLE IF NOT EXISTS article_text (
+    story_id TEXT PRIMARY KEY,
+    url TEXT,
+    domain TEXT,
+    via TEXT,
+    paragraphs TEXT,
+    points TEXT,
+    miss INTEGER DEFAULT 0,
+    fetched_at TEXT
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );
@@ -522,6 +534,24 @@ class DB:
     def last_run(self) -> dict | None:
         rows = self.q("SELECT * FROM runs WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1")
         return dict(rows[0]) if rows else None
+
+    def articles(self, story_ids: list[str]) -> dict[str, dict]:
+        """{story_id: {url, domain, via, paragraphs, points, miss, fetched_at}} for the stories that have a row."""
+        out: dict[str, dict] = {}
+        for i in range(0, len(story_ids), 500):
+            chunk = story_ids[i:i + 500]
+            for r in self.q(f"SELECT * FROM article_text WHERE story_id IN ({','.join('?' * len(chunk))})", chunk):
+                d = dict(r)
+                d["paragraphs"] = _load(d["paragraphs"]) or []
+                d["points"] = _load(d["points"]) or []
+                out[d["story_id"]] = d
+        return out
+
+    def save_article(self, story_id: str, row: dict) -> None:
+        self.x("INSERT OR REPLACE INTO article_text (story_id, url, domain, via, paragraphs, points, miss, fetched_at) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+               (story_id, row.get("url"), row.get("domain"), row.get("via"), _dump(row.get("paragraphs") or []),
+                _dump(row.get("points") or []), int(bool(row.get("miss"))), row.get("fetched_at")))
 
     def seen(self, key: str) -> bool:
         return bool(self.q("SELECT 1 FROM seen_keys WHERE key=?", (key,)))

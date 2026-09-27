@@ -162,6 +162,11 @@ def build_meta(settings: Settings, db: DB, clf: Classifier, topics: dict, *, mod
 
 LIGHT_SUMMARY = 320  # the "Also in the news" list and folded reports carry a short summary, no write-up
 OUTLET_TEXT = 700    # each outlet's text on a day's full cards, for the Ask bot
+ARTICLE_TEXT = 2500  # the free full article's opening text on a day's cards, for the Ask bot
+
+
+def _clip(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
 
 
 def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, date_to: str,
@@ -197,6 +202,7 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             day[BRIEF_KEYS.get(p["kind"], "news")].append(sid)
             heavy.add(sid)
     by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
+    articles = db.articles([i for i in ids if i in heavy])
     out_stories = []
     for i in ids:
         if i not in stories:
@@ -206,6 +212,11 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             o = story_out(stories[i], labels, explain=True, text=" ".join(p["x"] for p in parts)[:2400] or None, clf=clf)
             if full:  # a day's brief carries each outlet's text, for the Ask bot ("what do other papers say?")
                 o["texts"] = [{"p": p["p"], "x": p["x"][:OUTLET_TEXT]} for p in parts]
+            a = articles.get(i)
+            if a and a["points"]:  # the free full article's key points (pipeline/articles.py), with its link
+                o["sum"] = {"points": a["points"], "url": a["url"], "domain": a["domain"], "via": a["via"] or ""}
+                if full:  # and some of its text, for the Ask bot's answers
+                    o["sum"]["text"] = _clip("\n".join(a["paragraphs"]), ARTICLE_TEXT)
             out_stories.append(o)
         else:
             o = story_out(stories[i], labels)
@@ -330,6 +341,41 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
             raise HTTPException(400, "range too large (max ~3 months)")
         clf, _ = classifier()
         return brief_payload(settings, db, clf, a, b, include_private=not public_only)
+
+    @app.get("/api/practice/{day}")
+    def practice(day: str):
+        """The day's practice questions (pipeline/practice.py), as the static site's data/practice/<day>.json."""
+        from ..pipeline.practice import build_practice, week_before
+        d = _valid_date(day, "day")
+        clf, _ = classifier()
+        payload = brief_payload(settings, db, clf, d, d, include_private=not public_only, full=True)
+        v = (payload["days"].get(d) or {})
+        ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v.get(k) or []]
+        paras = {k: a["paragraphs"] for k, a in db.articles(ids).items() if a["paragraphs"]}
+        week = []
+        for w in week_before(d):
+            wp = brief_payload(settings, db, clf, w, w, include_private=not public_only, full=False)
+            week += [x for x in wp["stories"] if any(x["id"] in (vv.get("news") or []) + (vv.get("prelims") or [])
+                                                     for vv in wp["days"].values())]
+        return build_practice(payload, d, paras, week)
+
+    @app.get("/api/pdf/{day}")
+    def pdf(day: str):
+        """The day's brief as a PDF (export_pdf.py), as the static site's data/pdf/brief-<day>.pdf."""
+        import tempfile
+
+        from fastapi.responses import Response
+
+        from ..export_pdf import build_day_pdf
+        d = _valid_date(day, "day")
+        clf, _ = classifier()
+        payload = brief_payload(settings, db, clf, d, d, include_private=not public_only, full=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = build_day_pdf(payload, d, clf.labels(), Path(tmp) / f"brief-{d}.pdf",
+                                reported=db.date_counts(days=400).get(d), site_url=settings.site_url)
+            data = out.read_bytes()
+        return Response(data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="upsc-daily-brief-{d}.pdf"'})
 
     @app.post("/api/stories/by_ids")
     def stories_by_ids(payload: dict = Body(...)):

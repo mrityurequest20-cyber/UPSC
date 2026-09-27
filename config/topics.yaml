@@ -1751,3 +1751,137 @@ brief:
     - [1.0, '\?\s*$|^(why|how|what|is|are|can|should|will|when)\b|^[''‘\"“]|\b(op-?ed|opinion|column|what .{0,40} should know|inside .{0,30} crisis|the takeaway)\b']
     - [1.0, '\bamid\b.{0,25}\b(row|controversy|storm|uproar|dissent)\b|\brow\b']
     - [1.0, '^(issues|strengthening|bridging|challenges|the (role|need|case)|folk arts|important days)\b|\b(meaning|examples|importance)\b.{0,20}\b(risks|examples|importance)\b']
+
+# Sites the Ask bot and the build read full articles from: free to read, no login. Subscriber-only and metered
+# sites are never requested (no paywall is bypassed): a paywalled story is read from a free site that carries it.
+# Kept identical to OPEN_DOMAINS / PREMIUM_PATH in web/static/intel-core.js (a test checks).
+free_reading:
+  premium_path: '/(premium|prime|toi-plus|ht-premium|htpremium|subscriber|epaper|e-paper)(/|$)'
+  domains:
+    # government, parliament, regulators, multilaterals, reference
+    - gov.in
+    - nic.in
+    - sansad.in
+    - prsindia.org
+    - rbi.org.in
+    - sebi.gov.in
+    - un.org
+    - who.int
+    - worldbank.org
+    - imf.org
+    - wto.org
+    - unep.org
+    - undp.org
+    - unesco.org
+    - ipcc.ch
+    - wikipedia.org
+    - orfonline.org
+    - idsa.in
+    - manoharparrikaridsa.in
+    - scobserver.in
+    - barandbench.com
+    # Indian news that is free to read
+    - ndtv.com
+    - indiatoday.in
+    - businesstoday.in
+    - news18.com
+    - firstpost.com
+    - wionews.com
+    - theprint.in
+    - thewire.in
+    - scroll.in
+    - downtoearth.org.in
+    - mongabay.com
+    - deccanherald.com
+    - deccanchronicle.com
+    - tribuneindia.com
+    - newindianexpress.com
+    - telegraphindia.com
+    - thestatesman.com
+    - timesofindia.indiatimes.com
+    - hindustantimes.com
+    - aninews.in
+    - ptinews.com
+    - uniindia.com
+    - ianslive.in
+    - financialexpress.com
+    - cnbctv18.com
+    - thequint.com
+    - outlookindia.com
+    - theweek.in
+    - freepressjournal.in
+    - dnaindia.com
+    - zeenews.india.com
+    - zeebiz.com
+    - abplive.com
+    - republicworld.com
+    - newsx.com
+    - lokmattimes.com
+    - thesouthfirst.com
+    - thefederal.com
+    - thenewsminute.com
+    - indiatvnews.com
+    - telanganatoday.com
+    - thehansindia.com
+    - siasat.com
+    - onmanorama.com
+    - mathrubhumi.com
+    - keralakaumudi.com
+    - jagran.com
+    - morungexpress.com
+    - nagalandpost.com
+    - sentinelassam.com
+    - greaterkashmir.com
+    - millenniumpost.in
+    - dailypioneer.com
+    - sundayguardianlive.com
+    - nationalheraldindia.com
+    - newsbytesapp.com
+    - psuwatch.com
+    - psuconnect.in
+    - indianmasterminds.com
+    - devdiscourse.com
+    - webindia123.com
+    - eurasiantimes.com
+    - aajtak.in
+    - amarujala.com
+    - livehindustan.com
+    - bhaskar.com
+    # world news that is free to read
+    - aljazeera.com
+    - bbc.com
+    - bbc.co.uk
+    - apnews.com
+    - theguardian.com
+    - dw.com
+    - france24.com
+    - abc.net.au
+    - cnn.com
+    - dawn.com
+    - thedailystar.net
+    - jagonews24.com
+    - kathmandupost.com
+    - thehimalayantimes.com
+    - arabnews.com
+    - gulfnews.com
+    - khaleejtimes.com
+    - aa.com.tr
+    - tass.com
+    # UPSC prep sites
+    - forumias.com
+    - insightsonindia.com
+    - vajiramandravi.com
+    - drishtiias.com
+    - nextias.com
+    - civilsdaily.com
+    - gktoday.in
+    - iasexpress.net
+    - clearias.com
+    - pwonlyias.com
+    - studyiq.com
+    - iasgyan.in
+    - jagranjosh.com
+    - visionias.in
+    - byjus.com
+    - testbook.com
+    - adda247.com

@@ -106,27 +106,40 @@ Week and Month views recap everything the daily briefs covered.
     - **Summary** reads the story's own source when that site is free to read.
     - When the original is **paywalled** (The Hindu, Indian Express, Mint, ET, Business Standard…), it searches the news (Bing News) for **the same story on a free site** such as ThePrint, NDTV, Deccan Herald, PIB or ForumIAS. It reads that copy, checks it really is the same story, and quotes its key lines.
     - Every answer says where it came from, e.g. "Read from theprint.in, a free report of the same story: the original on thehindu.com is subscriber-only".
-  - **Paywalls are never bypassed.** Only sites on a free-to-read list (`OPEN_DOMAINS` in `static/intel-core.js`) are opened; subscriber sites are listed, never fetched. Pages are read through Jina Reader, which is free, keyless, and allows about 20 pages a minute per device.
+  - **Paywalls are never bypassed.** Only sites on a free-to-read list (`free_reading` in `config/topics.yaml`, mirrored by `OPEN_DOMAINS` in `static/intel-core.js`; a test keeps them identical) are opened; subscriber sites are listed, never fetched. Pages are read through Jina Reader, which is free, keyless, and allows about 20 pages a minute per device.
+  - **Most cards are already read by the build** (see "Free full text" below), so their summary and answers are instant.
   - **About a story:**
     - Summary (8 points), 60-word summary, the 5 Ws, why it matters and the link to the syllabus
     - Prelims facts, **2 fact MCQs** made from the article's own figures (with answers), a **Mains answer outline**, and a Mains question
     - **हिंदी में**: a free machine translation (MyMemory, about 5,000 characters a day), with a Google Translate link when the quota runs out
-    - Static background from Wikipedia in the story's sense. Acronyms are expanded from the story itself, so ESA in a Western Ghats story means Ecologically Sensitive Area, not the space agency.
+    - Static background from Wikipedia in the story's sense, and only a page that fits the story: its keywords, an acronym spelt out from the story (ESA in a Western Ghats story is the Ecologically Sensitive Area, not the space agency; CBAM is the Carbon Border Adjustment Mechanism), India's relations with a country in it ("Tariffs, Russian oil and the uneasy India-US relationship" → India–United States relations), names the article repeats. A country or other broad page is never shown as a story's background; when nothing fits, it says so and offers terms to look up.
     - "Search the web": other outlets' reports with a **Summarise** button on each free one
     - What each outlet wrote, related stories, videos
-    - Free questions ("what did the minister say about villages?"), answered with the matching lines from the reports or the full article
+    - Free questions ("what supplies is India worried about?"), answered from the full article first, then the reports. Wikipedia only for a short "what is X?" term. When nothing matches, the closest lines, labelled as such.
   - **About the day:** top stories, one GS paper or subject, or a topic search ("RBI", "Manipur").
   - **Ask Claude ↗:** opens claude.ai in a new tab with the story and your question filled in (and copied, in case it opens empty). Claude answers on **your own Claude account**, and the free plan works. No API key, and nothing is sent from the site.
   - **Limits:** it never makes things up. Summaries and answers quote what the outlets published. When nothing answers the question, it says so and offers Wikipedia, a web search or Ask Claude.
+- **Practice (website tab and app tab):** a daily set of UPSC Prelims-style MCQs from that day's brief.
+  - **Question types:** "Consider the following statements… which is/are correct?" (the report's own lines, one name or figure swapped for a same-kind decoy the story never mentions), "How many of the above pairs are correctly matched?" over the week (exercise and partner country, place and state), fact and figure blanks, and Claude-written ones when a study note has them. About 40-60 a day in the pool.
+  - **A set:** pick the day, 10, 15 or 20 questions, and **Practice** (answer and explanation after each) or **Exam** (answers at the end). **↻ Swap** replaces a question with one you've never seen (from that day, then the week before). Questions you've seen wait until the unseen ones run out.
+  - **Result:** UPSC marking (+2 right, −0.66 wrong), accuracy, time, a subject breakdown, a review with every answer's source line and link, **New set** and **Retry the wrong ones**. Your history stays on your device (shared by the website and the app); the app's Insights shows your practice accuracy by subject.
+  - **No AI:** every answer is a line a report carries. **Make 10 more with Claude ↗** hands the day's facts to claude.ai on your own plan for more.
+- **Daily Brief PDF (Export on the website, the export sheet in the app):** a real PDF of the day, built with the site and laid out like a newspaper brief:
+  - Must-know by syllabus area, each with a 10-12 line note from the free full article (or the outlets' reports), the when/where/who, the syllabus line and a clickable source link
+  - Prelims facts (2-3 lines each), **Editorial Watch** (each editorial's argument in 2-3 sentences, with its link), Explained, Also in the news (one line each)
+  - a coverage check: items per section, syllabus areas covered and empty, the five easy-miss areas, how many items were read in full
+  - Week and month views list each day's PDF. **My notes (.md)** is still there for your own notes and stars.
+- **Free full text, read by the build:** for each brief card (Must-know, Prelims facts, editorials, explainers) the build reads the article from a free source: the story's own site when free, a Google News link's own outlet when that site is free, or the same story on a free site found through Bing News (same event, within two days; an editorial only as a syndicated copy of itself; MSN's licensed copies only when they carry no subscription restriction, cited to the original outlet). About two thirds of the cards get their full text; the rest use the reports. Subscriber-only sites are never requested. `python -m upsc_intel articles --days 2` runs it on demand.
 - **The app (phone):** the Claude Design "UPSC Intel App" at **`/UPSC/app/`** (the **App** button in the header).
   - **Screens:**
     - Brief: week strip, the day's hero, GS chips, Must-know cards, Prelims facts and "Also in the news"
     - Read: editorials by GS paper, explainers
-    - Insights: streak, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
+    - Insights: streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
+    - Practice: the daily MCQ sets
     - Review: week and month
     - Saved: stars and notes, PDF
   - **Story view:** the article's 8-point summary (read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
-  - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded.
+  - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded (and the last three Daily Brief PDFs you opened).
   - **Synced with the dashboard:** stars, done ticks and notes are the same on the dashboard and in the app, as long as both use the same browser.
 - **Summaries on every card:**
   - Opening a brief card, on the website or in the app, shows **Summary · 8 points** of the actual article. It's read from the story's own site when that's free, or from a free report of the same story when the original is paywalled, and says where the lines came from.
@@ -145,7 +158,7 @@ Week and Month views recap everything the daily briefs covered.
   - **Local / Docker:** fetches *every* source right now (1–3 min) and reports "Done · N new stories".
   - **Pages site:** checks for a newer build and loads it, or tells you when the last update ran and when the next one is due. GitHub starts scheduled runs on a best-effort basis; if a build is more than 15 min overdue, the header says "running late" and Refresh says so instead of promising a time.
 - **Self-healing sources:** every source has a fallback chain (direct feed → alternate URL → Google News `site:` → headless browser). The **Sources** tab shows what each source is using right now.
-- **Keyboard:** `/` search · `t` today · `d w m` views · `← →` step · Export any view to Markdown notes.
+- **Keyboard:** `/` search · `t` today · `d w m` views · `← →` step · Export: the day's PDF, or any view as Markdown notes.
 
 ## Quick start (full version, on your laptop)
 
@@ -279,7 +292,8 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 154 tests (includes the bot engine's Node tests when Node is installed)
+python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
+python -m pytest                        # 170 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
@@ -329,12 +343,15 @@ upsc_intel/
   fetchers/        rss, gnews, pib, telegram, html_links (html + browser), email_imap, documents, http,
                    describe (preview text for headline-only feeds), fallback chain
   pipeline/        normalize, kinds (news/editorial/explained), classify, cluster, brief (daily picks),
-                   enrich (explainers), videos (matching), notes (Claude study notes import), run
+                   enrich (explainers), videos (matching), notes (Claude study notes import),
+                   articles (the brief cards' free full text), practice (daily MCQs), run
   web/             app.py (API + scheduler)
                    static/ (dashboard: index.html, app.js, styles.css; intel-core.js: the Ask bot's engine)
                    app/ (the phone app: index.html, app.js, app.css, sw.js, manifest, icons)
+  export_pdf.py    the Daily Brief as a PDF
   static_export.py
-tests/             parsers, classifier, clustering, brief selection, explainers, video matching, fallback chain, API, export
+tests/             parsers, classifier, clustering, brief selection, explainers, video matching, fallback chain, API, export,
+                   free full text, practice questions, the PDF
   js/              the Ask bot's engine (Node, no packages)
 inbox/             your PDFs (gitignored)
 data/              SQLite database (gitignored)

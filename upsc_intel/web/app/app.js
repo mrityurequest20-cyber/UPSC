@@ -70,6 +70,7 @@
     { key: "brief", label: "Brief", title: "UPSC Intel", d: "M6 3h9l4 4v14H6zM9 10h7M9 14h7M9 18h4" },
     { key: "read", label: "Read", title: "Read", d: "M3 5h6a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H3zM21 5h-6a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h7z" },
     { key: "insights", label: "Insights", title: "Insights", d: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z" },
+    { key: "practice", label: "Practice", title: "Practice", d: "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" },
     { key: "review", label: "Review", title: "Review", d: "M4 20V10M10 20V4M16 20v-7M22 20H2" },
     { key: "saved", label: "Saved", title: "Saved", d: "m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" },
   ];
@@ -416,6 +417,16 @@
     const radar = L.news.concat(L.prelims || []).filter((s) => (s.tags || []).length || (s.watch || []).length).sort((a, b) => b.score - a.score).slice(0, 4);
     return { streak, best, week, weekMins, doneAll, notes, read, mastery, blind, threads, radar, cards };
   }
+  function practicePanel() {  // your practice sets (Practice tab): accuracy, weakest areas
+    const P = CORE.practiceStats();
+    if (!P.attempts.length) return `<section class="panel"><div class="ph">Practice</div><div class="ps" style="margin:0">Take a daily set of UPSC-style MCQs in the Practice tab: your scores and weak areas show up here. <button class="btn-o" data-tab="practice">Practice now</button></div></section>`;
+    const subj = Object.entries(P.subj).filter(([, [, t]]) => t >= 2).map(([k, [r, t]]) => ({ k, pct: Math.round((r * 100) / t), t })).sort((a, b) => a.pct - b.pct);
+    const last = P.attempts[P.attempts.length - 1];
+    return `<section class="panel"><div class="ph">Practice <span>· ${P.attempts.length} set${P.attempts.length === 1 ? "" : "s"}, ${P.accuracy}% accuracy</span></div>
+      <div class="ps">Last set: ${last.score} / ${last.max} (${last.right} right, ${last.wrong} wrong) · ${esc(dayShort(last.day))}</div>
+      <div class="mastery">${subj.slice(0, 6).map((m) => `<div class="mrowg"><b>${esc(subjName(m.k))}</b><div class="bar${m.pct < 50 ? " low" : ""}"><div style="width:${m.pct}%"></div></div><span class="${m.pct < 50 ? "low" : ""}">${m.pct}%</span></div>`).join("")}</div>
+      <button class="btn-o" data-tab="practice" style="margin-top:8px">New practice set</button></section>`;
+  }
   function renderInsights() {
     const R = range30();
     if (!R) return '<div class="loading">Reading your last 30 days…</div>';
@@ -427,6 +438,7 @@
         <div class="streak-kpis"><div><b>${fmtMins(M.weekMins)}</b><span>read this week</span></div><div><b>${M.doneAll}</b><span>stories done</span></div><div><b>${M.notes}</b><span>notes written</span></div></div></section>
       <section class="intel">${LOGO(30)}<div style="flex:1;min-width:0"><div class="intel-h">Intel's read on your week</div><div class="intel-t">${esc(M.read)}</div>
         <button class="btn-p" data-act="plan">Build a 30-min catch-up plan</button></div></section>
+      ${practicePanel()}
       <section class="panel"><div class="ph">Paper mastery</div><div class="ps">Share of the brief's stories (last 30 days) you've finished</div>
         <div class="mastery">${M.mastery.map((m) => { const low = M.doneAll && m.total && m.pct < 40; return `<div class="mrowg"><b>${m.p}</b><div class="bar${low ? " low" : ""}"><div style="width:${m.pct}%"></div></div><span class="${low ? "low" : ""}">${m.total ? `${m.pct}%` : "–"}</span></div>`; }).join("")}</div></section>
       <section class="panel"><div class="ph">Blind spots</div>${M.blind.map((b) => `<div class="blind"><span class="bang">!</span><div class="blind-t"><b>${esc(b.name)}</b><span>${b.n} of ${b.total} stories read · ${b.last ? `last one ${daysBetween(b.last, todayIST())} days ago` : "none in 30 days"}</span></div><button class="btn-o" data-act="plan" data-subj="${esc(b.k)}">Catch up</button></div>`).join("")
@@ -547,6 +559,14 @@
     if (X.scope === "saved") { const items = Object.keys(A.marks).filter((id) => A.marks[id].starred).map(findStory).filter(Boolean); return { items, extra: [], title: "My revision list", sub: `${items.length} starred · ${dayFull(todayIST())}` }; }
     return { items: L.news.concat(L.prelims), extra: L.editorials.concat(L.explained), title: "Daily Brief", sub: dayFull(A.day) };
   }
+  // The Daily Brief PDF built with the site (export_pdf.py): the same file as the website's Export
+  const pdfHref = (d) => (STATIC ? `../data/pdf/brief-${d}.pdf?v=${api.stamp()}` : `../api/pdf/${d}`);
+  function fullPdf(d) {
+    const ok = !STATIC || ((A.meta && A.meta.pdf_days) || []).includes(d);
+    return ok ? `<a class="pdfdl" href="${esc(pdfHref(d))}" download="upsc-daily-brief-${d}.pdf" target="_blank" rel="noopener">${I.pdf}<span><b>Full Daily Brief · PDF</b><small>${esc(dayShort(d))}: a 10-12 line note on each must-know story, Prelims facts, editorials' arguments, source links</small></span></a>
+      <div class="fine" style="margin:6px 0 10px">Or make your own below: pick what to include, then save it from the print dialog.</div>`
+      : `<div class="fine" style="margin:4px 0 10px">The full PDF for ${esc(dayShort(d))} is built with the day's brief and isn't ready yet. You can make your own below.</div>`;
+  }
   function renderExport() {
     const X = A.exp; const Dx = expData(); const o = X.opts;
     const scopes = [["brief", "Daily Brief"], ["saved", "Starred"], ["story", "This story"]].filter(([k]) => k !== "story" || X.story || A.open);
@@ -554,6 +574,7 @@
     const extra = X.scope === "brief" && o.eds ? Dx.extra.length : 0;
     return `<div class="scrim" data-act="close"></div><div class="sheet fixed-col" role="dialog" aria-label="Export as PDF"><div class="grab"></div>
       <div class="sheet-h"><div><div class="sheet-title">Export as PDF</div><div class="sheet-sub">${esc(Dx.sub)}</div></div><button class="x" data-act="close" aria-label="Close">${I.x}</button></div>
+      ${X.scope === "brief" ? fullPdf(A.day) : ""}
       <div class="scopes">${scopes.map(([k, l]) => `<button class="${X.scope === k ? "on" : ""}" data-scope-pick="${k}">${l}</button>`).join("")}</div>
       <div class="expbody"><div class="a4" aria-hidden="true"><div class="a4-h">${LOGO(11)}<span>UPSC Intel</span><small>${esc(dayShort(X.scope === "brief" ? A.day : todayIST()))}</small></div><div class="a4-rule"></div>
         <div class="a4-t">${esc(X.scope === "story" ? "Story note" : Dx.title)}</div>${Dx.items.slice(0, 3).map((s) => `<div class="a4-i"><div class="m"><b>${esc(s.grade)}</b>${esc(subjOf(s))}</div><div class="tt">${esc(s.title.slice(0, 90))}</div><i></i><i style="width:92%"></i><i style="width:80%"></i>${o.vid && storyVideos(s).length ? `<div class="v">▶ ${esc(storyVideos(s)[0][0].channel || "YouTube")}</div>` : ""}</div>`).join("")}</div>
@@ -773,7 +794,29 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     $("#tabbar").innerHTML = TABS.map((t) => `<button class="${A.tab === t.key ? "on" : ""}" data-tab="${t.key}" aria-current="${A.tab === t.key ? "page" : "false"}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${A.tab === t.key ? 2.3 : 1.8}" stroke-linecap="round" stroke-linejoin="round"><path d="${t.d}"/></svg><span>${t.label}</span>${t.key === "saved" && n ? `<span class="badge">${n}</span>` : ""}</button>`).join("");
     $("#title").textContent = (TABS.find((x) => x.key === A.tab) || TABS[0]).title;
   }
+  // Practice: the shared widget (intel-core.js), mounted once and kept while you answer a set
+  const PX = { el: null, w: null };
+  const practiceDays = () => (STATIC ? ((A.meta && A.meta.practice_days) || []) : ((A.meta && A.meta.day_files) || [])).slice().sort().reverse();
+  function practiceDay() {
+    const have = practiceDays();
+    return !STATIC || have.includes(A.day) ? A.day : (have.find((d) => d <= A.day) || have[0] || A.day);
+  }
+  const pxHost = {
+    day: practiceDay,
+    days: practiceDays,
+    load: (d) => api.json(STATIC ? `../data/practice/${d}.json?v=${api.stamp()}` : `../api/practice/${d}`),
+    label: (d) => `${dayShort(d)}${d === todayIST() ? " (today)" : ""}`,
+    subject: (k) => subjName(k),
+    claude: (prompt) => CORE.openClaude(prompt),
+  };
+  function renderPractice() {
+    const scr = $("#screen");
+    if (PX.el && scr.contains(PX.el)) { PX.w.setDay(practiceDay()); return; }
+    scr.innerHTML = '<div class="pxwrap"><div id="pxRoot"></div></div>';
+    PX.el = $("#pxRoot"); PX.w = CORE.mountPractice(PX.el, pxHost);
+  }
   function renderScreen() {
+    if (A.tab === "practice") { renderPractice(); renderTabs(); return; }
     const html = A.tab === "read" ? renderRead() : A.tab === "insights" ? renderInsights() : A.tab === "review" ? renderReview() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
     renderTabs();

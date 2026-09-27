@@ -7,6 +7,7 @@ apscheduler>=3.10,<4
 pyyaml>=6.0
 beautifulsoup4>=4.12
 pypdf>=4.0
+reportlab>=4.0
 python-dateutil>=2.9
 python-dotenv>=1.0
 

@@ -19,16 +19,23 @@ CI keeps DIR on the repository's `archive` branch. Private exports never write t
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Settings, load_topics
 from .db import DB, iso
+from .export_pdf import build_day_pdf
 from .pipeline.brief import ensure_range
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
+from .pipeline.practice import build_practice
 from .web.app import APP_DIR, STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
+
+log = logging.getLogger("upsc_intel.export")
+# per-day files next to data/day/, frozen into the archive with their month: (folder, file pattern)
+EXTRA_DAY_FILES = (("pdf", "brief-{m}-*.pdf"), ("practice", "{m}-*.json"))
 
 ASSETS = ("intel-core.js", "app.js", "styles.css")
 SUMMARY_CHARS = 420
@@ -54,16 +61,32 @@ def _archived_months(archive: Path | None) -> set[str]:
 
 
 def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: str, hi: str,
-                  include_private: bool) -> dict:
+                  include_private: bool, reported: dict[str, int] | None = None) -> dict:
     """Writes each day's whole brief to data/day/<day>.json and returns the month's review: every day's
     cards (Must-know and Prelims facts, not the "Also in the news" list or folded reports), with n_more saying
     how long that list is."""
     ensure_range(settings, db, clf, lo, hi)
     month: dict = {"from": lo, "to": hi, "days": {}, "stories": [], "videos": {}}
     seen: set[str] = set()
+    recent: list[tuple[str, list[dict]]] = []  # the last days' cards, for the week's "pairs" questions
     for d in sorted(db.brief_dates(lo, hi)):
         day = brief_payload(settings, db, clf, d, d, include_private=include_private, full=True)
         _write_json(out / "data" / "day" / f"{d}.json", {"day": d, **day})
+        try:  # the day's brief as a PDF (export_pdf.py): a quarter of a second a day
+            build_day_pdf(day, d, clf.labels(), out / "data" / "pdf" / f"brief-{d}.pdf", reported=(reported or {}).get(d),
+                          site_url=settings.site_url, built_at=day.get("generated_at"))
+        except Exception:
+            log.exception("PDF for %s failed", d)
+        v0 = (day.get("days") or {}).get(d) or {}
+        card_ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v0.get(k) or []]
+        try:  # the day's practice questions (pipeline/practice.py)
+            paras = {k: a["paragraphs"] for k, a in db.articles(card_ids).items() if a["paragraphs"]}
+            week = [x for day0, cards in recent if day0 >= (date.fromisoformat(d) - timedelta(days=6)).isoformat() for x in cards]
+            _write_json(out / "data" / "practice" / f"{d}.json", build_practice(day, d, paras, week))
+        except Exception:
+            log.exception("practice for %s failed", d)
+        by_id0 = {x["id"]: x for x in day.get("stories") or []}
+        recent = recent[-6:] + [(d, [by_id0[i] for i in card_ids[:40] if i in by_id0])]
         month["generated_at"] = day["generated_at"]
         v = day["days"].get(d)
         if not v:
@@ -75,7 +98,10 @@ def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: st
         for s in day["stories"]:
             if s["id"] in keep and s["id"] not in seen:
                 seen.add(s["id"])
-                month["stories"].append({k: v for k, v in s.items() if k != "texts"})  # the reviews stay light
+                light = {k: v for k, v in s.items() if k != "texts"}  # the reviews stay light
+                if light.get("sum"):
+                    light["sum"] = {k: v for k, v in light["sum"].items() if k != "text"}
+                month["stories"].append(light)
     month.setdefault("generated_at", iso(datetime.now(timezone.utc)))
     return month
 
@@ -99,7 +125,8 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
                   archive: str | Path | None = None) -> Path:
     out = Path(out)
     (out / "static").mkdir(parents=True, exist_ok=True)
-    (out / "data" / "day").mkdir(parents=True, exist_ok=True)
+    for sub in ("day", "pdf", "practice"):
+        (out / "data" / sub).mkdir(parents=True, exist_ok=True)
     for name in ASSETS:
         shutil.copyfile(STATIC_DIR / name, out / "static" / name)
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
@@ -152,7 +179,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         _write_json(out / "data" / f"stories-{m}.json", {"month": m, "stories": stories})
         written.append(m)
         total += len(stories)
-        brief = _write_briefs(settings, db, clf, out, lo, hi, include_private)
+        brief = _write_briefs(settings, db, clf, out, lo, hi, include_private, reported)
         brief["reported"] = {d: n for d, n in reported.items() if lo <= d <= hi}
         _write_json(out / "data" / f"brief-{m}.json", {"month": m, **brief})
         if archive and _month_bounds(m)[1] < freeze_before:
@@ -161,6 +188,10 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
             (archive / "day").mkdir(exist_ok=True)
             for f in (out / "data" / "day").glob(f"{m}-*.json"):
                 shutil.copyfile(f, archive / "day" / f.name)
+            for sub, pattern in EXTRA_DAY_FILES:
+                (archive / sub).mkdir(exist_ok=True)
+                for f in (out / "data" / sub).glob(pattern.format(m=m)):
+                    shutil.copyfile(f, archive / sub / f.name)
             archived.add(m)
 
     # every archived month is published as it was frozen
@@ -173,6 +204,10 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
             shutil.copyfile(archive / f"{kind}-{m}.json", out / "data" / f"{kind}-{m}.json")
         for f in (archive / "day").glob(f"{m}-*.json") if (archive / "day").is_dir() else ():
             shutil.copyfile(f, out / "data" / "day" / f.name)
+        for sub, pattern in EXTRA_DAY_FILES:
+            for f in (archive / sub).glob(pattern.format(m=m)) if (archive / sub).is_dir() else ():
+                (out / "data" / sub).mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(f, out / "data" / sub / f.name)
     for m in sorted(set(written) | archived):
         b = json.loads((out / "data" / f"brief-{m}.json").read_text(encoding="utf-8"))
         for d, v in (b.get("days") or {}).items():
@@ -187,6 +222,8 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         "months": sorted(set(written) | archived),
         "brief_days": brief_days,
         "day_files": sorted(f.stem for f in (out / "data" / "day").glob("*.json")),
+        "pdf_days": sorted(f.stem.removeprefix("brief-") for f in (out / "data" / "pdf").glob("brief-*.pdf")),
+        "practice_days": sorted(f.stem for f in (out / "data" / "practice").glob("*.json")),
         "built_at": iso(datetime.now(timezone.utc)),
         "sources": sources_out(settings, db, public_only=not include_private),
         "exported_stories": total,

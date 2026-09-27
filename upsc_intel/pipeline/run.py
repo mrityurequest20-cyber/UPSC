@@ -14,6 +14,7 @@ from ..fetchers import FetchContext, SourceResult, is_due, run_source
 from ..fetchers.describe import describe_new, page_description
 from ..fetchers.http import Http
 from ..models import RawItem
+from .articles import read_brief_articles
 from .brief import build_day, update_recent
 from .classify import Classifier
 from .cluster import Clusterer, aggregate_story, merge_republished, split_mixed_stories
@@ -195,11 +196,16 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
 
     brief_days = update_recent(settings, db, clf)
     video_stats = {}
+    article_stats = {}
     if not only:
         try:
             video_stats = link_brief_videos(settings, db, brief_days)
         except Exception:  # videos are a bonus; never fail the run over them
             log.exception("video linking failed")
+        try:  # the brief cards' free full text: summaries, the PDF and practice questions read it
+            article_stats = read_brief_articles(db, load_topics(settings), brief_days)
+        except Exception:
+            log.exception("reading the brief's articles failed")
 
     failed = [r.source["id"] for r, _ in results if not r.ok]
     summary = {
@@ -216,7 +222,7 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
     db.save_run(summary)
     summary.update({"failed": failed, "pruned": pruned, "warnings": ctx.warnings, "new_videos": n_videos,
                     "described": n_described,
-                    "videos": video_stats, "duration_s": round(time.monotonic() - t0, 1)})
+                    "videos": video_stats, "articles": article_stats, "duration_s": round(time.monotonic() - t0, 1)})
     return summary
 
 
