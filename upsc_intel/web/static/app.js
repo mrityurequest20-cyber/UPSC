@@ -1313,7 +1313,11 @@
         <p class="bot-foot">Answers quote the reports, the free full article (read via Jina Reader; paywalled sites are never opened) and Wikipedia. Switch on <b>✦ Intel AI</b> (a free Google key, kept only in this browser) and Intel answers in its own words from the article; check key facts before quoting.</p>
       </section>`);
     $("#botForm").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#botQ").value.trim(); if (q) { $("#botQ").value = ""; botAsk(q); } });
-    CORE.gemini.bind((r) => { BOT.log.push({ who: "from-bot", html: r.html }); botRender(); });
+    CORE.gemini.bind((r) => {  // switched on or off: the confirmation takes the key form's place (an error goes under it)
+      const i = BOT.log.map((m) => /gem-box/.test(m.html)).lastIndexOf(true);
+      if (r.ok && i >= 0) BOT.log[i] = { who: "from-bot", html: r.html }; else BOT.log.push({ who: "from-bot", html: r.html });
+      botRender();
+    });
   }
   function botRender() {
     const s = BOT.id ? findStory(BOT.id) : null;

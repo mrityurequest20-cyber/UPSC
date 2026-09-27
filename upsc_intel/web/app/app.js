@@ -706,7 +706,11 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     log.innerHTML = botLogHtml();
     log.scrollTop = log.scrollHeight;
   }
-  CORE.gemini.bind((r) => { A.bot.log.push({ me: false, html: r.html }); if (A.sheet === "bot") renderLayer(true); });
+  CORE.gemini.bind((r) => {  // switched on or off: the confirmation takes the key form's place (an error goes under it)
+    const L = A.bot.log; const i = L.map((m) => /gem-box/.test(m.html)).lastIndexOf(true);
+    if (r.ok && i >= 0) L[i] = { me: false, html: r.html }; else L.push({ me: false, html: r.html });
+    if (A.sheet === "bot") renderLayer(true);
+  });
   function askClaude(q) {  // inside the click: a tab opened after an await is blocked as a pop-up
     const s = botCtxStory(); const B = A.bot;
     let prompt;
