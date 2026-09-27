@@ -765,3 +765,15 @@ a.btn { color: var(--ink); text-decoration: none; }
 .exm-days { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 10px 10px; }
 .exm-days a { border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; color: var(--accent-strong); text-decoration: none; }
 .exm-none { font-size: 13px; color: var(--muted); padding: 10px; }
+
+/* ✦ Gemini: the chip that opens the key form, and the form itself (in the bot's log) */
+:root { --gem: #6a4fd8; --gem-soft: rgba(106, 79, 216, 0.12); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --gem: #a896ff; --gem-soft: rgba(168, 150, 255, 0.16); } }
+:root[data-theme="dark"] { --gem: #a896ff; --gem-soft: rgba(168, 150, 255, 0.16); }
+.chip.chip-gem { border-color: var(--gem); color: var(--gem); font-weight: 700; }
+.chip.chip-gem.on { background: var(--gem-soft); }
+.gem-form { display: flex; gap: 6px; margin: 8px 0; }
+.gem-form input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
+.gem-form input:focus { outline: none; border-color: var(--gem); }
+.gem-form button { flex: none; padding: 8px 14px; border: 0; border-radius: 8px; background: var(--gem); color: #fff; font-weight: 700; cursor: pointer; }
+.gem-form button:disabled { opacity: 0.6; cursor: default; }

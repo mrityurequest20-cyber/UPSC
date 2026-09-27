@@ -101,7 +101,7 @@ Week and Month views recap everything the daily briefs covered.
   - Top 10 / Top 15
   - everything the daily briefs covered, grouped by subject and dated
 - **Progress tracking:** tick **Mark done** on each card, and the bar at the top shows how much of the day's brief you've finished. Stars and notes build your revision list.
-- **Ask bot:** an **Ask** button on every brief card and list line, plus a floating **Ask** button for the whole day. The same bot is **Ask Intel** in the app.
+- **Ask bot:** an **Ask** button on every brief card and list line, plus a floating **Ask** button for the whole day. The same bot is **Ask Intel** in the app. With your free **✦ Gemini** key it answers any question in its own words from the story's article (see "✦ Gemini, free" below).
   - **It reads the full article on the web.**
     - **Summary** reads the story's own source when that site is free to read.
     - When the original is **paywalled** (The Hindu, Indian Express, Mint, ET, Business Standard…), it searches the news (Bing News) for **the same story on a free site** such as ThePrint, NDTV, Deccan Herald, PIB or ForumIAS. It reads that copy, checks it really is the same story, and quotes its key lines.
@@ -292,16 +292,38 @@ python -m upsc_intel serve [--port 8000] [--no-scheduler] [--public-only]
 python -m upsc_intel fetch [--only pib hindu-] [--force] [--public-only] [--enrich]
 python -m upsc_intel sources            # health table: which step each source is using, counts, errors
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
-python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
+python -m upsc_intel enrich [--limit N] # AI notes for the brief (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 175 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 181 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
-## AI explainers (recommended)
+## ✦ Gemini, free (recommended)
 
-Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instead.
+A free Google AI Studio key powers two things. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey); the free tier needs no card.
+
+1. **Study notes written by the build.** Add the key as a repository secret named `GEMINI_API_KEY`: *Settings → Secrets and variables → Actions → New repository secret*.
+   - Each Pages run then writes notes for up to 15 new brief cards (`UPSC_GEMINI_MAX_PER_RUN`), a few seconds apart to stay within the free per-minute limit. A day's cards are covered within an hour or two.
+   - **What's in a note:** an 8-point summary of the full article, plus what happened, why in news, background, why it matters, Prelims facts, a Mains question and a video search query.
+   - **Where it shows:** the card's Summary, the story view, the bot and the Daily Brief PDF, labelled "Written by Gemini from the full article on …".
+   - **Model:** the newest stable Gemini Flash the key can use. When one model's quota runs out it steps down to the next, then Flash-Lite. `UPSC_GEMINI_MODEL` pins one.
+   - **Fact guard:** a summary line or Prelims fact whose figure isn't in the article is dropped.
+   - **Safe to lose:** the step is `continue-on-error`, so a used-up quota or an outage never holds back the site. The cards keep their quoted summary until a note is written.
+2. **A Gemini-powered Ask bot on your phone and browser.** In Ask Intel, tap **✦ Gemini**, paste the key and tap Save.
+   - **Where the key lives:** only in that browser's storage. It is sent only to Google's Gemini API, in a request header, and never reaches this site or the repository.
+   - **What Gemini answers:** free questions, 60-word summaries, background, MCQs, Mains outlines, Mains questions, Prelims facts and Hindi.
+   - **What it answers from:** the story's full free article, its write-up and the other outlets' reports. Follow-up questions keep the thread. Answers type out as they arrive and name the model and the article.
+   - **Whole day:** with no story open, questions about the day are answered from the day's brief.
+   - **Fallback:** if Gemini can't answer (quota, network), the bot says why and answers from the reports as before.
+   - **Turning it off:** tap ✦ Gemini again to remove the key.
+
+- **One key does both.** The build and your questions share the key's free daily quota. If you ever run short, a second key made in a new Google Cloud project has its own quota.
+- **Privacy:** on the free tier Google may use what is sent (public news text and your questions) to improve its products. Don't type anything private into the bot.
+
+## AI explainers with an Anthropic key (alternative)
+
+Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instead. When both keys are set, the Anthropic key writes the notes.
 
 - **What runs:** after each fetch, every full brief card, explainer and editorial of the last two days gets a full explainer, up to `UPSC_AI_MAX_PER_RUN` (default 40). Each story is written once and cached.
 - **Contents:** headline, why in news, what happened, background, why it matters, Prelims facts, a Mains question, keywords, and a tailored YouTube search query. The query is used to find a better video on the next run.

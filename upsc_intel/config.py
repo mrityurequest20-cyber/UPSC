@@ -72,6 +72,10 @@ class Settings:
     anthropic_api_key: str | None = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     ai_model: str = field(default_factory=lambda: _env("UPSC_AI_MODEL", "claude-opus-5"))
     ai_max_per_run: int = field(default_factory=lambda: _env_int("UPSC_AI_MAX_PER_RUN", 40))
+    # a free Google AI Studio key: Gemini writes the notes when no Anthropic key is set
+    gemini_api_key: str | None = field(default_factory=lambda: _env("GEMINI_API_KEY"))
+    gemini_model: str = field(default_factory=lambda: _env("UPSC_GEMINI_MODEL", ""))  # "": the best Flash the key can use
+    gemini_max_per_run: int = field(default_factory=lambda: _env_int("UPSC_GEMINI_MAX_PER_RUN", 15))
     # static site: minutes between scheduled rebuilds (shown on the page, used by Refresh)
     site_refresh_min: int = field(default_factory=lambda: _env_int("UPSC_SITE_REFRESH_MIN", 60))
 
@@ -85,7 +89,11 @@ class Settings:
 
     @property
     def ai_enabled(self) -> bool:
-        return bool(self.anthropic_api_key)
+        return bool(self.anthropic_api_key or self.gemini_api_key)
+
+    @property
+    def ai_provider(self) -> str:
+        return "anthropic" if self.anthropic_api_key else "gemini" if self.gemini_api_key else ""
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

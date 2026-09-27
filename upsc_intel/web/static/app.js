@@ -349,7 +349,7 @@
   const SUMSTEP = new Map();
   function summaryBox(s) {
     const P = CORE.summaryNow(s); const step = SUMSTEP.get(s.id);
-    const src = P.from === "web" ? `${CORE.sourceHtml(P.src)} Lines are quoted from it.`
+    const src = P.from === "web" ? CORE.sourceHtml(P.src)
       : P.from === "note" ? "Claude's study note."
       : step || P.busy ? `<span class="sumstep">${esc(step || "Reading the full article…")}</span>`
       : P.miss ? `No free copy of the full article could be read${(P.src && P.src.closed || []).length ? ` (the original on ${esc(P.src.closed.join(", "))} is subscriber-only)` : ""}: these are the key lines from the outlets' reports.`
@@ -1290,7 +1290,7 @@
   // paywalled), and looks up background on Wikipedia. No key and no server. "Ask Claude" opens Claude with
   // the story and the question on the viewer's own Claude plan.
   const LOGO = '<svg class="bot-logo" viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1c5cab"/><path d="M15 17v9a9 9 0 0 0 18 0v-9" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><circle cx="33" cy="8.5" r="3.6" fill="#fab219"/></svg>';
-  const BOT = { id: null, log: [], busy: false, step: "", last: "" };
+  const BOT = { id: null, log: [], busy: false, step: "", last: "", partial: "" };
   const bot = CORE.makeBot({
     labels: () => S.meta && S.meta.labels,
     folded: (id) => foldedOf(id),
@@ -1310,18 +1310,20 @@
         <div id="botLog" class="bot-log" aria-live="polite"></div>
         <div id="botChips" class="bot-chips"></div>
         <form id="botForm" class="bot-in"><input id="botQ" autocomplete="off" aria-label="Your question"><button type="submit">Ask</button></form>
-        <p class="bot-foot">Answers quote the reports, the free full article (read via Jina Reader; paywalled sites are never opened) and Wikipedia. Nothing is made up; check the original before quoting.</p>
+        <p class="bot-foot">Answers quote the reports, the free full article (read via Jina Reader; paywalled sites are never opened) and Wikipedia. With your free <b>✦ Gemini</b> key (kept only in this browser), Gemini answers in its own words from the article; check key facts before quoting.</p>
       </section>`);
     $("#botForm").addEventListener("submit", (e) => { e.preventDefault(); const q = $("#botQ").value.trim(); if (q) { $("#botQ").value = ""; botAsk(q); } });
+    CORE.gemini.bind((r) => { BOT.log.push({ who: "from-bot", html: r.html }); botRender(); });
   }
   function botRender() {
     const s = BOT.id ? findStory(BOT.id) : null;
     $("#botCtx").textContent = s ? s.title : `The ${S.view === "day" ? "day's" : S.view + "'s"} brief · ${periodLabel(S.view, S.anchor)}`;
     $("#botQ").placeholder = s ? "Ask about this story…" : "Ask about the day, e.g. “GS2” or “RBI”…";
     $("#bot").querySelector('[data-bot="day"]').hidden = !s;
-    $("#botChips").innerHTML = bot.chips(s).map((c) => `<button class="chip${/claude/i.test(c) ? " chip-claude" : ""}" data-bot="chip" data-q="${esc(c)}">${esc(c)}</button>`).join("");
+    $("#botChips").innerHTML = bot.chips(s).map((c) => `<button class="chip${/claude/i.test(c) ? " chip-claude" : /gemini/i.test(c) ? ` chip-gem${CORE.gemini.on() ? " on" : ""}` : ""}" data-bot="chip" data-q="${esc(c)}">${esc(c)}</button>`).join("");
     $("#botLog").innerHTML = BOT.log.map((m) => `<div class="bot-msg ${m.who}">${m.html}</div>`).join("")
-      + (BOT.busy ? `<div class="bot-msg from-bot typing" aria-label="Working">${BOT.step ? `<span class="bot-step">${esc(BOT.step)}</span>` : "…"}</div>` : "");
+      + (BOT.busy ? (BOT.partial ? `<div class="bot-msg from-bot">${BOT.partial}</div>`
+        : `<div class="bot-msg from-bot typing" aria-label="Working">${BOT.step ? `<span class="bot-step">${esc(BOT.step)}</span>` : "…"}</div>`) : "");
     $("#botLog").scrollTop = $("#botLog").scrollHeight;
   }
   async function botOpen(id, first) {  // a story: its summary comes first, without asking
@@ -1346,13 +1348,14 @@
     if (!opts.url && bot.intentOf(q) === "claude") { BOT.log.push({ who: "from-me", html: `<p>${esc(q)}</p>` }); return askClaude(""); }
     const s = BOT.id ? findStory(BOT.id) : null;
     if (!opts.auto) BOT.log.push({ who: "from-me", html: `<p>${esc(opts.label || q)}</p>` });
-    BOT.busy = true; BOT.step = ""; botRender();
+    BOT.busy = true; BOT.step = ""; BOT.partial = ""; botRender();
     if (!opts.url) BOT.last = q;
     const onStep = (m) => { BOT.step = m; botRender(); };
+    const onPartial = (h) => { BOT.partial = h; botRender(); };  // Gemini's answer as it types
     let html;
-    try { html = opts.url ? await bot.read(opts.url, onStep) : await bot.answer(s, q, { onStep, deep: opts.deep }); }
+    try { html = opts.url ? await bot.read(opts.url, onStep) : await bot.answer(s, q, { onStep, onPartial, deep: opts.deep }); }
     catch (e) { html = `<p>Something went wrong: ${esc(e.message)}</p>`; }
-    BOT.busy = false; BOT.step = ""; BOT.log.push({ who: "from-bot", html }); BOT.log = BOT.log.slice(-40); botRender();
+    BOT.busy = false; BOT.step = ""; BOT.partial = ""; BOT.log.push({ who: "from-bot", html }); BOT.log = BOT.log.slice(-40); botRender();
   }
   function onBotClick(t) {
     const a = t.dataset.bot;

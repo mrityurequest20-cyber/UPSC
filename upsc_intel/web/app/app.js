@@ -85,7 +85,7 @@
     months: new Map(), cache: new Map(),  // month brief data; every story seen, by id
     open: null, sheet: null, calMonth: null,
     exp: { scope: "brief", story: null, busy: false, opts: store.get("upsc-app-pdf", { sum: true, vid: true, links: true, mains: true, notes: true, eds: true }) },
-    bot: { ctx: null, log: [], busy: false, step: "", last: "" },
+    bot: { ctx: null, log: [], busy: false, step: "", last: "", partial: "" },
     sumStep: new Map(),
     marks: {}, saved: store.get("upsc-app-saved", {}), log: store.get("upsc-app-log", {}),
     search: { q: "", results: [], busy: false, wide: false },
@@ -210,7 +210,7 @@
   function pointsFor(s) {
     const P = CORE.summaryNow(s);
     const line = P.from === "note" ? "Claude's study note."
-      : P.from === "web" ? `${CORE.sourceHtml(P.src)} Lines are quoted from it.`
+      : P.from === "web" ? CORE.sourceHtml(P.src)
         : P.miss ? `No free copy of the full article could be read${(P.src && P.src.closed || []).length ? ` (the original on ${esc(P.src.closed.join(", "))} is subscriber-only)` : ""}: these are the key lines from the outlets' reports.`
           : "Key lines from the outlets' reports.";
     return { ...P, line };
@@ -665,7 +665,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     videos: storyVideos,
     dayShort,
   });
-  const STORY_CHIPS = [...QUICK, "Summary", "Search the web", "5W", "Other outlets", "Ask Claude ↗"];
+  const STORY_CHIPS = [...QUICK, "Summary", "Search the web", "5W", "Other outlets", "✦ Gemini", "Ask Claude ↗"];
   const INSIGHT_CHIPS = ["30-min catch-up plan", "My blind spots", "Ask Claude ↗"];
   function botCtxStory() { const c = A.bot.ctx; return c && c.kind === "story" ? findStory(c.id) : null; }
   function openBot(ctx, first) {
@@ -691,17 +691,22 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const chips = s ? STORY_CHIPS : B.ctx && B.ctx.kind === "insights" ? INSIGHT_CHIPS : bot.chips(null);
     return `<div class="scrim" data-act="close"></div><div class="bot fixed-col" role="dialog" aria-label="Ask Intel"><div class="grab"></div>
       <div class="bot-h">${LOGO(32)}<div><b>Ask Intel</b><small>${esc(ctx)}</small></div><button class="x" data-act="close" aria-label="Close">${I.x}</button></div>
-      <div class="bot-log" id="botLog" aria-live="polite">${B.log.map((m) => `<div class="msg${m.me ? " me" : ""}">${m.html}</div>`).join("")}${B.busy ? `<div class="busy"><i></i>${esc(B.step || "Intel is reading the coverage…")}</div>` : ""}</div>
-      <div class="bot-chips nosb">${chips.map((c) => `<button class="${/claude/i.test(c) ? "claude" : ""}" data-ask="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+      <div class="bot-log" id="botLog" aria-live="polite">${botLogHtml()}</div>
+      <div class="bot-chips nosb">${chips.map((c) => `<button class="${/claude/i.test(c) ? "claude" : /gemini/i.test(c) ? `gem${CORE.gemini.on() ? " on" : ""}` : ""}" data-ask="${esc(c)}">${esc(c)}</button>`).join("")}</div>
       <form class="bot-in" id="botForm"><input id="botQ" placeholder="${s ? "Ask about this article…" : "Ask about the brief…"}" autocomplete="off" enterkeyhint="send" aria-label="Your question"><button class="send" type="submit" aria-label="Send">${I.send}</button></form>
-      <div class="bot-foot">Answers quote the reports, the free full article (paywalled sites are never opened) and Wikipedia. “Ask Claude” opens Claude on your own account.</div></div>`;
+      <div class="bot-foot">Answers quote the reports, the free full article (paywalled sites are never opened) and Wikipedia. With your free ✦ Gemini key (kept only on this phone), Gemini answers in its own words from the article. “Ask Claude” opens Claude on your own account.</div></div>`;
+  }
+  function botLogHtml() {  // the conversation, and while busy: Gemini's answer as it types, or what the bot is doing
+    const B = A.bot;
+    return B.log.map((m) => `<div class="msg${m.me ? " me" : ""}">${m.html}</div>`).join("")
+      + (B.busy ? (B.partial ? `<div class="msg">${B.partial}</div>` : `<div class="busy"><i></i>${esc(B.step || "Intel is reading the coverage…")}</div>`) : "");
   }
   function paintBot() {  // refresh the log only: the input keeps focus and what you're typing
     const log = $("#botLog"); if (!log) return;
-    const B = A.bot;
-    log.innerHTML = B.log.map((m) => `<div class="msg${m.me ? " me" : ""}">${m.html}</div>`).join("") + (B.busy ? `<div class="busy"><i></i>${esc(B.step || "Intel is reading the coverage…")}</div>` : "");
+    log.innerHTML = botLogHtml();
     log.scrollTop = log.scrollHeight;
   }
+  CORE.gemini.bind((r) => { A.bot.log.push({ me: false, html: r.html }); if (A.sheet === "bot") renderLayer(true); });
   function askClaude(q) {  // inside the click: a tab opened after an await is blocked as a pop-up
     const s = botCtxStory(); const B = A.bot;
     let prompt;
@@ -743,17 +748,18 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const s = botCtxStory();
     if (!opts.url && bot.intentOf(q) === "claude") { askClaude(""); return; }
     if (!opts.auto) B.log.push({ me: true, html: `<p>${esc(opts.label || q)}</p>` });
-    B.busy = true; B.step = "";
+    B.busy = true; B.step = ""; B.partial = "";
     if (!opts.url) B.last = q;
     paintBot();
     const onStep = (m) => { B.step = m; paintBot(); };
+    const onPartial = (h) => { B.partial = h; paintBot(); };  // Gemini's answer as it types
     let html;
     try {
       if (opts.url) html = await bot.read(opts.url, onStep);
       else if (B.ctx && B.ctx.kind === "insights") html = await insightAnswer(q);
-      else html = await bot.answer(s, q, { onStep, deep: opts.deep });
+      else html = await bot.answer(s, q, { onStep, onPartial, deep: opts.deep });
     } catch (e) { html = `<p>Something went wrong: ${esc(e.message)}</p>`; }
-    B.busy = false; B.step = ""; B.log.push({ me: false, html }); B.log = B.log.slice(-40); paintBot();
+    B.busy = false; B.step = ""; B.partial = ""; B.log.push({ me: false, html }); B.log = B.log.slice(-40); paintBot();
   }
 
   // ─────────────────────────── layers: story view and sheets (the back button closes them) ───────────────────────────

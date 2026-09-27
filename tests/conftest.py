@@ -15,7 +15,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.fixture
 def settings(tmp_path, monkeypatch):
-    for var in ("ANTHROPIC_API_KEY", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD"):
+    for var in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "IMAP_HOST", "IMAP_USER", "IMAP_PASSWORD"):
         monkeypatch.delenv(var, raising=False)
     s = Settings()
     s.data_dir = tmp_path / "data"
@@ -24,6 +24,7 @@ def settings(tmp_path, monkeypatch):
     s.browser_fallback = False
     s.video_search = False  # never hit YouTube from tests
     s.anthropic_api_key = None
+    s.gemini_api_key = None  # tests never reach Gemini
     s.imap_host = None
     s.ensure_dirs()
     return s
