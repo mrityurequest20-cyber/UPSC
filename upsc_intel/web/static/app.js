@@ -303,6 +303,7 @@
       ["explained", "Explained", nEx],
       ["videos", "Videos", nVid],
       ["practice", "Practice", ""],
+      ["ranks", "India's Ranks", ""],
       ["everything", "Everything", S.tab === "everything" ? briefingPool().filter((s) => passes(s)).length : ""],
       ["starred", "Starred", Object.values(S.marks).filter((x) => x.starred).length],
       ...(STATIC ? [] : [["library", "Library", S.meta.counts.library || 0]]),
@@ -872,6 +873,7 @@
     if (S.tab === "explained") return renderKindTab("explained");
     if (S.tab === "videos") return renderVideosTab();
     if (S.tab === "practice") return renderPractice();
+    if (S.tab === "ranks") return renderRanks();
     if (S.tab === "everything") return renderEverything();
     if (S.tab === "starred") return renderStarred();
     if (S.tab === "library") return renderLibrary();
@@ -1032,6 +1034,16 @@
     if (PX.el && el.contains(PX.el)) { PX.w.setDay(practiceDay()); return; }  // keep a set in progress across refreshes
     el.innerHTML = '<div id="pxRoot"></div>';
     PX.el = $("#pxRoot"); PX.w = CORE.mountPractice(PX.el, pxHost);
+  }
+
+  // India's Ranks (data/rankings.json): India in global indices, kept as the news reports each new edition
+  const RK = { el: null, data: null };
+  function renderRanks() {
+    const el = $("#content");
+    if (RK.el && el.contains(RK.el)) return;
+    el.innerHTML = '<div id="rkRoot" class="rk-root"></div>';
+    RK.el = $("#rkRoot");
+    CORE.mountRanks(RK.el, { load: () => RK.data || (RK.data = api.json(STATIC ? `data/rankings.json?v=${encodeURIComponent(S.meta.built_at || "")}` : "api/rankings").catch((e) => { RK.data = null; throw e; })) });
   }
 
   // ─────────────────────────── export ───────────────────────────

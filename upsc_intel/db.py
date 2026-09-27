@@ -192,6 +192,30 @@ CREATE TABLE IF NOT EXISTS glossary (
     at TEXT
 );
 
+-- India in global indices (pipeline/rankings.py): each index's editions as articles reported them; id: key|edition
+CREATE TABLE IF NOT EXISTS rankings (
+    id TEXT PRIMARY KEY,
+    index_key TEXT,
+    name TEXT,
+    publisher TEXT,
+    edition TEXT,
+    rank INTEGER,
+    total INTEGER,
+    previous INTEGER,
+    score TEXT,
+    why TEXT,
+    day TEXT,
+    story_id TEXT,
+    url TEXT,
+    source TEXT,
+    at TEXT
+);
+CREATE TABLE IF NOT EXISTS index_checks (
+    key TEXT PRIMARY KEY,
+    at TEXT,
+    found TEXT
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );
@@ -211,6 +235,7 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("article_text", "published", "TEXT"),  # the article's own publish date ("": the page doesn't say; NULL: not checked)
     ("stories", "triage", "TEXT"),  # Gemini's verdict for the brief: {upsc 0-3, subject, gs, prelims, why, t}
     ("stories", "terms", "TEXT"),  # the card's glossary keys (pipeline/glossary.py); [] when it has none
+    ("stories", "ranking", "TEXT"),  # read for India's rank (pipeline/rankings.py): {key, rank}, or {} when it has none
 ]
 
 

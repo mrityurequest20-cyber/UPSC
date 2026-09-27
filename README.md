@@ -160,6 +160,19 @@ Week and Month views recap everything the daily briefs covered.
       - This is the default for Hinglish when Intel AI is on.
       - The voice uses the key's free text-to-speech quota, which is smaller than the text quota. When it runs out, the device's voice takes over and the player says so.
   - Your language, voice and speed are remembered on this device.
+- **India's Ranks (a website tab; in the app, Read → India's Ranks):** India's position in 38 global indices and rankings, from the Human Development Index and Global Hunger Index to Press Freedom, Passport, Innovation, Global Peace and SIPRI.
+  - **Each card shows:**
+    - India's latest rank (of how many), the edition and the score
+    - the change from the previous edition, with ▲/▼ coloured by which way is better for that index (for the Global Terrorism, Climate Risk and air-pollution rankings, 1st is the worst hit; size rankings like GDP or military spending stay neutral)
+    - what the index measures
+    - **why India is at that position**, as the report explains it
+    - the source article with its date, and earlier editions
+  - **Filters:** by area (economy, society and welfare, governance, environment and climate, security and defence, science and soft power). A "Latest reports" strip jumps to the newest ones.
+  - **Where the numbers come from:** only from articles, and a rank is kept only if the article states that number. The index list, publishers and what each measures are in `config/indices.yaml`.
+    - **From the news:** in every run, stories whose headline names India and a rank, or an index, are read by Intel AI. A new edition in the news updates that index.
+    - **The monthly sweep:** an index not seen for a month (or a week, if nothing was found) is searched for in the free news (Bing News). Its newest free article is read, 4 indices a run.
+    - Each (index, edition) is kept once: the first report stands, and a later one fills in what it lacked. An index an article reports that isn't on the list gets its own card under "Other".
+    - Pipeline: `pipeline/rankings.py`, the `rankings` and `index_checks` tables, and `data/rankings.json` (`/api/rankings` on the local server). It runs in the notes step: at most 3 calls for the news and 1 for the sweep per run.
 - **Glossary pop-ups (website and app):** the key terms in a story's text are underlined with a dotted line. Tap one for its meaning: a small card on a computer, a sheet at the bottom on a phone. Tap elsewhere, press Esc or tap ✕ to close it.
   - **What's picked:** 3–6 terms per brief card (Must-know, Prelims facts, editorials, explainers) that an aspirant should know or revise. That means Articles and Schedules, Acts and Bills, schemes and missions, constitutional, statutory and international bodies, agreements, economic and technical terms, acronyms, species, protected areas and exercises. People's names and everyday words are skipped.
   - **What each one says:** at most 35 words of static textbook background, with an acronym's full form first. It never includes the day's news.
@@ -345,10 +358,10 @@ python -m upsc_intel serve [--port 8000] [--no-scheduler] [--public-only]
 python -m upsc_intel fetch [--only pib hindu-] [--force] [--public-only] [--enrich]
 python -m upsc_intel sources            # health table: which step each source is using, counts, errors
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
-python -m upsc_intel enrich [--limit N] # AI notes for the brief, then its glossary (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
+python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 203 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 206 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

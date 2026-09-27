@@ -91,6 +91,11 @@ def cmd_enrich(args) -> int:
             res["glossary"] = build_glossary(s, db, recent_days())
         except Exception as exc:  # the notes are written: a glossary hiccup waits for the next run
             res["glossary"] = {"error": type(exc).__name__}
+        from .pipeline.rankings import update_rankings
+        try:  # India in global indices (pipeline/rankings.py)
+            res["rankings"] = update_rankings(s, db, recent_days())
+        except Exception as exc:
+            res["rankings"] = {"error": type(exc).__name__}
     print(json.dumps(res, indent=2))
     return 0
 

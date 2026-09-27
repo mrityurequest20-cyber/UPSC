@@ -1809,6 +1809,65 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     return { setDay: (d) => { if (d && d !== P.day && P.view === "setup" && P.tab === "mcq") load(d); }, render, tab: (k) => { P.tab = k; P.view = "setup"; render(); } };
   }
 
+  // ─────────────────────────── India's Ranks: India in global indices ───────────────────────────
+  // The tracker (data/rankings.json, pipeline/rankings.py): each index's name, publisher and what it measures, and
+  // India's latest rank as an article reported it, with the change from the previous edition, the reasons and the
+  // source. host.load() → the payload. The areas filter the list; the latest reports lead.
+  const RK_AREAS = [["all", "All"], ["economy", "Economy"], ["society", "Society & welfare"], ["governance", "Governance"],
+    ["environment", "Environment & climate"], ["security", "Security & defence"], ["science", "Science, tech & soft power"], ["other", "Other"]];
+  const ordinal = (n) => { const v = n % 100; return `${n}${v >= 11 && v <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th"}`; };
+  function rankMove(x) {  // → {cls, text}: the change from the previous edition, read by which way is better
+    const L = x.latest; if (!L || !L.previous || L.previous === L.rank) return L && L.previous ? { cls: "same", text: `No change from ${ordinal(L.previous)}` } : null;
+    const d = Math.abs(L.previous - L.rank); const up = L.rank < L.previous;
+    const places = `${d} place${d === 1 ? "" : "s"}`;
+    const good = x.better === "none" ? null : x.better === "high" ? !up : up;
+    const tail = x.better === "high" ? (up ? " (worse)" : " (better)") : "";
+    return { cls: good == null ? "flat" : good ? "good" : "bad", text: `${up ? "▲ Up" : "▼ Down"} ${places} from ${ordinal(L.previous)}${tail}` };
+  }
+  const dayLabel = (d) => { try { return new Date(`${d}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }); } catch (e) { return d; } };
+  function rankCard(x) {
+    const L = x.latest; const mv = rankMove(x);
+    if (!L) {
+      return `<article class="rk empty"><div class="rk-h"><div><b>${esc(x.name)}</b><small>${esc(x.publisher)}</small></div><div class="rk-rank"><span class="rk-n">—</span></div></div>
+        ${x.about ? `<p class="rk-about">${esc(x.about)}</p>` : ""}<p class="rk-src">${x.checked ? `Not in the news since the build started watching (looked on ${esc(dayLabel(x.checked))}); it appears here when the next edition is reported.` : "Being looked up in the news: it appears here within a few hours."}</p></article>`;
+    }
+    const hist = (x.history || []).slice(1, 5);
+    return `<article class="rk" data-rk="${esc(x.key)}"><div class="rk-h"><div><b>${esc(x.name)}</b><small>${esc(x.publisher)} · ${esc(L.edition)} edition</small></div>
+        <div class="rk-rank"><span class="rk-n">${L.rank}<sup>${esc(ordinal(L.rank).replace(/^\d+/, ""))}</sup></span>${L.total ? `<small>of ${L.total}</small>` : ""}</div></div>
+      ${mv ? `<div class="rk-move ${mv.cls}">${esc(mv.text)}</div>` : ""}
+      ${L.score ? `<p class="rk-score">Score: ${esc(L.score)}</p>` : ""}
+      ${x.about ? `<p class="rk-about"><b>What it measures:</b> ${esc(x.about)}</p>` : ""}
+      ${L.why && L.why.length ? `<div class="rk-why"><b>Why India is here</b><ul>${L.why.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}
+      <p class="rk-src">${L.url ? `<a href="${esc(safeUrl(L.url))}" target="_blank" rel="noopener">${esc(L.source || domainOf(L.url) || "Source")}</a>` : esc(L.source || "")}${L.day ? ` · ${esc(dayLabel(L.day))}` : ""}${hist.length ? ` · earlier: ${hist.map((h) => `${esc(h.edition)} ${ordinal(h.rank)}`).join(", ")}` : ""}</p></article>`;
+  }
+  function ranksHtml(data, area = "all") {
+    const all = (data && data.indices) || [];
+    const have = all.filter((x) => x.latest);
+    const areas = RK_AREAS.filter(([k]) => k === "all" || all.some((x) => x.area === k));
+    const list = all.filter((x) => area === "all" || x.area === area)
+      .sort((a, b) => (!!b.latest - !!a.latest) || ((b.latest || {}).day || "").localeCompare((a.latest || {}).day || "") || a.name.localeCompare(b.name));
+    const recent = have.slice().sort((a, b) => (b.latest.day || "").localeCompare(a.latest.day || "")).slice(0, 5);
+    return `<section class="rks"><header class="rk-top"><div class="rk-eyebrow">India's ranks</div>
+        <h2>India in ${all.length} global indices${have.length < all.length ? ` · ${have.length} with a rank so far` : ""}</h2>
+        <p>Each rank is taken from a news report of the index, with its source. It changes when a new edition is in the news; indices not seen for a month are looked up again.${data && data.updated ? ` Last change ${esc(dayLabel(data.updated.slice(0, 10)))}.` : ""}</p></header>
+      ${recent.length && area === "all" ? `<div class="rk-latest"><b>Latest reports</b>${recent.map((x) => `<button type="button" data-rk-go="${esc(x.key)}">${esc(x.name)} · <strong>${ordinal(x.latest.rank)}</strong></button>`).join("")}</div>` : ""}
+      <div class="rk-areas" role="tablist">${areas.map(([k, l]) => `<button type="button" role="tab" data-rk-area="${k}" aria-selected="${k === area}">${esc(l)}</button>`).join("")}</div>
+      <div class="rk-list">${list.map(rankCard).join("") || '<p class="rk-src">Nothing in this area yet.</p>'}</div></section>`;
+  }
+  function mountRanks(el, host) {
+    const R = { data: null, area: "all", err: "" };
+    const paint = () => { el.innerHTML = R.data ? ranksHtml(R.data, R.area) : `<p class="rk-src" style="padding:16px">${esc(R.err || "Loading India's ranks…")}</p>`; };
+    el.onclick = (e) => {
+      const a = e.target.closest && e.target.closest("[data-rk-area]");
+      if (a) { R.area = a.dataset.rkArea; paint(); return; }
+      const g = e.target.closest && e.target.closest("[data-rk-go]");
+      if (g) { const c = el.querySelector(`[data-rk="${g.dataset.rkGo}"]`); if (c && c.scrollIntoView) { c.scrollIntoView({ behavior: "smooth", block: "center" }); c.classList.add("flash"); setTimeout(() => c.classList.remove("flash"), 1600); } }
+    };
+    paint();
+    Promise.resolve(host.load()).then((d) => { R.data = d; paint(); }).catch(() => { R.err = "Couldn't load India's ranks. Check the connection and open this again."; paint(); });
+    return { reload: () => Promise.resolve(host.load()).then((d) => { R.data = d; paint(); }) };
+  }
+
   // ─────────────────────────── Glossary: tap a term for its meaning ───────────────────────────
   // The day's glossary (written by the build: days[d].glossary {key: {t: term, m: meaning}}) marks the first mention of
   // each term in a story's text; a tap opens a small card with its meaning (a sheet on a phone). An acronym or a
@@ -2146,6 +2205,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     mdHtml,
     web: Object.freeze({ OPEN_DOMAINS, isOpen, paywalled, domainOf, read, search, gather, sentencesFrom, mainText, keyQuery, matchOf }),
     wiki, expandAcronym, claudePrompt, openClaude,
-    mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss,
+    mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss, mountRanks, ranksHtml, rankMove,
   });
 })(window);
