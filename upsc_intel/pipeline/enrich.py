@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from ..config import Settings
 from ..db import DB, iso
@@ -410,10 +412,90 @@ GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_PAUSE = 4.5  # seconds between calls: the free tier allows about 10-15 requests a minute
 GEMINI_FALLBACK = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 BLOCKED = {"SAFETY", "RECITATION", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "LANGUAGE"}
+# Of each model's daily limit, the requests the build leaves for the phone (Ask Intel, Mains marking, Hinglish): the
+# phone uses the same key. At most a fifth of a small limit.
+RESERVE = 25
+PACIFIC = ZoneInfo("America/Los_Angeles")  # the free quota resets at midnight Pacific time (12:30 PM IST, 1:30 PM in winter)
 
 
 class GeminiStop(Exception):
     """The key is refused, or every model's quota is used up: stop for this run."""
+
+
+def pacific_day(now: datetime | None = None) -> str:
+    return (now or datetime.now(timezone.utc)).astimezone(PACIFIC).date().isoformat()
+
+
+def quota_hit(r) -> tuple[str, int | None]:
+    """A 429's reason from its details: ("day", the daily limit if Google names it) when the model's daily quota is
+    used up, ("minute", None) for the per-minute limit, ("", None) when the reply doesn't say."""
+    try:
+        details = r.json()["error"].get("details") or []
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return "", None
+    kind = ""
+    for d in details:
+        for v in (d.get("violations") or []) if isinstance(d, dict) else []:
+            qid = str(v.get("quotaId") or "")
+            if "PerDay" in qid:
+                try:
+                    return "day", int(v.get("quotaValue"))
+                except (TypeError, ValueError):
+                    return "day", None
+            if "PerMinute" in qid:
+                kind = "minute"
+    return kind, None
+
+
+class Ledger:
+    """The build's Gemini requests per model per Pacific day, in the database, so every step of every run knows which
+    model is used up until the quota resets (no request is wasted on it every 20 minutes) and when to stop to leave
+    RESERVE requests for the phone."""
+
+    def __init__(self, db: DB, reserve: int = RESERVE):
+        self.db, self.reserve = db, reserve
+
+    def _row(self, model: str, day: str):
+        rows = self.db.q("SELECT calls, quota, out_at FROM gemini_usage WHERE day=? AND model=?", (day, model))
+        return rows[0] if rows else None
+
+    def limit(self, model: str, day: str | None = None) -> int | None:
+        """The model's daily limit: as Google named it (or as the build found it) on the latest day it ran out."""
+        day = day or pacific_day()
+        since = (date.fromisoformat(day) - timedelta(days=14)).isoformat()
+        rows = self.db.q("SELECT quota FROM gemini_usage WHERE model=? AND day>=? AND quota IS NOT NULL ORDER BY day DESC LIMIT 1",
+                         (model, since))
+        return rows[0]["quota"] if rows else None
+
+    def usable(self, model: str) -> str:
+        """"" when the build may call the model now, else why not ("out": used up today; "reserve": the rest is the phone's)."""
+        day = pacific_day()
+        row = self._row(model, day)
+        if row and row["out_at"]:
+            return "out"
+        lim = self.limit(model, day)
+        if lim and row and row["calls"] >= lim - min(self.reserve, max(2, lim // 5)):
+            return "reserve"
+        return ""
+
+    def count(self, model: str) -> None:
+        self.db.x("INSERT INTO gemini_usage (day, model, calls) VALUES (?,?,1) "
+                  "ON CONFLICT(day, model) DO UPDATE SET calls = calls + 1", (pacific_day(), model))
+        self.db.commit()
+
+    def out(self, model: str, quota: int | None) -> None:
+        """Used up for today: Google's own limit, else the requests the build made today (the phone's aren't seen)."""
+        day = pacific_day()
+        row = self._row(model, day)
+        quota = quota or (row["calls"] if row and row["calls"] else None)
+        self.db.x("INSERT INTO gemini_usage (day, model, calls, quota, out_at) VALUES (?,?,0,?,?) "
+                  "ON CONFLICT(day, model) DO UPDATE SET quota = COALESCE(?, quota), out_at = ?",
+                  (day, model, quota, iso(datetime.now(timezone.utc)), quota, iso(datetime.now(timezone.utc))))
+        self.db.commit()
+
+    def today(self) -> dict:
+        return {r["model"]: {"calls": r["calls"], "limit": r["quota"], **({"out": r["out_at"]} if r["out_at"] else {})}
+                for r in self.db.q("SELECT * FROM gemini_usage WHERE day=? ORDER BY model", (pacific_day(),))}
 
 
 def rank_models(names: list[str]) -> list[str]:
@@ -426,6 +508,11 @@ def rank_models(names: list[str]) -> list[str]:
     lite = sorted((n for n in names if re.fullmatch(r"gemini-\d+(?:\.\d+)?-flash-lite", n)), key=ver, reverse=True)
     alias = [n for n in ("gemini-flash-latest", "gemini-flash-lite-latest") if n in names]
     return flash[:2] + lite[:1] + alias or list(GEMINI_FALLBACK)
+
+
+def lite_first(models: list[str]) -> list[str]:
+    """For sorting and extraction jobs: Flash-Lite (the bigger free quota) first, which leaves Flash for the notes."""
+    return [m for m in models if "lite" in m] + [m for m in models if "lite" not in m]
 
 
 def gemini_schema(sch: dict) -> dict:
@@ -443,14 +530,17 @@ def gemini_schema(sch: dict) -> dict:
 
 
 class Gemini:
-    """Gemini's REST API with the key in a header (never in a URL, so it never reaches a log)."""
+    """Gemini's REST API with the key in a header (never in a URL, so it never reaches a log). With the database, the
+    day's usage is kept (Ledger); `lite` puts Flash-Lite first (sorting and extraction jobs)."""
 
-    def __init__(self, key: str, model: str = "", http=None):
+    def __init__(self, key: str, model: str = "", http=None, db: DB | None = None, lite: bool = False):
         import httpx
 
         self.key = key
         self.http = http or httpx.Client(timeout=120)
         self.models: list[str] | None = [model] if model else None
+        self.lite = lite
+        self.ledger = Ledger(db, reserve=int(os.environ.get("UPSC_GEMINI_RESERVE") or RESERVE)) if db is not None else None
 
     def _headers(self) -> dict:
         return {"x-goog-api-key": self.key, "Content-Type": "application/json"}
@@ -462,7 +552,7 @@ class Gemini:
                 raise GeminiStop(f"the key was refused (HTTP {r.status_code})")
             names = [m.get("name", "").split("/", 1)[-1] for m in (r.json().get("models") or [])
                      if "generateContent" in (m.get("supportedGenerationMethods") or [])] if r.status_code == 200 else []
-            self.models = rank_models(names)
+            self.models = lite_first(rank_models(names)) if self.lite else rank_models(names)
             log.info("Gemini models: %s", ", ".join(self.models))
         return self.models
 
@@ -473,13 +563,25 @@ class Gemini:
                 # (a "thinking" model counts its thinking in the output budget: room for both)
                 "generationConfig": {"temperature": 0.2, "maxOutputTokens": 16384, "responseMimeType": "application/json",
                                      "responseSchema": gemini_schema(schema)}}
+        held = []
         for model in list(self.pick()):
+            why = self.ledger.usable(model) if self.ledger else ""
+            if why:  # used up today, or the rest of today's limit is the phone's
+                held.append(why)
+                continue
             r = self.http.post(f"{GEMINI_API}/models/{model}:generateContent", headers=self._headers(), json=body)
             if r.status_code in (429, 404) or r.status_code >= 500:
                 log.warning("Gemini %s: HTTP %s, trying the next model", model, r.status_code)
+                if r.status_code == 429 and self.ledger:
+                    kind, quota = quota_hit(r)
+                    if kind == "day":  # not again until the quota resets (every run, every step)
+                        self.ledger.out(model, quota)
+                        log.warning("Gemini %s: today's free quota is used up (limit %s)", model, quota or "not given")
                 if r.status_code < 500:  # quota used up or model gone: not again this run (a busy 503 is tried next card)
                     self.models.remove(model)
                 continue
+            if self.ledger:
+                self.ledger.count(model)
             if r.status_code in (401, 403) or (r.status_code == 400 and "API_KEY" in r.text):
                 raise GeminiStop(f"the key was refused (HTTP {r.status_code})")
             if r.status_code >= 400:  # a bad request is the same for every card (e.g. an API change): stop, mark nothing
@@ -495,6 +597,10 @@ class Gemini:
             except ValueError:  # cut short or malformed: this card is skipped, not retried every run
                 log.warning("Gemini %s: non-JSON reply (%s)", model, reason)
                 return {"skipped": f"bad reply ({reason.lower() or 'not JSON'})"}, model
+        if held and all(h == "reserve" for h in held):
+            raise GeminiStop("the rest of today's free quota is left for the phone (it resets at 12:30 PM IST)")
+        if held:
+            raise GeminiStop("every model's free quota is used up for today (it resets at 12:30 PM IST)")
         raise GeminiStop("every model's free quota is used up for now")
 
 
@@ -595,7 +701,7 @@ def _save(db: DB, story: dict, ai: dict) -> None:
 
 def _enrich_gemini(settings: Settings, db: DB, todo: list, pause: float = GEMINI_PAUSE, http=None) -> dict:
     """One card at a time, a few seconds apart (the free tier's per-minute limit); stops at a used-up quota."""
-    gem = Gemini(settings.gemini_api_key or "", settings.gemini_model, http=http)
+    gem = Gemini(settings.gemini_api_key or "", settings.gemini_model, http=http, db=db)
     done = skipped = 0
     note = ""
     for i, (story, kind) in enumerate(todo):

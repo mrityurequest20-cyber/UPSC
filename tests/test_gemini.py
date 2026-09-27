@@ -245,3 +245,86 @@ def test_notes_without_the_static_part_are_written_again_once(db, settings):
     finally:
         EN._enrich_gemini = real
     assert seen == ["new", "nostatic"]  # new cards first; a note with its static part isn't asked again
+
+
+def day_429(model, per="PerDay", quota="250"):
+    return Resp(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "details": [
+        {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [
+            {"quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+             "quotaId": f"GenerateRequests{per}PerProjectPerModel-FreeTier", "quotaDimensions": {"model": model}, "quotaValue": quota}]},
+        {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "43s"}]}})
+
+
+class DailyLimit(FakeGemini):
+    """`out` models answer 429 with the daily quota named in the reply's details."""
+    def __init__(self, out=(), per="PerDay", **kw):
+        super().__init__(**kw)
+        self.out, self.per = set(out), per
+
+    def post(self, url, headers=None, json=None):
+        model = url.split("/models/")[1].split(":")[0]
+        if model in self.out:
+            self.calls.append(("POST", url, headers))
+            return day_429(model, self.per)
+        return super().post(url, headers, json)
+
+
+def posted(http):
+    return [u.split("/models/")[1].split(":")[0] for m, u, _ in http.calls if m == "POST"]
+
+
+def test_a_429_says_whether_the_daily_or_the_minute_quota_ran_out():
+    assert E.quota_hit(day_429("m")) == ("day", 250)
+    assert E.quota_hit(day_429("m", per="PerMinute")) == ("minute", None)
+    assert E.quota_hit(Resp(429, {"error": {"code": 429}})) == ("", None)
+
+
+def test_a_model_used_up_for_the_day_is_not_asked_again_until_the_quota_resets(db, settings, monkeypatch):
+    settings.gemini_api_key = "test-key"
+    http = DailyLimit(out={"gemini-2.5-flash"})
+    E._enrich_gemini(settings, db, [(card(db, "a"), "news")], pause=0, http=http)
+    assert posted(http) == ["gemini-2.5-flash", "gemini-2.0-flash"]
+    assert E.Ledger(db).today()["gemini-2.5-flash"]["limit"] == 250 and "out" in E.Ledger(db).today()["gemini-2.5-flash"]
+    http = DailyLimit(out={"gemini-2.5-flash"})  # the next run (a new client): straight to the next model
+    E._enrich_gemini(settings, db, [(card(db, "b"), "news")], pause=0, http=http)
+    assert posted(http) == ["gemini-2.0-flash"]
+    tomorrow = (datetime.fromisoformat(E.pacific_day() + "T12:00:00+00:00") + __import__("datetime").timedelta(days=1)).date().isoformat()
+    monkeypatch.setattr(E, "pacific_day", lambda now=None: tomorrow)
+    http = FakeGemini()
+    E._enrich_gemini(settings, db, [(card(db, "c"), "news")], pause=0, http=http)
+    assert posted(http) == ["gemini-2.5-flash"]  # a new Pacific day: the best model again
+
+
+def test_a_per_minute_limit_skips_the_model_for_this_run_only(db, settings):
+    settings.gemini_api_key = "test-key"
+    http = DailyLimit(out={"gemini-2.5-flash"}, per="PerMinute")
+    E._enrich_gemini(settings, db, [(card(db, "a"), "news")], pause=0, http=http)
+    assert "out" not in E.Ledger(db).today().get("gemini-2.5-flash", {})
+    http = FakeGemini()
+    E._enrich_gemini(settings, db, [(card(db, "b"), "news")], pause=0, http=http)
+    assert posted(http) == ["gemini-2.5-flash"]
+
+
+def test_the_build_leaves_the_last_requests_of_a_daily_limit_for_the_phone(db, settings):
+    settings.gemini_api_key = "test-key"
+    day = E.pacific_day()
+    yesterday = (datetime.fromisoformat(day + "T12:00:00+00:00") - __import__("datetime").timedelta(days=1)).date().isoformat()
+    for m in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"):  # limits learnt when each ran out yesterday
+        db.x("INSERT INTO gemini_usage (day, model, calls, quota, out_at) VALUES (?,?,?,?,?)", (yesterday, m, 100, 100, "x"))
+    db.x("INSERT INTO gemini_usage (day, model, calls) VALUES (?,?,?)", (day, "gemini-2.5-flash", 80))  # 100 - 20 held back
+    db.commit()
+    http = FakeGemini()
+    E._enrich_gemini(settings, db, [(card(db, "a"), "news")], pause=0, http=http)
+    assert posted(http) == ["gemini-2.0-flash"] and E.Ledger(db).today()["gemini-2.0-flash"]["calls"] == 1
+    for m in ("gemini-2.0-flash", "gemini-2.5-flash-lite"):
+        db.x("INSERT OR REPLACE INTO gemini_usage (day, model, calls) VALUES (?,?,?)", (day, m, 90))
+    db.commit()
+    res = E._enrich_gemini(settings, db, [(card(db, "b"), "news")], pause=0, http=FakeGemini())
+    assert res["enriched"] == 0 and "left for the phone" in res["paused"]
+
+
+def test_sorting_jobs_ask_flash_lite_first(db, settings):
+    assert E.lite_first(["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"]) == \
+        ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+    g = E.Gemini("test-key", http=FakeGemini(), db=db, lite=True)
+    assert g.pick()[0] == "gemini-2.5-flash-lite" and E.Gemini("k", http=FakeGemini()).pick()[0] == "gemini-2.5-flash"

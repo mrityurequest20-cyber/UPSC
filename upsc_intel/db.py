@@ -242,6 +242,17 @@ CREATE TABLE IF NOT EXISTS topics (
     at TEXT
 );
 
+-- Gemini's free daily quota (pipeline/enrich.py): the build's requests per model per Pacific day (the quota resets at
+-- midnight Pacific, 12:30 PM IST), the model's daily limit when Google named it, and when the model ran out that day
+CREATE TABLE IF NOT EXISTS gemini_usage (
+    day TEXT,
+    model TEXT,
+    calls INTEGER DEFAULT 0,
+    quota INTEGER,
+    out_at TEXT,
+    PRIMARY KEY (day, model)
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );
@@ -262,8 +273,8 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("stories", "triage", "TEXT"),  # Gemini's verdict for the brief: {upsc 0-3, subject, gs, prelims, why, t}
     ("stories", "terms", "TEXT"),  # the card's glossary keys (pipeline/glossary.py); [] when it has none
     ("stories", "ranking", "TEXT"),  # read for India's rank (pipeline/rankings.py): {key, rank}, or {} when it has none
-    ("stories", "extras", "TEXT"),
-    ("topics", "seed", "INTEGER DEFAULT 0"),  # a long-running issue listed in config/dossiers.yaml (pipeline/dossiers.py)  # the card's places and running topics (pipeline/glossary.py): {places: [keys], topics: [keys]}
+    ("stories", "extras", "TEXT"),  # the card's places and running topics (pipeline/glossary.py): {places: [keys], topics: [keys]}
+    ("topics", "seed", "INTEGER DEFAULT 0"),  # a long-running issue listed in config/dossiers.yaml (pipeline/dossiers.py)
 ]
 
 

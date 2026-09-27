@@ -822,7 +822,8 @@
       try { list = (await api.json("api/stories/by_ids", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) })).stories; } catch (e) { /* keep */ }
     }
     el.innerHTML = `<p class="legend-note">${plural(list.length, "starred story", "starred stories")} across all dates: your revision list.</p>` +
-      (list.length ? `<div class="cards">${sortStories(list).map(card).join("")}</div>` : '<div class="empty">Star (☆) any story to build your revision list. It lives here across days.</div>');
+      (list.length ? `<div class="cards">${sortStories(list).map(card).join("")}</div>` : '<div class="empty">Star (☆) any story to build your revision list. It lives here across days.</div>') +
+      CORE.backup.html();
   }
   async function renderLibrary() {
     const el = $("#content");
