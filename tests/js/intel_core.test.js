@@ -658,6 +658,25 @@ test("glossary: each term's first mention is a button; acronyms keep their capit
   G.set({});
 });
 
+test("India's Ranks: the change reads the right way for each index; empty ones say why; areas filter", () => {
+  const L = (rank, previous) => ({ edition: "2025", rank, total: 127, previous, score: "", why: ["Child wasting is high."], day: "2025-10-10", url: "https://www.ndtv.com/x", source: "ndtv.com" });
+  assert.deepStrictEqual(C.rankMove({ better: "low", latest: L(102, 105) }), { cls: "good", text: "▲ Up 3 places from 105th" });
+  assert.deepStrictEqual(C.rankMove({ better: "low", latest: L(107, 105) }), { cls: "bad", text: "▼ Down 2 places from 105th" });
+  assert.deepStrictEqual(C.rankMove({ better: "high", latest: L(3, 5) }), { cls: "bad", text: "▲ Up 2 places from 5th (worse)" }, "rank 1 = worst hit");
+  assert.deepStrictEqual(C.rankMove({ better: "none", latest: L(4, 5) }), { cls: "flat", text: "▲ Up 1 place from 5th" });
+  assert.strictEqual(C.rankMove({ better: "low", latest: L(11, null) }), null);
+  assert.strictEqual(C.rankMove({ better: "low", latest: L(12, 12) }).text, "No change from 12th");
+  const data = { updated: "2026-09-27T18:00:00+00:00", indices: [
+    { key: "hunger", name: "Global Hunger Index", publisher: "Concern Worldwide and Welthungerhilfe", about: "Undernourishment…", area: "society", better: "low", latest: L(102, 105), history: [{ edition: "2025", rank: 102 }, { edition: "2024", rank: 105 }] },
+    { key: "peace", name: "Global Peace Index", publisher: "IEP", about: "Safety, conflict, militarisation.", area: "security", better: "low", latest: null, checked: "2026-09-20", history: [] }] };
+  const all = C.ranksHtml(data);
+  assert.ok(all.includes("India in 2 global indices · 1 with a rank so far") && all.includes("102<sup>nd</sup>") && all.includes("of 127"));
+  assert.ok(all.includes("rk-move good") && all.includes("Why India is here") && all.includes("earlier: 2024 105th") && all.includes('href="https://www.ndtv.com/x"'));
+  assert.ok(all.includes("Not in the news since") && all.indexOf("Global Hunger Index") < all.indexOf("Global Peace Index"), "found ones first");
+  const sec = C.ranksHtml(data, "security");
+  assert.ok(sec.includes("Global Peace Index") && !sec.includes("102<sup>") && !sec.includes("Latest reports"));
+});
+
 (async () => {
   let failed = 0;
   for (const [name, fn] of tests) {

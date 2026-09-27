@@ -356,7 +356,8 @@
   function renderRead() {
     if (A.briefDay !== A.day) return '<div class="loading">Loading…</div>';
     const L = lists();
-    const seg = `<div style="padding:2px 16px 12px"><div class="seg">${[["ed", `Editorials · ${L.editorials.length}`], ["ex", `Explained · ${L.explained.length}`]].map(([k, l]) => `<button class="${A.readSeg === k ? "on" : ""}" data-seg="${k}">${l}</button>`).join("")}</div></div>`;
+    const seg = `<div style="padding:2px 16px 12px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["ed", `Editorials · ${L.editorials.length}`], ["ex", `Explained · ${L.explained.length}`], ["ranks", "India's Ranks"]].map(([k, l]) => `<button class="${A.readSeg === k ? "on" : ""}" data-seg="${k}">${l}</button>`).join("")}</div></div>`;
+    if (A.readSeg === "ranks") return `${seg}<div id="rkRoot" class="rk-root"></div>`;  // India in global indices (mounted after)
     if (A.readSeg === "ed") {
       const papers = (A.meta && A.meta.gs_papers) || {};
       const groups = ["GS1", "GS2", "GS3", "GS4", "Prelims", "Other"].map((p) => ({ p, items: L.editorials.filter((s) => paperOf(s) === p) })).filter((g) => g.items.length);
@@ -841,10 +842,14 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     scr.innerHTML = '<div class="pxwrap"><div id="pxRoot"></div></div>';
     PX.el = $("#pxRoot"); PX.w = CORE.mountPractice(PX.el, pxHost);
   }
+  const RK = { data: null };  // India's Ranks, loaded once a visit
   function renderScreen() {
     if (A.tab === "practice") { renderPractice(); renderTabs(); return; }
     const html = A.tab === "read" ? renderRead() : A.tab === "insights" ? renderInsights() : A.tab === "review" ? renderReview() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
+    if (A.tab === "read" && A.readSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
+      CORE.mountRanks($("#rkRoot"), { load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
+    }
     renderTabs();
     watchCards();
   }

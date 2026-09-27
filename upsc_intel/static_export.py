@@ -240,6 +240,9 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         meta["counts"]["library"] = 0
         meta["imap_enabled"] = False
     _write_json(out / "data" / "meta.json", meta)
+    if not include_private:  # India in global indices (pipeline/rankings.py): the "India's Ranks" section
+        from .pipeline.rankings import rankings_payload
+        _write_json(out / "data" / "rankings.json", rankings_payload(settings, db))
     # Gemini's verdicts against the rules for the days still being rebuilt: what the AI moves in the brief
     audits = [a for a in (audit_day(db, clf, d) for d in recent_days()) if a]
     if audits and not include_private:

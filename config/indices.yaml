@@ -1,0 +1,127 @@
+# India in global indices and rankings (pipeline/rankings.py): the reports a UPSC aspirant is asked about.
+# Each has its name, who releases it and what it measures. India's rank, edition and the reasons come only from
+# news articles the build reads (never from this file): a story reporting India's rank updates it, and a monthly
+# sweep searches the free news for any index not seen for a while.
+#   key: id · name · publisher · about (what it measures) · area · aliases (how articles name it, lower case)
+#   better: which rank is better: low (default: 1st is best), high (1st is worst hit) or none (a size ranking)
+indices:
+  # ── economy ──
+  - {key: competitiveness, area: economy, name: "World Competitiveness Ranking", publisher: "IMD World Competitiveness Center (Lausanne)",
+     about: "Economic performance, government efficiency, business efficiency and infrastructure.",
+     aliases: ["world competitiveness ranking", "world competitiveness yearbook", "imd competitiveness"]}
+  - {key: economic_freedom, area: economy, name: "Index of Economic Freedom", publisher: "The Heritage Foundation",
+     about: "Rule of law, size of government, regulatory efficiency and open markets.",
+     aliases: ["index of economic freedom", "economic freedom index"]}
+  - {key: logistics, area: economy, name: "Logistics Performance Index", publisher: "World Bank",
+     about: "Customs, infrastructure, international shipments, logistics competence, tracking and timeliness.",
+     aliases: ["logistics performance index", "lpi"]}
+  - {key: economy_size, area: economy, better: none, name: "World's largest economies (nominal GDP)", publisher: "IMF (World Economic Outlook)",
+     about: "Countries ranked by the size of their economy in current US dollars.",
+     aliases: ["largest economy", "largest economies", "world economic outlook"]}
+  - {key: fdi, area: economy, better: none, name: "FDI inflows ranking (World Investment Report)", publisher: "UNCTAD",
+     about: "Countries ranked by foreign direct investment received in the year.",
+     aliases: ["world investment report", "fdi inflows", "fdi recipient"]}
+  - {key: remittances, area: economy, better: none, name: "Remittance receipts", publisher: "World Bank (Migration and Development Brief)",
+     about: "Countries ranked by money sent home by migrant workers.",
+     aliases: ["remittance", "remittances"]}
+  - {key: startup, area: economy, name: "Global Startup Ecosystem Index", publisher: "StartupBlink",
+     about: "Quantity, quality and business environment of startup ecosystems.",
+     aliases: ["startup ecosystem index", "startupblink"]}
+  - {key: travel_tourism, area: economy, name: "Travel & Tourism Development Index", publisher: "World Economic Forum",
+     about: "Enabling environment, policy, infrastructure, and natural and cultural resources for tourism.",
+     aliases: ["travel & tourism development index", "travel and tourism development index", "ttdi"]}
+  # ── society and welfare ──
+  - {key: human_development, area: society, name: "Human Development Index", publisher: "UNDP (Human Development Report)",
+     about: "Life expectancy, education (expected and mean years of schooling) and income per head.",
+     aliases: ["human development index", "human development report", "hdi"]}
+  - {key: gender_gap, area: society, name: "Global Gender Gap Index", publisher: "World Economic Forum",
+     about: "Gender parity in economic participation, education, health and political empowerment.",
+     aliases: ["global gender gap", "gender gap index", "gender gap report"]}
+  - {key: hunger, area: society, name: "Global Hunger Index", publisher: "Concern Worldwide and Welthungerhilfe",
+     about: "Undernourishment, child stunting, child wasting and under-five mortality.",
+     aliases: ["global hunger index", "ghi"]}
+  - {key: happiness, area: society, name: "World Happiness Report", publisher: "Wellbeing Research Centre (Oxford), Gallup and UN SDSN",
+     about: "How people rate their own lives (the Gallup World Poll), explained by income, health, support and freedom.",
+     aliases: ["world happiness report", "happiness index", "happiest countries"]}
+  - {key: sdg, area: society, name: "SDG Index (Sustainable Development Report)", publisher: "UN Sustainable Development Solutions Network",
+     about: "Progress on the 17 Sustainable Development Goals.",
+     aliases: ["sdg index", "sustainable development report", "sdg ranking"]}
+  - {key: women_peace_security, area: society, name: "Women, Peace and Security Index", publisher: "Georgetown Institute for Women, Peace and Security and PRIO",
+     about: "Women's inclusion, justice and security.",
+     aliases: ["women, peace and security index", "women peace and security index", "wps index"]}
+  - {key: population, area: society, better: none, name: "Most populous countries", publisher: "UN DESA (World Population Prospects)",
+     about: "Countries ranked by population.",
+     aliases: ["most populous", "world population prospects", "state of world population"]}
+  - {key: talent, area: economy, name: "Global Talent Competitiveness Index", publisher: "INSEAD",
+     about: "How countries enable, attract, grow and retain talent.",
+     aliases: ["global talent competitiveness", "gtci"]}
+  # ── governance and democracy ──
+  - {key: corruption, area: governance, name: "Corruption Perceptions Index", publisher: "Transparency International",
+     about: "Perceived public-sector corruption, from expert and business surveys, scored 0-100.",
+     aliases: ["corruption perceptions index", "corruption perception index"]}
+  - {key: press_freedom, area: governance, name: "World Press Freedom Index", publisher: "Reporters Without Borders (RSF)",
+     about: "Political, economic, legislative, social and safety conditions for journalists.",
+     aliases: ["press freedom index", "world press freedom", "rsf index"]}
+  - {key: democracy, area: governance, name: "Democracy Index", publisher: "Economist Intelligence Unit",
+     about: "Electoral process, functioning of government, participation, political culture and civil liberties.",
+     aliases: ["democracy index", "eiu democracy"]}
+  - {key: rule_of_law, area: governance, name: "Rule of Law Index", publisher: "World Justice Project",
+     about: "Constraints on government, absence of corruption, open government, rights, order and justice.",
+     aliases: ["rule of law index", "world justice project"]}
+  - {key: e_government, area: governance, name: "E-Government Development Index", publisher: "UN DESA (UN E-Government Survey)",
+     about: "Online services, telecommunication infrastructure and human capital.",
+     aliases: ["e-government development index", "e-government survey", "egdi"]}
+  - {key: passport, area: governance, name: "Henley Passport Index", publisher: "Henley & Partners",
+     about: "Destinations a passport holder can enter without a visa obtained in advance.",
+     aliases: ["henley passport index", "passport index", "passport ranking"]}
+  # ── environment and climate ──
+  - {key: environment, area: environment, name: "Environmental Performance Index", publisher: "Yale and Columbia University",
+     about: "Climate change mitigation, environmental health and ecosystem vitality.",
+     aliases: ["environmental performance index", "epi"]}
+  - {key: climate, area: environment, name: "Climate Change Performance Index", publisher: "Germanwatch, NewClimate Institute and CAN",
+     about: "Emissions, renewable energy, energy use and climate policy.",
+     aliases: ["climate change performance index", "ccpi"]}
+  - {key: climate_risk, area: environment, better: high, name: "Climate Risk Index", publisher: "Germanwatch",
+     about: "How hard countries were hit by extreme weather: deaths and economic losses.",
+     aliases: ["climate risk index"]}
+  - {key: energy_transition, area: environment, name: "Energy Transition Index", publisher: "World Economic Forum",
+     about: "Energy system performance (secure, sustainable, affordable) and readiness for the transition.",
+     aliases: ["energy transition index"]}
+  - {key: renewables, area: environment, better: none, name: "Renewable energy capacity", publisher: "IRENA (Renewable Capacity Statistics)",
+     about: "Countries ranked by installed renewable power capacity.",
+     aliases: ["renewable capacity", "renewable energy capacity", "solar capacity", "wind capacity", "irena"]}
+  - {key: air_quality, area: environment, better: high, name: "World Air Quality Report", publisher: "IQAir",
+     about: "Countries and cities ranked by average PM2.5 pollution (a higher rank means more polluted).",
+     aliases: ["world air quality report", "iqair", "most polluted countries", "most polluted"]}
+  # ── security and defence ──
+  - {key: peace, area: security, name: "Global Peace Index", publisher: "Institute for Economics & Peace",
+     about: "Societal safety and security, ongoing conflict and militarisation.",
+     aliases: ["global peace index", "gpi"]}
+  - {key: terrorism, area: security, better: high, name: "Global Terrorism Index", publisher: "Institute for Economics & Peace",
+     about: "The impact of terrorism: incidents, deaths, injuries and hostages.",
+     aliases: ["global terrorism index", "gti"]}
+  - {key: military_strength, area: security, better: none, name: "Global Firepower military strength ranking", publisher: "Global Firepower",
+     about: "Conventional military strength from over 60 factors.",
+     aliases: ["global firepower", "military strength ranking", "most powerful militaries"]}
+  - {key: military_spending, area: security, better: none, name: "Military expenditure ranking", publisher: "SIPRI",
+     about: "Countries ranked by military spending.",
+     aliases: ["military expenditure", "military spending", "military spender"]}
+  - {key: arms_imports, area: security, better: none, name: "Arms imports ranking", publisher: "SIPRI (Trends in International Arms Transfers)",
+     about: "Countries ranked by imports of major arms over five years.",
+     aliases: ["arms importer", "arms imports", "arms transfers"]}
+  # ── science, technology and soft power ──
+  - {key: innovation, area: science, name: "Global Innovation Index", publisher: "WIPO",
+     about: "Innovation inputs (institutions, human capital, infrastructure, markets, business) and outputs (knowledge, creative).",
+     aliases: ["global innovation index", "gii"]}
+  - {key: network_readiness, area: science, name: "Network Readiness Index", publisher: "Portulans Institute",
+     about: "Technology, people, governance and impact of digital networks.",
+     aliases: ["network readiness index", "nri ranking"]}
+  - {key: patents, area: science, better: none, name: "Patent filings ranking (World Intellectual Property Indicators)", publisher: "WIPO",
+     about: "Countries ranked by patent applications filed.",
+     aliases: ["world intellectual property indicators", "patent filings", "patent applications"]}
+  - {key: research_output, area: science, better: none, name: "Nature Index (research output)", publisher: "Springer Nature",
+     about: "Countries ranked by articles in leading natural-science and health-science journals.",
+     aliases: ["nature index"]}
+  - {key: soft_power, area: science, name: "Global Soft Power Index", publisher: "Brand Finance",
+     about: "Familiarity, reputation and influence of nations, from a global survey.",
+     aliases: ["global soft power index", "soft power index"]}
