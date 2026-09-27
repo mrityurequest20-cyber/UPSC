@@ -162,7 +162,9 @@
 
   const dayOf = () => (A.brief && A.brief.days[A.briefDay]) || {};
   const pick = (ids) => (ids || []).map((id) => A.byId.get(id)).filter(Boolean);
-  const lists = () => { const v = dayOf(); return { news: pick(v.news), more: pick(v.more), editorials: pick(v.editorials), explained: pick(v.explained) }; };
+  // news: the Must-know cards · prelims: the Prelims facts cards (absent in briefs built before they existed) · more: one-liners
+  const lists = () => { const v = dayOf(); return { news: pick(v.news), prelims: pick(v.prelims), more: pick(v.more), editorials: pick(v.editorials), explained: pick(v.explained) }; };
+  const cardIds = (v) => (v.news || []).concat(v.prelims || []);
   const findStory = (id) => A.byId.get(id) || A.cache.get(id) || A.saved[id] || null;
   function foldedOf(id) {
     const f = (dayOf().folded || {})[id];
@@ -276,7 +278,7 @@
   function card(s, rank) {
     const done = isDone(s); const star = isStar(s); const tag = tagOf(s); const why = whyOf(s);
     return `<article class="card${done ? " done" : ""}" data-open="${esc(s.id)}">
-      <div class="card-meta"><span class="rank">${rank}</span>${gradePill(s)}${gsPills(s)}<span class="sp"></span><span class="min">${minutesOf(s)} min</span></div>
+      <div class="card-meta">${rank ? `<span class="rank">${rank}</span>` : ""}${gradePill(s)}${gsPills(s)}<span class="sp"></span><span class="min">${minutesOf(s)} min</span></div>
       <div class="card-tags"><span class="subj">${esc(subjOf(s))}</span>${tag ? `<span class="tag">${esc(tag)}</span>` : ""}</div>
       <h3 class="card-title">${esc(s.title)}</h3>
       ${why ? `<p class="card-why"><b>Why in news:</b> ${esc(why)}</p>` : ""}
@@ -308,11 +310,11 @@
     const head = `<div class="monthrow"><button class="monthbtn" data-act="cal">${I.cal}${esc(monthLabel(d))}${I.chev}</button>${d !== today ? '<button class="btn-s" data-act="today">Today</button>' : ""}</div><div class="week">${strip}</div>`;
     if (A.briefDay !== d) return head + '<div class="loading">Loading the brief…</div>';
     const L = lists();
-    if (!L.news.length && !L.more.length && !L.editorials.length) {
+    if (!L.news.length && !L.prelims.length && !L.more.length && !L.editorials.length) {
       const early = d === today;
       return `${head}<div class="empty">${early ? "Today's brief fills up through the day: the first stories land after 6 am IST." : `No brief for ${esc(dayLabel(d))}.`}<br><button class="btn-s" data-day="${addDays(d, -1)}">Open ${esc(dayShort(addDays(d, -1)))}</button></div>`;
     }
-    const all = L.news.concat(L.editorials, L.explained);
+    const all = L.news.concat(L.prelims, L.editorials, L.explained);
     const done = all.filter(isDone).length;
     const mins = all.reduce((n, s) => n + minutesOf(s), 0);
     const reported = ((A.meta && A.meta.date_counts) || {})[d];
@@ -320,18 +322,21 @@
     const hero = `<section class="hero">
       <div class="eyebrow">Daily Brief · ${esc(dayLabel(d))}</div>
       <div class="hero-n">${plural(L.news.length, "must-know story", "must-know stories")}</div>
-      <div class="hero-sub">${L.news.some((x) => x.grade === "NOTE") ? `${L.news.filter((x) => x.grade === "NOTE").length} to make notes on, the rest a quick read` : "each a quick read"} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}${L.more.length ? ` · +${L.more.length} one-liners` : ""}</div>
+      <div class="hero-sub">${L.news.length ? "make notes on each" : "none yet"}${L.prelims.length ? ` · +${plural(L.prelims.length, "Prelims fact")}, a quick read` : ""} · ${plural(L.editorials.length, "editorial")} · ${plural(L.explained.length, "explainer")} · about ${fmtMins(mins)}<br>${reported ? `picked from ${reported.toLocaleString("en-IN")} reported` : "the day's pick"}${L.more.length ? ` · +${L.more.length} one-liners` : ""}</div>
       <div class="hero-prog"><div class="track"><div style="width:${pct}%"></div></div><span>${done} of ${all.length} done</span></div>
       <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}Export as PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button></div>
     </section>`;
-    const count = (g) => L.news.concat(L.more).filter((s) => g === "All" || (s.gs || []).includes(g)).length;
+    const count = (g) => L.news.concat(L.prelims, L.more).filter((s) => g === "All" || (s.gs || []).includes(g)).length;
     const chips = `<div class="chips nosb">${["All", ...PAPERS].map((g) => `<button class="chip${A.gs === g ? " on" : ""}" data-gs="${g}">${g}${g !== "All" ? `<span class="c">${count(g)}</span>` : ""}</button>`).join("")}</div>`;
     const cards = L.news.map((s, i) => [s, i + 1]).filter(([s]) => gsOk(s));
+    const facts = L.prelims.filter(gsOk);
     const more = L.more.filter(gsOk);
     const shown = A.moreOpen ? more : more.slice(0, 12);
     return `${head}${hero}${chips}
-      <div class="sechead"><h2>Top stories</h2><span>${cards.length} shown · tap to open</span></div>
-      <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${esc(A.gs)} story among today's cards.</div>`}</div>
+      <div class="sechead"><h2>Must-know</h2><span>${cards.length} · make notes</span></div>
+      <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${esc(A.gs)} must-know story ${L.news.length ? "among today's cards" : "yet"}.</div>`}</div>
+      ${facts.length ? `<div class="sechead"><h2>Prelims facts</h2><span>${facts.length} · a quick read each</span></div>
+        <div class="list">${facts.map((s) => card(s, null)).join("")}</div>` : ""}
       ${more.length ? `<div class="sechead"><h2>Also in the news</h2><span>${more.length} more that cleared the bar</span></div>
         <div class="more">${shown.map(mrow).join("")}${more.length > shown.length ? `<button class="showmore" data-act="moreall">Show all ${more.length}</button>` : ""}</div>` : ""}
       <p class="fine" style="padding:0 16px 8px">Everything reported today, with filters: <a href="../#everything">the full dashboard ↗</a></p>`;
@@ -368,7 +373,7 @@
   }
   function insightsModel(R) {
     const t = todayIST(); const cards = [];
-    for (const [d, v] of Object.entries(R.days)) for (const id of v.news || []) { const s = R.byId.get(id); if (s) cards.push({ s, d }); }
+    for (const [d, v] of Object.entries(R.days)) for (const id of cardIds(v)) { const s = R.byId.get(id); if (s) cards.push({ s, d }); }
     const loggedDays = Object.keys(A.log).filter((d) => Object.keys(A.log[d]).length).sort();
     const logged = new Set(loggedDays);
     let streak = 0; for (let d = logged.has(t) ? t : addDays(t, -1); logged.has(d); d = addDays(d, -1)) streak += 1;
@@ -403,12 +408,12 @@
       read = bits.join(" ") || "Balanced across papers so far. Keep going.";
     }
     const last7 = Array.from({ length: 7 }, (_, i) => addDays(t, i - 6));
-    const inBrief = (id, d) => { const v = R.days[d]; return !!v && ((v.news || []).includes(id) || (v.more || []).includes(id)); };
+    const inBrief = (id, d) => { const v = R.days[d]; return !!v && (cardIds(v).includes(id) || (v.more || []).includes(id)); };
     const threads = [...R.byId.values()].map((s) => ({ s, on: last7.map((d) => ((s.dates || []).includes(d) || inBrief(s.id, d))) }))
       .map((x) => ({ ...x, n: x.on.filter(Boolean).length })).filter((x) => x.n >= 3 && !x.s.editorial)
       .sort((a, b) => b.n - a.n || b.s.score - a.s.score).slice(0, 3);
     const L = A.briefDay ? lists() : { news: [] };
-    const radar = L.news.filter((s) => (s.tags || []).length || (s.watch || []).length).sort((a, b) => b.score - a.score).slice(0, 4);
+    const radar = L.news.concat(L.prelims || []).filter((s) => (s.tags || []).length || (s.watch || []).length).sort((a, b) => b.score - a.score).slice(0, 4);
     return { streak, best, week, weekMins, doneAll, notes, read, mastery, blind, threads, radar, cards };
   }
   function renderInsights() {
@@ -446,10 +451,10 @@
     }
     const R = REV.data; const days = []; for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
     const news = []; const seen = new Set(); let eds = 0;
-    for (const d of days) { const v = R.days[d]; if (!v) continue; eds += (v.editorials || []).length; for (const id of v.news || []) { const s = R.byId.get(id); if (s && !seen.has(id)) { seen.add(id); news.push(s); } } }
+    for (const d of days) { const v = R.days[d]; if (!v) continue; eds += (v.editorials || []).length; for (const id of cardIds(v)) { const s = R.byId.get(id); if (s && !seen.has(id)) { seen.add(id); news.push(s); } } }
     const subj = Object.keys(labels().subjects).map((k) => ({ k, name: subjName(k), n: news.filter((s) => (s.subjects || []).includes(k)).length })).sort((a, b) => b.n - a.n);
     const hit = subj.filter((x) => x.n).length; const gaps = subj.length - hit; const max = Math.max(1, ...subj.map((x) => x.n));
-    const perDay = (d) => ((R.days[d] || {}).news || []).length;
+    const perDay = (d) => cardIds(R.days[d] || {}).length;
     let bars;
     if (A.period === "week") bars = days.map((d, i) => ({ v: d > t ? "" : perDay(d), l: WD1[i], part: d >= t }));
     else {
@@ -537,10 +542,10 @@
   }
 
   function expData() {
-    const X = A.exp; const L = A.briefDay ? lists() : { news: [], editorials: [], explained: [] };
+    const X = A.exp; const L = A.briefDay ? lists() : { news: [], prelims: [], editorials: [], explained: [] };
     if (X.scope === "story") { const s = findStory(X.story || A.open); return { items: s ? [s] : [], extra: [], title: s ? s.title : "Story note", sub: `Story note · ${s ? subjOf(s) : ""}` }; }
     if (X.scope === "saved") { const items = Object.keys(A.marks).filter((id) => A.marks[id].starred).map(findStory).filter(Boolean); return { items, extra: [], title: "My revision list", sub: `${items.length} starred · ${dayFull(todayIST())}` }; }
-    return { items: L.news, extra: L.editorials.concat(L.explained), title: "Daily Brief", sub: dayFull(A.day) };
+    return { items: L.news.concat(L.prelims), extra: L.editorials.concat(L.explained), title: "Daily Brief", sub: dayFull(A.day) };
   }
   function renderExport() {
     const X = A.exp; const Dx = expData(); const o = X.opts;
@@ -635,7 +640,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     labels: () => A.meta && A.meta.labels,
     folded: (id) => foldedOf(id),
     pool: () => [...A.byId.values()],
-    day: () => (A.briefDay ? { label: dayLabel(A.briefDay), cards: lists().news, more: lists().more, editorials: lists().editorials, explained: lists().explained } : null),
+    day: () => (A.briefDay ? { label: dayLabel(A.briefDay), cards: lists().news, prelims: lists().prelims, more: lists().more, editorials: lists().editorials, explained: lists().explained } : null),
     videos: storyVideos,
     dayShort,
   });
@@ -692,7 +697,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const R = R30.data; if (!R) return [];
     const t = todayIST(); const M = insightsModel(R); const weak = new Set(subj ? [subj] : M.blind.map((b) => b.k));
     const seen = new Set(); const pool = [];
-    for (let d = t; d >= addDays(t, -6); d = addDays(d, -1)) for (const id of ((R.days[d] || {}).news || [])) { const s = R.byId.get(id); if (s && !seen.has(id) && !isDone(s)) { seen.add(id); pool.push(s); } }
+    for (let d = t; d >= addDays(t, -6); d = addDays(d, -1)) for (const id of cardIds(R.days[d] || {})) { const s = R.byId.get(id); if (s && !seen.has(id) && !isDone(s)) { seen.add(id); pool.push(s); } }
     const rankOf = (s) => ((s.subjects || []).some((k) => weak.has(k)) ? 0 : 1) * 10 + ({ NOTE: 0, SKIM: 1, READ: 2 }[s.grade] ?? 3);
     const pickd = []; let mins = 0;
     for (const s of pool.filter((x) => !subj || (x.subjects || []).includes(subj)).sort((a, b) => rankOf(a) - rankOf(b) || b.score - a.score)) {
@@ -877,11 +882,12 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     try {
       const m = await api.meta();
       if (m.built_at !== A.meta.built_at) {
-        const before = A.briefDay === todayIST() ? lists().news.length + lists().more.length : null;
+        const size = () => { const L = lists(); return L.news.length + L.prelims.length + L.more.length; };
+        const before = A.briefDay === todayIST() ? size() : null;
         A.meta = m; A.months.clear();
         if (A.day === todayIST()) {
           await loadDay(A.day, true);
-          const after = lists().news.length + lists().more.length;
+          const after = size();
           if (before != null && after > before) toast(`Updated: ${plural(after - before, "new story", "new stories")} in today's brief.`);
         }
         if (!A.open && !A.sheet) renderScreen();

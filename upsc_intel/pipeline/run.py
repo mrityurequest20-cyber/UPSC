@@ -25,7 +25,7 @@ log = logging.getLogger("upsc_intel")
 RUN_LOCK = threading.Lock()
 MIGRATION_KINDS = "migration:kinds-v1"  # re-label stored items as news / editorial / explained once
 MIGRATION_CLASSIFY = "migration:classify-v5"  # re-grade once: UPSC-relevance rejection rules
-MIGRATION_BRIEF = "migration:brief-v2"  # rebuild every stored brief once: must-know bar, no count cap
+MIGRATION_BRIEF = "migration:brief-v3"  # rebuild every stored brief once: Must-know / Prelims facts / Also tiers
 
 
 def build_item(raw: RawItem, src: dict, clf: Classifier, now: datetime, cutoff: str) -> dict | None:
@@ -105,7 +105,7 @@ def _run(settings: Settings, db: DB, *, only, public_only, force) -> dict:
         db.commit()
     clf = Classifier(load_topics(settings))
     if not db.seen(MIGRATION_BRIEF):
-        log.info("one-time: rebuilding stored briefs (must-know bar, no count cap)")
+        log.info("one-time: rebuilding stored briefs (Must-know / Prelims facts / Also in the news)")
         for (d,) in db.conn.execute("SELECT DISTINCT date_ist FROM stories WHERE is_library=0").fetchall():
             build_day(settings, db, clf, d)
         db.mark_seen(MIGRATION_BRIEF)

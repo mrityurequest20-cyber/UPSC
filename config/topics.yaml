@@ -1679,6 +1679,14 @@ brief:
   editorials_floor: 15   # editorials: every SKIM-or-better piece, topped up to this many
   explained_floor: 12
   fold_similarity: 0.25  # same-event reports fold into one card (weighted word overlap, sharing a rare word)
+  # Three tiers: "Must-know" = NOTE stories that clear must_know with no reaction/commentary in the headline;
+  # "Prelims facts" = other stories that clear must_know and report a concrete development (event signal at
+  # least prelims_event, or a Prelims tag: exercise, MoU, Act, scheme, species, verdict…) and are not `soft`;
+  # everything else that clears `also` is "Also in the news".
+  prelims_event: 2.0
+  soft: '\b(loaded with|expectations?|red carpet|arriv(e|es|ed|ing)|trade (charges|barbs|jibes)|unacceptable|raises? concerns?|concerns? over|lags? (on|behind)|vs\.?|suggests?|offers? to|appellant|assessee|respondent|petitioner|default bail|bail plea|anticipatory bail|alleg(ed|es|ing|ations?))\b|\bseeks?\b.{0,25}\b(report|reply|response|data|details|clarification)\b|:\s*(report|study|survey)\s*$'
+  # "…: Piyush Goyal" / "…: Minister" quote headlines are soft too unless the event signal is strong (3+)
+  attribution: ':\s*[A-Z][\w.''’-]*(\s+[A-Z(][\w.''’()-]*){0,3}\s*$'
   curators: [ForumIAS]   # exam-prep sites whose topic pages are all news-hooked Prelims items
   hard_verbs: '\b(approv\w*|launch\w*|sign(s|ed|ing)?|inks?|inked|notif\w*|amend(s|ed)|extend(s|ed)|slash\w*|cuts?|hikes?|rais(es|ed)|bans?|banned|allow(s|ed)|finali[sz]\w*|postpon\w*|discover\w*|describ(es|ed)|declar\w*|designat\w*|reserv(es|ed)|uphold\w*|upheld|releas\w*|adopt\w*|pass(es|ed)|introduc\w*|inaugurat\w*|commission(s|ed)|test-fire\w*|joins?|gets|wins?|ranks?|records?|cross(es|ed)|sets? up|establish\w*|propos\w*|sanction\w*|grants?|award\w*|withdraw\w*|revok\w*|cancel\w*|suspend\w*|mandat\w*|order(s|ed)|direct(s|ed)|appoint\w*|conclud\w*|agree(s|d)?|unveil\w*|rolls? out|operationali[sz]\w*|flag(s|ged)? off|lays? foundation|impos\w*|lifts?|clears?|okays?|nod)\b'
   events:  # [weight, pattern] a concrete, examinable development (title, case-insensitive)

@@ -821,10 +821,18 @@
     function dayAnswer(q) {
       const d = H.day(); const ql = q.toLowerCase();
       if (!d) return "<p>Open the Daily Brief first, then ask about the day.</p>";
-      const all = d.cards.concat(d.more, d.editorials, d.explained);
+      const facts = d.prelims || [];
+      const all = d.cards.concat(facts, d.more, d.editorials, d.explained);
+      const line = (x) => `<li>${esc(x.title)} <span class="bot-src">${esc(labelOf(x.subjects[0]) || "")}</span> ${btn("story", "Ask", { id: x.id })}</li>`;
+      if (facts.length && /prelims facts?|\bfacts\b|quick facts/.test(ql)) {
+        return `${sub(`${d.label}: ${facts.length} Prelims fact${facts.length === 1 ? "" : "s"}`)}<ol class="bot-stories">${facts.slice(0, 15).map(line).join("")}</ol>`;
+      }
       if (/top|summar|highlight|today|what happened|must.?know|overview/.test(ql)) {
-        return `${sub(`${d.label}: the must-know stories`)}<ol class="bot-stories">${d.cards.slice(0, 10).map((x) => `<li>${esc(x.title)} <span class="bot-src">${esc(labelOf(x.subjects[0]) || "")}</span> ${btn("story", "Ask", { id: x.id })}</li>`).join("")}</ol>
-          ${d.cards.length > 10 || d.more.length ? `<p class="bot-src">${Math.max(0, d.cards.length - 10)} more cards and ${d.more.length} one-liners in the brief.</p>` : ""}`;
+        const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+        const rest = [d.cards.length > 10 ? n(d.cards.length - 10, "more must-know card", "more must-know cards") : "",
+          facts.length ? n(facts.length, "Prelims fact", "Prelims facts") : "", d.more.length ? n(d.more.length, "one-liner", "one-liners") : ""].filter(Boolean);
+        return `${sub(`${d.label}: the must-know stories`)}<ol class="bot-stories">${d.cards.slice(0, 10).map(line).join("")}</ol>
+          ${rest.length ? `<p class="bot-src">Also in the brief: ${rest.join(", ")}.</p>` : ""}`;
       }
       const paper = ql.match(/\bgs ?([1-4])\b|\bprelims\b/);
       const subj = Object.entries(L().subjects).find(([, v]) => ql.includes(v.toLowerCase().split(/[ &]/)[0]));
@@ -856,7 +864,9 @@
     }
     function dayPrompt(q) {
       const d = H.day();
-      const extra = d ? `TODAY'S MUST-KNOW STORIES (${d.label}):\n${d.cards.slice(0, 25).map((x, i) => `${i + 1}. ${x.title}`).join("\n")}` : "";
+      const facts = d && d.prelims ? d.prelims : [];
+      const extra = d ? `TODAY'S MUST-KNOW STORIES (${d.label}):\n${d.cards.slice(0, 25).map((x, i) => `${i + 1}. ${x.title}`).join("\n")}` +
+        (facts.length ? `\n\nPRELIMS FACTS:\n${facts.slice(0, 20).map((x, i) => `${i + 1}. ${x.title}`).join("\n")}` : "") : "";
       return claudePrompt(null, q || "Give me a UPSC-focused briefing of these stories: what happened, why it matters, GS paper links.", extra);
     }
     return {
