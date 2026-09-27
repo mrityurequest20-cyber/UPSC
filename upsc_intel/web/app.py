@@ -23,6 +23,7 @@ from ..pipeline.videos import daily_videos
 
 log = logging.getLogger("upsc_intel.web")
 STATIC_DIR = Path(__file__).parent / "static"
+APP_DIR = Path(__file__).parent / "app"  # the phone app (PWA): same data, its own screens
 MAX_SOURCES_PER_STORY = 12
 BRIEF_KEYS = {"news": "news", "editorial": "editorials", "explained": "explained"}  # pick kind → payload key
 
@@ -373,6 +374,7 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         return FileResponse(target)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.mount("/app", StaticFiles(directory=APP_DIR, html=True), name="app")
 
     @app.get("/")
     def index():

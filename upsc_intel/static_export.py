@@ -2,7 +2,8 @@
 
 site/
   index.html            dashboard (static mode)
-  static/app.js, styles.css
+  static/app.js, intel-core.js, styles.css
+  app/                  the phone app (PWA): index.html, app.js, app.css, sw.js, manifest, icons
   data/meta.json        meta + source health + list of months
   data/stories-YYYY-MM.json
   data/brief-YYYY-MM.json   the week and month reviews: each day's full brief cards
@@ -27,8 +28,9 @@ from .db import DB, iso
 from .pipeline.brief import ensure_range
 from .pipeline.classify import Classifier
 from .pipeline.normalize import today_ist
-from .web.app import STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
+from .web.app import APP_DIR, STATIC_DIR, annotate, brief_payload, build_meta, sources_out, story_out
 
+ASSETS = ("intel-core.js", "app.js", "styles.css")
 SUMMARY_CHARS = 420
 FREEZE_AFTER_DAYS = 3
 
@@ -77,22 +79,37 @@ def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: st
     return month
 
 
+def _write_app(out: Path, flags: str, stamp: str) -> None:
+    """The phone app next to the dashboard. It reads the same data/ files; each build stamps its assets and
+    its service worker, so installed copies pick up a new version."""
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(APP_DIR, out)
+    html = (APP_DIR / "index.html").read_text(encoding="utf-8").replace("<!--STATIC_FLAG-->", f"<script>{flags}</script>")
+    for name in ("app.css", "app.js", "../static/intel-core.js"):
+        html = html.replace(f'"{name}"', f'"{name}?v={stamp}"')
+    (out / "index.html").write_text(html, encoding="utf-8")
+    sw = (APP_DIR / "sw.js").read_text(encoding="utf-8").replace("__BUILD__", stamp)
+    (out / "sw.js").write_text(sw, encoding="utf-8")
+
+
 def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
                   include_private: bool = False, snapshot: bool = False,
                   archive: str | Path | None = None) -> Path:
     out = Path(out)
     (out / "static").mkdir(parents=True, exist_ok=True)
     (out / "data" / "day").mkdir(parents=True, exist_ok=True)
-    for name in ("app.js", "styles.css"):
+    for name in ASSETS:
         shutil.copyfile(STATIC_DIR / name, out / "static" / name)
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     flags = "window.UPSC_STATIC = true;" + (" window.UPSC_SNAPSHOT = true;" if snapshot else "")
     html = html.replace("<!--STATIC_FLAG-->", f"<script>{flags}</script>")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")  # browsers keep assets 10 min on Pages
-    for name in ("app.js", "styles.css"):
+    for name in ASSETS:
         html = html.replace(f"static/{name}", f"static/{name}?v={stamp}")
     (out / "index.html").write_text(html, encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
+    _write_app(out / "app", flags, stamp)
 
     today = date.fromisoformat(today_ist())
     start = today - timedelta(days=days)

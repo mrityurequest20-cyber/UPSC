@@ -49,6 +49,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           <input id="q" type="search" placeholder="Search  ( / )" autocomplete="off">
         </label>
+        <a class="btn" id="appBtn" href="app/" title="The phone app: open it on your phone and add it to your home screen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>
+          <span class="txt">App</span>
+        </a>
         <button class="btn" id="refreshBtn" title="Fetch every source now">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
           <span class="txt">Refresh</span>
@@ -80,6 +84,7 @@
   <div class="tooltip" id="tooltip" role="status" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <div class="scrim" id="scrim" hidden></div>
+  <script src="static/intel-core.js" defer></script>
   <script src="static/app.js" defer></script>
 </body>
 </html>

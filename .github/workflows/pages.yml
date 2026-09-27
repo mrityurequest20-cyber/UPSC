@@ -78,6 +78,18 @@ jobs:
           fi
           git -C archive config http.https://github.com/.extraheader "$auth"
 
+      # Claude-written study notes: a scheduled Claude Code routine (on the owner's Claude plan, no API
+      # key) pushes notes/YYYY-MM-DD.json to the claude/ai-notes branch; they become the stories' write-ups.
+      - name: Import Claude notes
+        run: |
+          auth="$(git config --get http.https://github.com/.extraheader || true)"
+          if git ls-remote --exit-code --heads origin claude/ai-notes > /dev/null; then
+            git -c http.https://github.com/.extraheader="$auth" clone --quiet --depth 1 --branch claude/ai-notes "$(git remote get-url origin)" ai-notes
+            python -m upsc_intel import-notes ai-notes/notes
+          else
+            echo "no Claude notes yet"
+          fi
+
       # before saving: the export builds briefs for days that don't have one yet, and they must persist
       - name: Build static site
         run: python -m upsc_intel export-static --out site --days 62 --archive archive/data
