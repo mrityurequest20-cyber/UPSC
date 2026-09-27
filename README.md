@@ -100,17 +100,33 @@ Week and Month views recap everything the daily briefs covered.
   - Top 10 / Top 15
   - everything the daily briefs covered, grouped by subject and dated
 - **Progress tracking:** tick **Mark done** on each card, and the bar at the top shows how much of the day's brief you've finished. Stars and notes build your revision list.
-- **Ask bot:** an **Ask** button on every brief card and list line, plus a floating **Ask** button for the whole day.
+- **Ask bot:** an **Ask** button on every brief card and list line, plus a floating **Ask** button for the whole day. The same bot is **Ask Intel** in the app.
+  - **It reads the full article on the web.**
+    - **Summary** reads the story's own source when that site is free to read.
+    - When the original is **paywalled** (The Hindu, Indian Express, Mint, ET, Business Standard…), it searches the news (Bing News) for **the same story on a free site** such as ThePrint, NDTV, Deccan Herald, PIB or ForumIAS. It reads that copy, checks it really is the same story, and quotes its key lines.
+    - Every answer says where it came from, e.g. "Read from theprint.in, a free report of the same story: the original on thehindu.com is subscriber-only".
+  - **Paywalls are never bypassed.** Only sites on a free-to-read list (`OPEN_DOMAINS` in `static/intel-core.js`) are opened; subscriber sites are listed, never fetched. Pages are read through Jina Reader, which is free, keyless, and allows about 20 pages a minute per device.
   - **About a story:**
-    - summary, the 5 Ws, why it matters (GS paper and syllabus), Prelims pointers, a Mains practice question
-    - what each outlet wrote, related stories, videos
-    - background on any term: "What is AFSPA?" pulls the Wikipedia summary with a link
-    - free questions, answered by quoting the report sentences that match, each labelled with its outlet
+    - Summary (8 points), 60-word summary, the 5 Ws, why it matters and the link to the syllabus
+    - Prelims facts, **2 fact MCQs** made from the article's own figures (with answers), a **Mains answer outline**, and a Mains question
+    - **हिंदी में**: a free machine translation (MyMemory, about 5,000 characters a day), with a Google Translate link when the quota runs out
+    - Static background from Wikipedia in the story's sense. Acronyms are expanded from the story itself, so ESA in a Western Ghats story means Ecologically Sensitive Area, not the space agency.
+    - "Search the web": other outlets' reports with a **Summarise** button on each free one
+    - What each outlet wrote, related stories, videos
+    - Free questions ("what did the minister say about villages?"), answered with the matching lines from the reports or the full article
   - **About the day:** top stories, one GS paper or subject, or a topic search ("RBI", "Manipur").
-  - **Limits:**
-    - It never makes things up. When the reports don't say, it says so and offers Wikipedia or a news search.
-    - It runs in your browser with no key and no server. Only the Wikipedia lookups leave the page.
-    - It is a retrieval bot, not a chatbot. It quotes and organises what the outlets published, and doesn't write new analysis.
+  - **Ask Claude ↗:** opens claude.ai in a new tab with the story and your question filled in (and copied, in case it opens empty). Claude answers on **your own Claude account**, and the free plan works. No API key, and nothing is sent from the site.
+  - **Limits:** it never makes things up. Summaries and answers quote what the outlets published. When nothing answers the question, it says so and offers Wikipedia, a web search or Ask Claude.
+- **The app (phone):** the Claude Design "UPSC Intel App" at **`/UPSC/app/`** (the **App** button in the header).
+  - **Screens:**
+    - Brief: week strip, the day's hero, GS chips, cards and "Also in the news"
+    - Read: editorials by GS paper, explainers
+    - Insights: streak, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
+    - Review: week and month
+    - Saved: stars and notes, PDF
+  - **Story view:** summary, "Summarise the full article from the web", video, 5 Ws, Prelims facts, Mains question, sources, your note, and Ask Intel.
+  - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded.
+  - **Synced with the dashboard:** stars, done ticks and notes are the same on the dashboard and in the app, as long as both use the same browser.
 - **Everything tab:** the full graded firehose, with:
   - filters (paper, subject, grade, source type)
   - the syllabus-coverage radar
@@ -255,7 +271,8 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 149 tests
+python -m pytest                        # 152 tests (includes the bot engine's Node tests when Node is installed)
+node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
 ## AI explainers (recommended)
@@ -270,6 +287,21 @@ Set `ANTHROPIC_API_KEY` in `.env`. On GitHub, set it as an Actions secret instea
   - News facts come only from the fetched text.
   - The Background line may use well-established static knowledge (what an institution or Article is), and is left empty when unsure.
   - Thin text is flagged as insufficient instead of guessed.
+
+## Claude study notes without an API key (optional, not switched on yet)
+
+The site can also take study notes written by **Claude on your own Claude plan**, with no API key and no bill.
+
+- **How it works:**
+  - A scheduled Claude Code routine (a "Routine" in claude.ai/code) reads the day's live brief.
+  - It writes notes for the top cards and pushes `notes/YYYY-MM-DD.json` to the repo's `claude/ai-notes` branch.
+  - Every Pages build runs `python -m upsc_intel import-notes` on that branch before exporting. Each note becomes the story's write-up on the site and in the app, and the Ask bot answers from it first ("Claude's study note").
+- **Format:** `{story_id: note}`. A note needs `what` and `why_in_news`, and can add:
+  - `background`, `significance`, `prelims`, `mains`, `keywords`, `when`, `where`, `who`
+  - `points` (up to 8), `summary60`, `mcqs` (`{q, options[4], answer 0-3, why}`)
+  - `mains_outline` (`{intro, body[], way_forward[], conclusion}`), `hindi` (lines), `syllabus`
+- **Safety:** everything is validated and trimmed in `pipeline/notes.py`, and malformed notes are skipped. A write-up from the API key (above) is never overwritten.
+- **Status:** until a `claude/ai-notes` branch exists, the workflow step just logs "no Claude notes yet". To switch it on, ask Claude Code to create the notes routine.
 
 ## Tuning
 
@@ -289,10 +321,13 @@ upsc_intel/
   fetchers/        rss, gnews, pib, telegram, html_links (html + browser), email_imap, documents, http,
                    describe (preview text for headline-only feeds), fallback chain
   pipeline/        normalize, kinds (news/editorial/explained), classify, cluster, brief (daily picks),
-                   enrich (explainers), videos (matching), run
-  web/             app.py (API + scheduler) · static/ (index.html, app.js, styles.css)
+                   enrich (explainers), videos (matching), notes (Claude study notes import), run
+  web/             app.py (API + scheduler)
+                   static/ (dashboard: index.html, app.js, styles.css; intel-core.js: the Ask bot's engine)
+                   app/ (the phone app: index.html, app.js, app.css, sw.js, manifest, icons)
   static_export.py
 tests/             parsers, classifier, clustering, brief selection, explainers, video matching, fallback chain, API, export
+  js/              the Ask bot's engine (Node, no packages)
 inbox/             your PDFs (gitignored)
 data/              SQLite database (gitignored)
 ```

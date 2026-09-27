@@ -173,6 +173,10 @@ def test_api_and_marks(settings, db, fake_env):
         srcs = c.get("/api/sources").json()["sources"]
         assert {s["id"] for s in srcs} >= {"hindu", "flaky"}
         assert c.get("/").status_code == 200
+        page = c.get("/app/")  # the phone app, on the same server (it reads /api/*)
+        assert page.status_code == 200 and "UPSC Intel" in page.text and "UPSC_STATIC" not in page.text
+        assert c.get("/app/manifest.webmanifest").status_code == 200
+        assert c.get("/static/intel-core.js").status_code == 200
 
 
 def test_static_export_excludes_private(settings, db, fake_env, tmp_path):
@@ -192,6 +196,28 @@ def test_static_export_excludes_private(settings, db, fake_env, tmp_path):
     briefs = "".join((out / "data" / f"brief-{m}.json").read_text() for m in meta["months"])
     assert "Ramsar" in briefs and "explain" in briefs and '"explained":["' in briefs
     assert "Premium explainer" not in briefs
+
+
+def test_export_ships_the_app(settings, db, fake_env, tmp_path):
+    """The phone app goes out with the site: static mode, cache-busted assets, a service worker stamped per
+    build (so installed copies update), the manifest, the icons and the shared bot engine."""
+    run_mod.run_fetch(settings, db, force=True)
+    from upsc_intel.static_export import export_static
+
+    out = export_static(settings, db, tmp_path / "site", days=5)
+    app = out / "app"
+    html = (app / "index.html").read_text()
+    assert "window.UPSC_STATIC = true" in html
+    assert 'src="app.js?v=' in html and 'href="app.css?v=' in html and 'src="../static/intel-core.js?v=' in html
+    sw = (app / "sw.js").read_text()
+    assert "__BUILD__" not in sw and 'const VERSION = "' in sw
+    manifest = json.loads((app / "manifest.webmanifest").read_text())
+    assert manifest["display"] == "standalone" and any(i.get("purpose") == "maskable" for i in manifest["icons"])
+    for icon in manifest["icons"]:
+        assert (app / icon["src"]).is_file(), icon["src"]
+    assert (app / "icons" / "apple-touch-icon.png").is_file()
+    assert (out / "static" / "intel-core.js").is_file()
+    assert 'href="app/"' in (out / "index.html").read_text()  # the dashboard links to it
 
 
 def test_archive_keeps_finished_months_forever(settings, db, fake_env, tmp_path):
@@ -305,3 +331,33 @@ def test_one_rejected_copy_does_not_sink_a_real_story(db, clf):
                         "publisher": iid, "subjects": ["security"]})
     db.commit()
     assert aggregate_story(db, clf, "sy")["grade"] != "LOW"
+
+
+def test_claude_notes_become_write_ups(settings, db, fake_env, tmp_path):
+    """Notes pushed by the daily Claude routine are validated and stored as the stories' write-ups;
+    a malformed note or an unknown story is skipped, never published."""
+    from upsc_intel.pipeline.notes import import_notes
+    from upsc_intel.web.app import brief_payload
+    from upsc_intel.pipeline.classify import Classifier
+    from upsc_intel.config import load_topics
+
+    run_mod.run_fetch(settings, db, force=True)
+    sid, day = next((r["story_id"], r["date_ist"]) for r in db.q(
+        "SELECT story_id, date_ist FROM brief_picks WHERE kind='news' AND COALESCE(tier,'top')='top' AND lead IS NULL"))
+    folder = tmp_path / "notes"
+    folder.mkdir()
+    good = {"what": "The Supreme Court upheld the law.", "why_in_news": "A five-judge bench ruled on Friday.",
+            "background": "Article 142 lets the Court do complete justice.", "points": ["One.", "Two."],
+            "mcqs": [{"q": "Which Article?", "options": ["14", "21", "32", "142"], "answer": 3, "why": "Complete justice."},
+                     {"q": "Bad one", "options": ["a", "b"], "answer": 0}],
+            "mains_outline": {"intro": "Context.", "body": ["Point A", "Point B"], "way_forward": ["Reform"], "conclusion": "End."},
+            "hindi": ["सर्वोच्च न्यायालय ने कानून को बरकरार रखा।"], "script": "<script>alert(1)</script>" * 3}
+    (folder / f"{day}.json").write_text(json.dumps({sid: good, "missing-id": good, "x": {"what": "no why"}}), encoding="utf-8")
+    (folder / "broken.json").write_text("{not json", encoding="utf-8")
+    assert import_notes(db, folder) == {"files": 1, "notes": 2, "updated": 1, "unknown": 1, "invalid": 1}
+    ai = json.loads(db.q("SELECT ai FROM stories WHERE id=?", (sid,))[0]["ai"])
+    assert ai["source"] == "claude-notes" and len(ai["mcqs"]) == 1 and "script" not in ai
+    assert import_notes(db, folder)["updated"] == 0  # unchanged notes are not rewritten
+    clf = Classifier(load_topics(settings))
+    story = next(s for s in brief_payload(settings, db, clf, day, day, include_private=False)["stories"] if s["id"] == sid)
+    assert story["explain"]["background"].startswith("Article 142") and story["ai"]["mains_outline"]["body"] == ["Point A", "Point B"]

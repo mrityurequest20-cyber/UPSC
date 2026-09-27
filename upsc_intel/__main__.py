@@ -86,6 +86,14 @@ def cmd_enrich(args) -> int:
     return 0
 
 
+def cmd_import_notes(args) -> int:
+    from .pipeline.notes import import_notes
+
+    s = get_settings()
+    print(json.dumps(import_notes(_db(s), args.folder)))
+    return 0
+
+
 def cmd_export(args) -> int:
     from .static_export import export_static
 
@@ -125,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
     en = sub.add_parser("enrich", help="write AI notes for top stories (needs ANTHROPIC_API_KEY)")
     en.add_argument("--limit", type=int)
     en.set_defaults(fn=cmd_enrich)
+
+    im = sub.add_parser("import-notes", help="store Claude-written study notes (notes/*.json) as story write-ups")
+    im.add_argument("folder")
+    im.set_defaults(fn=cmd_import_notes)
 
     ex = sub.add_parser("export-static", help="build the static site (GitHub Pages)")
     ex.add_argument("--out", default="site")

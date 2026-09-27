@@ -191,6 +191,7 @@ button.period-label svg { width: 15px; height: 15px; color: var(--accent); flex:
   font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
 }
 .btn:hover { background: var(--surface-2); }
+a.btn { color: var(--ink); text-decoration: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-strong); }
 .btn svg { width: 15px; height: 15px; }
@@ -643,6 +644,18 @@ button.period-label svg { width: 15px; height: 15px; color: var(--accent); flex:
 .bot-in input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .bot-in button { height: 40px; padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 .bot-foot { margin: 0; padding: 0 12px 10px; font-size: 11px; color: var(--muted); line-height: 1.4; }
+.bot-msg.typing .bot-step { letter-spacing: 0; font-size: 13px; }
+.bot-msg.typing .bot-step::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--accent); animation: botpulse 1s ease-in-out infinite alternate; }
+@keyframes botpulse { from { opacity: .25; } to { opacity: 1; } }
+.bot-hits li { margin: 5px 0; }
+.bot-hits .linkbtn { font-size: 12.5px; margin-left: 4px; }
+.bot-msg .free { font-size: 10.5px; font-weight: 700; color: var(--good-text); border: 1px solid currentColor; border-radius: 5px; padding: 0 4px; }
+.chip.chip-claude { border-color: var(--accent); color: var(--accent-strong); font-weight: 700; }
+.mcq { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin: 6px 0; background: var(--surface); }
+.mcq-q { font-weight: 600; }
+.mcq-o { margin: 4px 0 !important; }
+.mcq details summary { cursor: pointer; color: var(--accent-strong); font-weight: 600; font-size: 13px; }
+.mcq details p { margin-top: 4px !important; font-size: 13px; }
 @media (max-width: 640px) {
   .bot-fab { right: 12px; bottom: 12px; height: 44px; }
   .bot { right: 0; left: 0; bottom: 0; width: 100%; height: 86vh; border-radius: 16px 16px 0 0; border-bottom: 0; }

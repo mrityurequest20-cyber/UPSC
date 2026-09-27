@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>UPSC Intel</title>
+  <meta name="description" content="UPSC current affairs you can actually finish: the day's must-know stories, editorials and explainers, with an Ask bot that reads the full article.">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="UPSC Intel">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="app.css">
+  <script>
+    try { var t = localStorage.getItem("upsc-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
+  <!--STATIC_FLAG-->
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="top" id="top">
+      <svg class="logo" viewBox="0 0 48 48" width="34" height="34" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1c5cab"/><path d="M15 17v9a9 9 0 0 0 18 0v-9" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><circle cx="33" cy="8.5" r="3.6" fill="#fab219"/></svg>
+      <div class="top-t">
+        <div class="top-title" id="title">UPSC Intel</div>
+        <div class="live" id="live"><span class="live-dot off"></span><span>Connecting…</span></div>
+      </div>
+      <button class="ib" data-act="search" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+      <button class="ib" data-act="cal" aria-label="Pick a date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button>
+      <button class="ib primary" data-act="export" aria-label="Export as PDF"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg></button>
+    </header>
+    <main class="screen" id="screen" aria-live="polite"><div class="loading">Loading today's brief…</div></main>
+  </div>
+  <nav class="tabbar fixed-col" id="tabbar" aria-label="Sections"></nav>
+  <div id="layer"></div>
+  <div class="toast fixed-col" id="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p style="padding:16px">UPSC Intel needs JavaScript.</p></noscript>
+  <script src="../static/intel-core.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
