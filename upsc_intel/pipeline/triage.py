@@ -115,16 +115,21 @@ NEIGHBOUR_TLD = {"lk": "Sri Lanka", "np": "Nepal", "bd": "Bangladesh", "pk": "Pa
                  "af": "Afghanistan", "mm": "Myanmar", "bt": "Bhutan"}  # an outlet's country, from its web address
 
 
-def outlet_country(url: str) -> str:
-    host = urlparse(url or "").hostname or ""
-    return NEIGHBOUR_TLD.get(host.rsplit(".", 1)[-1], "")
+def outlet_country(*urls: str) -> str:
+    """The neighbour a story's outlet is from: its link, or (a Google News link) the outlet's own address."""
+    for url in urls:
+        host = urlparse(url or "").hostname or ""
+        c = NEIGHBOUR_TLD.get(host.rsplit(".", 1)[-1], "")
+        if c:
+            return c
+    return ""
 
 
-def recheck(title: str, text: str, url: str, v: dict) -> bool:
+def recheck(title: str, text: str, url: str, v: dict, origin: str = "") -> bool:
     """A verdict from before PROMPT_REV that the new prompt would likely change: asked again, once."""
     if v.get("r", 1) >= PROMPT_REV:
         return False
-    near = NEIGHBOURS.search(f"{title} {text}") or outlet_country(url)
+    near = NEIGHBOURS.search(f"{title} {text}") or outlet_country(url, origin)
     return bool((v.get("upsc", 0) <= 1 and near) or (v.get("upsc", 0) >= 1 and COACHING.search(title)))
 
 
@@ -141,14 +146,15 @@ def _todo(db: DB, days: list[str]) -> list:
     version re-checks what readers see before the rest), then best-scored first."""
     rows = db.q(
         f"SELECT id, title, COALESCE(summary,'') AS summary, COALESCE(url,'') AS url, publishers, is_editorial, is_explained, "
-        f"triage, score, first_seen "
+        f"triage, score, first_seen, COALESCE((SELECT CASE WHEN json_valid(i.extra) THEN json_extract(i.extra, '$.origin') END "
+        f"FROM items i WHERE i.story_id = stories.id AND i.extra LIKE '%origin%' LIMIT 1), '') AS origin "
         f"FROM stories WHERE date_ist IN ({','.join('?' * len(days))}) AND is_library=0 AND is_private=0 "
         f"ORDER BY EXISTS (SELECT 1 FROM brief_picks b WHERE b.story_id = stories.id "
         f"AND COALESCE(b.tier, 'top') IN ('top', 'prelims')) DESC, score DESC", days)
     out = []
     for r in rows:
         t = json.loads(r["triage"]) if r["triage"] else None
-        if t and t.get("t") == title_key(r["title"]) and not recheck(r["title"], r["summary"], r["url"], t):
+        if t and t.get("t") == title_key(r["title"]) and not recheck(r["title"], r["summary"], r["url"], t, r["origin"]):
             continue
         out.append(r)
     return out
@@ -158,7 +164,7 @@ def _prompt(batch: list) -> str:
     lines = []
     for n, r in enumerate(batch, 1):
         pub = (json.loads(r["publishers"] or "[]") or [""])[0]
-        where = outlet_country(r["url"] if "url" in r.keys() else "")  # a neighbour's own outlet: say which country
+        where = outlet_country(*(r[k] for k in ("url", "origin") if k in r.keys()))  # a neighbour's own outlet: say which country
         pub = f"{pub}, {where}" if where and pub else pub or where
         text = " ".join((r["summary"] or "").split())[:TEXT_CHARS]
         lines.append(f"{n}. [{_kind(r)}] {r['title']} ({pub})" + (f": {text}" if text else ""))
