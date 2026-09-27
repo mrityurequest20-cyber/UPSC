@@ -368,6 +368,8 @@ test("Intel AI: the key is checked with Google and kept on the device; models ra
   const g = gemStub();
   try {
     await assert.rejects(C.gemini.connect("short"), /doesn't look like/);
+    await C.gemini.connect("AQ.Ab8NEWFORMATtestkey-0123456789_abc");  // Google's newer key format has a dot
+    assert.strictEqual(mem["upsc-gemini-key"], "AQ.Ab8NEWFORMATtestkey-0123456789_abc");
     const models = await C.gemini.connect("  AIzaSyTESTKEY-0123456789abcdef  ");
     assert.deepStrictEqual(models, ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]);
     assert.ok(C.gemini.on() && mem["upsc-gemini-key"] === "AIzaSyTESTKEY-0123456789abcdef");

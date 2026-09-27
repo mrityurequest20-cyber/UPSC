@@ -584,7 +584,7 @@
     models() { try { const m = JSON.parse(gemStore.get(GEM_MODELS)); return Array.isArray(m) && m.length ? m : GEM_FALLBACK.slice(); } catch (e) { return GEM_FALLBACK.slice(); } },
     async connect(key) {  // checks the key with Google, then keeps it on this device → the models it can use
       key = String(key || "").trim();
-      if (!/^[\w-]{20,}$/.test(key)) throw fail("key", "That doesn't look like a Google AI key (it starts with “AIza…”).");
+      if (!/^[\w.-]{20,}$/.test(key)) throw fail("key", "That doesn't look like a Google AI key: copy it again from aistudio.google.com/apikey.");  // (older keys start "AIza…", newer ones "AQ.…"; Google checks it next)
       let r;
       try { r = await fetch(`${GEM_API}/models?pageSize=200`, { headers: { "x-goog-api-key": key } }); } catch (e) { throw fail("net", "Couldn't reach Google's AI service."); }
       if (!r.ok) throw fail("key", r.status === 400 || r.status === 403 ? "Google refused that key: check it was copied whole." : `Google's AI service answered with an error (${r.status}).`);
@@ -652,7 +652,7 @@
       <p>${on ? "Intel answers your questions, MCQs, Mains outlines, Hindi and background in its own words, from the story's article."
         : "Switch it on and Intel answers any question about a story in its own words, grounded in the article: explanations, MCQs, Mains outlines, Hindi."}</p>
       ${on ? `<p><button class="linkbtn" data-gem="forget">Switch off (removes the key from this device)</button></p>`
-        : `<form class="gem-form"><input type="password" name="key" placeholder="Paste your free Google AI key (AIza…)" autocomplete="off" spellcheck="false" aria-label="Google AI key"><button type="submit">Save</button></form>
+        : `<form class="gem-form"><input type="password" name="key" placeholder="Paste your free Google AI key" autocomplete="off" spellcheck="false" aria-label="Google AI key"><button type="submit">Save</button></form>
       <p class="bot-src">Get a key free at ${link("https://aistudio.google.com/apikey", "aistudio.google.com/apikey")}. It stays in this browser and goes only to Google.</p>`}
       <p class="bot-src">Intel AI runs on Google's Gemini: your questions and the story's text go to Google to answer. On the free tier Google may use them to improve its products, so don't type anything private.</p></div>`;
   }
