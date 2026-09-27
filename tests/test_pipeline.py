@@ -160,9 +160,11 @@ def test_api_and_marks(settings, db, fake_env):
         assert c.get("/files/../../etc/passwd").status_code == 404
         brief = c.get("/api/brief", params={"from": today, "to": today}).json()
         picks = brief["days"][today]["news"]
-        assert picks and set(picks) <= {s["id"] for s in brief["stories"]}
+        facts = brief["days"][today]["prelims"]
+        assert picks and set(picks + facts) <= {s["id"] for s in brief["stories"]}
         by_id = {s["id"]: s for s in brief["stories"]}
-        assert all(by_id[i]["grade"] in ("NOTE", "SKIM") for i in picks)
+        assert all(by_id[i]["grade"] == "NOTE" for i in picks)  # Must-know is NOTE only; Prelims facts sit below
+        assert not set(picks) & set(facts)
         assert all("explain" in s and s["explain"]["why_in_news"] for s in brief["stories"])
         assert brief["days"][today]["editorials"]
         exp = [by_id[i] for i in brief["days"][today]["explained"]]
@@ -272,11 +274,12 @@ def test_export_labels_match_briefs_and_cli_checkpoints(settings, db, fake_env, 
     picked = set()  # a day file holds every pick: cards, the "Also in the news" list and folded reports
     for f in data.glob("day/*.json"):
         for day in json.loads(f.read_text())["days"].values():
-            picked |= {i for k in ("news", "more", "editorials", "explained") for i in day[k]}
+            picked |= {i for k in ("news", "prelims", "more", "editorials", "explained") for i in day[k]}
             picked |= {i for ids in day["folded"].values() for i in ids}
     assert picked and {s["id"] for s in stories if s.get("in_brief")} == picked & {s["id"] for s in stories}
-    months = [json.loads(f.read_text()) for f in data.glob("brief-*.json")]  # the reviews: full cards only
-    cards = {i for m in months for day in m["days"].values() for k in ("news", "editorials", "explained") for i in day[k]}
+    months = [json.loads(f.read_text()) for f in data.glob("brief-*.json")]  # the reviews: cards only
+    cards = {i for m in months for day in m["days"].values()
+             for k in ("news", "prelims", "editorials", "explained") for i in day[k]}
     assert cards <= picked and all("more" not in day for m in months for day in m["days"].values())
     meta = json.loads((data / "meta.json").read_text())
     assert meta["day_files"] and all((data / "day" / f"{d}.json").is_file() for d in meta["day_files"])

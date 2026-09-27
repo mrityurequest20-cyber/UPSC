@@ -203,6 +203,20 @@ test("background picks the Wikipedia page that fits the story", async () => {
   assert.ok(html.includes("Western Ghats") && !html.includes("European Space Agency"));
 });
 
+test("the day bot lists the Must-know cards and the Prelims facts separately", async () => {
+  const st = (id, title, subj) => ({ id, title, subjects: [subj], gs: [], tags: [], sources: [] });
+  const day = { label: "26 Sep", cards: [st("a", "Parliament passes the Judicature Amendment Bill", "polity")],
+    prelims: [st("b", "Exercise VARUNA 2026 begins off Toulon", "defence"), st("c", "New Begonia species found in Arunachal", "environment")],
+    more: [st("d", "PM's BRICS visit is loaded with expectations", "ir")], editorials: [], explained: [] };
+  const bot = C.makeBot({ day: () => day, labels: () => ({ subjects: { polity: "Polity", defence: "Defence", environment: "Environment", ir: "IR" } }) });
+  const top = await bot.answer(null, "What are today's top stories?");
+  assert.ok(top.includes("Judicature") && !top.includes("VARUNA") && top.includes("2 Prelims facts") && top.includes("1 one-liner."));
+  const facts = await bot.answer(null, "Prelims facts");
+  assert.ok(facts.includes("VARUNA") && facts.includes("Begonia") && !facts.includes("Judicature"));
+  const p = bot.claudeFor(null, "");
+  assert.ok(p.includes("MUST-KNOW") && p.includes("PRELIMS FACTS") && p.includes("Begonia"));
+});
+
 test("the Claude prompt carries the story and the question", () => {
   const p = C.claudePrompt({ title: "RBI keeps repo rate unchanged", date: "2026-09-26", explain: { why_in_news: "The MPC held the rate." }, sources: [{ u: "https://www.rbi.org.in/x" }] }, "What is the MPC?");
   assert.ok(p.includes("RBI keeps repo rate unchanged") && p.includes("The MPC held the rate.") && p.includes("https://www.rbi.org.in/x") && p.endsWith("MY QUESTION: What is the MPC?"));

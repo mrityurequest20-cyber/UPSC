@@ -30,12 +30,12 @@ def test_india_angle(clf, title, tier, india):
 
 # ── brief selection ──
 def _story(db, sid, day, score, grade, subjects, editorial=False, publisher="The Hindu", summary="", explained=False,
-           title=None, tokens=None):
+           title=None, tokens=None, tags=None):
     db.upsert_story({
         "id": sid, "title": title or sid, "url": "https://x/" + sid, "date_ist": day, "dates": [day],
         "first_seen": NOW.isoformat(), "last_seen": NOW.isoformat(), "updated_at": NOW.isoformat(),
         "n_items": 1, "n_publishers": 1, "publishers": [publisher], "subjects": subjects, "gs": [],
-        "tags": [], "watch": [], "score": score, "grade": grade, "is_editorial": int(editorial),
+        "tags": tags or [], "watch": [], "score": score, "grade": grade, "is_editorial": int(editorial),
         "is_explained": int(explained),
         "is_library": 0, "is_private": 0, "tier": "quality", "summary": summary, "tokens": tokens or [],
     })
@@ -69,13 +69,59 @@ def test_brief_has_no_count_cap_on_a_busy_day(db, clf):
 def test_brief_floor_fills_a_quiet_day(db, clf):
     day = "2026-09-26"
     for i in range(25):  # a quiet day: nothing clears the bar on its own
-        _story(db, f"s{i}", day, 3.6 - i * 0.01, "SKIM", ["economy"])
+        _story(db, f"s{i}", day, 3.6 - i * 0.01, "SKIM", ["economy"], tags=["Scheme"])
+    for i in range(3):   # better scored, but no concrete development in the headline
+        _story(db, f"t{i}", day, 3.7, "SKIM", ["economy"])
     _story(db, "weak", day, 1.7, "READ", ["economy"], title="Experts say growth may slow, warns report")
     db.commit()
     picks = select_day(db, clf, day)
-    top, more = _news(picks, "top"), _news(picks, "more")
-    assert len(top) == clf.brief["floor_cards"] and len(top) + len(more) == 25  # topped up with the best of the day
-    assert "weak" not in top + more                                             # but never below the floor score
+    prelims, more = _news(picks, "prelims"), _news(picks, "more")
+    assert not _news(picks, "top")                                     # Must-know stays NOTE-only, even on a quiet day
+    assert prelims == [f"s{i}" for i in range(int(clf.brief["floor_cards"]))]  # topped up with the day's best facts
+    assert set(more) == {f"s{i}" for i in range(20, 25)} | {"t0", "t1", "t2"}
+    assert "weak" not in prelims + more                                # but never below the floor score
+
+
+def test_brief_tiers(db, clf):
+    day = "2026-09-26"
+    _story(db, "bill", day, 6.0, "NOTE", ["polity"], title="Parliament passes the Judicature Amendment Bill")
+    _story(db, "slam", day, 6.5, "NOTE", ["ir"], title="Jaishankar slams Pakistan over cross-border terrorism at UNGA")
+    _story(db, "appeal", day, 6.0, "NOTE", ["polity"], title="Supreme Court allows appellant's plea in pension case")
+    _story(db, "varuna", day, 4.0, "SKIM", ["defence"], title="Exercise Varuna 2026 begins off Goa")
+    _story(db, "ports", day, 3.2, "READ", ["infrastructure"], title="Centre notifies Kandla, JNPA, Paradip and Mundra as mega ports")
+    _story(db, "preview", day, 5.2, "SKIM", ["ir"], title="PM's BRICS visit is loaded with expectations on trade")
+    _story(db, "quote", day, 5.2, "SKIM", ["economy"], title="India to scale up green hydrogen output: Piyush Goyal",
+           tags=["Scheme"])
+    db.commit()
+    picks = select_day(db, clf, day)
+    assert _news(picks, "top") == ["bill"]                 # Must-know: NOTE stories only, no reactions or niche cases
+    assert _news(picks, "prelims") == ["varuna", "ports"]  # Prelims facts: concrete developments at any grade
+    assert {"slam", "appeal", "preview", "quote"} <= set(_news(picks, "more"))  # the rest: Also in the news
+    assert [p[3] for p in picks if p[1] == "news"] == ["top", "prelims", "prelims"] + ["more"] * 4
+
+
+def test_same_event_names_fold_but_common_words_do_not(db, clf):
+    for i in range(400):  # a fortnight of other stories: "cabinet" and "approves" are common, the two states less so
+        _story(db, f"f{i}", "2026-09-20", 1.0, "LOW", [],
+               tokens=["cabinet", "approv"] + (["maharashtra", "announc"] if i < 5 else []))
+    day = "2026-09-26"
+    _story(db, "ts1", day, 7.0, "NOTE", ["defence"], title="Exercise Tarang Shakti 2026 begins in Jodhpur",
+           tokens=["exercise", "tarang", "shakti", "2026", "begin", "jodhpur"])
+    _story(db, "ts2", day, 4.0, "SKIM", ["defence"],
+           title="F-35s and Rafales descend on Jodhpur as 40 countries join India's Tarang Shakti",
+           tokens=["f-35", "rafal", "descend", "jodhpur", "40", "countr", "join", "india", "tarang", "shakti"])
+    _story(db, "m1", day, 7.0, "NOTE", ["disaster"], title="Maharashtra announces drought relief in 265 talukas",
+           tokens=["maharashtra", "announc", "drought", "relief", "265", "taluka"])
+    _story(db, "m2", day, 6.8, "NOTE", ["polity"], title="Election Commission announces SIR dates for Maharashtra",
+           tokens=["election", "commission", "announc", "sir", "date", "maharashtra"])
+    _story(db, "c1", day, 7.0, "NOTE", ["agriculture"], title="Cabinet approves farmer organisation policy",
+           tokens=["cabinet", "approv", "farmer", "organisation", "policy"])
+    _story(db, "c2", day, 6.9, "NOTE", ["infrastructure"], title="Goa Cabinet approves SPV for water metro",
+           tokens=["goa", "cabinet", "approv", "spv", "water", "metro"])
+    db.commit()
+    picks = select_day(db, clf, day)
+    assert [(p[0], p[4]) for p in picks if p[4]] == [("ts2", "ts1")]  # the exercise's name joins its reports
+    assert {"m1", "m2", "c1", "c2"} <= set(_news(picks))              # shared common words are not the same event
 
 
 def test_same_event_reports_fold_into_one_card(db, clf):

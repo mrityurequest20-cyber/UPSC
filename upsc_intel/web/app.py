@@ -26,6 +26,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 APP_DIR = Path(__file__).parent / "app"  # the phone app (PWA): same data, its own screens
 MAX_SOURCES_PER_STORY = 12
 BRIEF_KEYS = {"news": "news", "editorial": "editorials", "explained": "explained"}  # pick kind → payload key
+CARD_TIERS = ("top", "prelims")  # Must-know and Prelims facts are cards; "more" is the list under them
 
 
 def story_out(s: dict, labels: dict | None = None, explain: bool = False, text: str | None = None,
@@ -165,12 +166,13 @@ OUTLET_TEXT = 700    # each outlet's text on a day's full cards, for the Ask bot
 
 def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, date_to: str,
                   include_private: bool = True, full: bool | None = None) -> dict:
-    """The brief for a range. days[d]: news (full cards, best first), more (the "Also in the news" list),
-    folded ({lead id: [same-event reports]}), editorials, explained. full (default: a single day) includes
-    more and folded; a week or month review carries only the full cards."""
+    """The brief for a range. days[d]: news (the Must-know cards, best first), prelims (the Prelims facts
+    cards), more (the "Also in the news" list), folded ({lead id: [same-event reports]}), editorials,
+    explained. full (default: a single day) includes more and folded; a week or month review carries only
+    the cards."""
     ensure_range(settings, db, clf, date_from, date_to)
     full = (date_from == date_to) if full is None else full
-    picks = [p for p in db.brief_between(date_from, date_to) if full or (p["tier"] == "top" and not p["lead"])]
+    picks = [p for p in db.brief_between(date_from, date_to) if full or (p["tier"] in CARD_TIERS and not p["lead"])]
     ids = list(dict.fromkeys(p["story_id"] for p in picks))
     stories = {s["id"]: s for s in db.stories_by_ids(ids)}
     if not include_private:
@@ -182,11 +184,15 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
         sid = p["story_id"]
         if sid not in stories:
             continue
-        day = days.setdefault(p["date_ist"], {"news": [], "more": [], "folded": {}, "editorials": [], "explained": []})
+        day = days.setdefault(p["date_ist"], {"news": [], "prelims": [], "more": [], "folded": {}, "editorials": [],
+                                              "explained": []})
         if p["lead"]:
             day["folded"].setdefault(p["lead"], []).append(sid)
         elif p["kind"] == "news" and p["tier"] == "more":
             day["more"].append(sid)
+        elif p["kind"] == "news" and p["tier"] == "prelims":
+            day["prelims"].append(sid)
+            heavy.add(sid)
         else:
             day[BRIEF_KEYS.get(p["kind"], "news")].append(sid)
             heavy.add(sid)

@@ -8,7 +8,7 @@ stories a day into a short **Daily Brief** you can actually finish. The sources 
 - coaching desks (IE UPSC, Insights, ForumIAS, Drishti…)
 - a 42-query Google News watchlist
 
-For each day it picks about 25 must-know stories, 15 editorials and 12 explainers, balanced across the syllabus. Each one comes with:
+For each day it picks about 20–25 must-know stories and 20 Prelims facts, plus 15 editorials and 12 explainers, balanced across the syllabus. Each one comes with:
 - a UPSC-style explainer
 - the closest-matching YouTube video
 
@@ -30,12 +30,13 @@ Week and Month views recap everything the daily briefs covered.
   - **Must-know bar:**
     - Each story gets a brief score. That's its grade, lifted when the headline reports an examinable development (a Bill passed, an Act in force, a Cabinet approval, a pact signed, a named exercise, a species found, a GI tag, an index rank…) and lowered for reactions and commentary (says, slams, "Who is…", "Watch:", LIVE).
     - The rules live in `config/topics.yaml` → `brief`, next to the other rules.
-  - **Two tiers:**
-    - Stories clearly above the bar are full cards with the write-up, video and notes.
-    - Those just below it are one-line entries under **Also in the news**. Tap a line for its summary and sources.
-    - Typical day: 20–60 cards plus 15–70 lines.
-  - **Nothing thin on a quiet day:** a light day is topped up to 20 cards and 40 stories in all. Every syllabus area also gets its best story.
-  - **Same event, one card:** reports of the same event from different outlets, which clustering kept apart, fold into one card. They're listed on it as "Also reported".
+  - **Three sections, clearly split:**
+    - **Must-know:** only high-yield (NOTE, "Make notes") stories above the bar whose headline isn't a reaction, a preview, a spat or a niche case. Full cards with the summary, video and notes.
+    - **Prelims facts:** other stories above the bar that report a concrete development: an exercise, an MoU signed, an Act in force, a Cabinet approval, a port or scheme, a species, a key verdict. Compact cards, a quick read each.
+    - **Also in the news:** the rest (reactions, previews, "loaded with expectations", "trade charges", appellant/bail cases, stories just below the bar). One-line entries; tap a line for its summary and sources.
+    - Typical busy day (26 Sep 2026): 22 must-know + 26 Prelims facts + 70 lines.
+  - **Nothing thin on a quiet day:** a light day is topped up to 20 cards (from the day's best Prelims facts, so Must-know stays NOTE-only) and 40 stories in all. Every syllabus area also gets its best story.
+  - **Same event, one card:** reports of the same event from different outlets, which clustering kept apart, fold into one card. They're listed on it as "Also reported". Two shared rare names ("Tarang Shakti", "Nomadic Elephant", "Strait of Hormuz") are enough to fold; shared common words ("Cabinet approves", "sign MoU") are not.
   - **Editorials and explainers:** every SKIM-or-better piece, topped up to 15 editorials and 12 explainers.
   - **Measured, not guessed:** four days were hand-labelled for must-know events, one of them blind. The brief caught 87–95% of them. The old fixed 25-story brief caught 35–73%, and dropped the most on the busiest days.
   - **The rest:** everything graded NOTE, SKIM or READ stays in **Everything**. Each card there says whether it made the brief and in which tier.
@@ -119,7 +120,7 @@ Week and Month views recap everything the daily briefs covered.
   - **Limits:** it never makes things up. Summaries and answers quote what the outlets published. When nothing answers the question, it says so and offers Wikipedia, a web search or Ask Claude.
 - **The app (phone):** the Claude Design "UPSC Intel App" at **`/UPSC/app/`** (the **App** button in the header).
   - **Screens:**
-    - Brief: week strip, the day's hero, GS chips, cards and "Also in the news"
+    - Brief: week strip, the day's hero, GS chips, Must-know cards, Prelims facts and "Also in the news"
     - Read: editorials by GS paper, explainers
     - Insights: streak, paper mastery, blind spots, running stories, exam radar, and a 30-min catch-up plan
     - Review: week and month
@@ -133,7 +134,7 @@ Week and Month views recap everything the daily briefs covered.
   - Cards on screen are summarised in the background, a few a minute, within the free reader's limit. A card you open goes first.
   - Summaries are kept on your device and shared between the website and the app.
   - The When / Where / Who and syllabus rows fold under **Details**.
-- **Grade labels in words:** every brief card is must-know; its label says how deeply to study it. **Make notes** is NOTE (high yield), **Quick read** is SKIM (know the key facts), and **Background** is READ.
+- **Grade labels in words:** **Make notes** is NOTE (high yield: every Must-know card), **Quick read** is SKIM (know the key facts: most Prelims facts), and **Background** is READ.
 - **Everything tab:** the full graded firehose, with:
   - filters (paper, subject, grade, source type)
   - the syllabus-coverage radar
@@ -278,7 +279,7 @@ python -m upsc_intel sources            # health table: which step each source i
 python -m upsc_intel reclassify         # re-tag everything after editing config/topics.yaml or sources.yaml
 python -m upsc_intel enrich [--limit N] # AI explainers for the brief (needs ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
-python -m pytest                        # 152 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 154 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

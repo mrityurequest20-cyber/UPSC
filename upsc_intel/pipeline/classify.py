@@ -14,6 +14,8 @@ DEFAULT_TIERS = {"official": 3.0, "examprep": 2.5, "premium": 2.5, "quality": 1.
                  "watch": 1.25, "general": 1.0, "intl": 1.0}
 PRELIMS_TAGS = {"Scheme", "Report/Index", "Species", "Place in news", "Award", "Day/Observance",
                 "Exercise", "Appointment", "Agreement/MoU"}
+# tags that mark a headline as a concrete development for the brief's "Prelims facts" tier
+FACT_TAGS = PRELIMS_TAGS | {"Act/Bill/Rules", "Judgment"}
 GS_ORDER = ["GS1", "GS2", "GS3", "GS4", "Prelims"]
 # "Prime Minister Narendra Modi", "EAM S. Jaishankar", "Chief Justice B.R. Gavai", "President Trump"
 TITLED = re.compile(
@@ -171,11 +173,13 @@ class Classifier:
         self.brief = {k: float(br.get(k, d)) for k, d in (
             ("event_weight", 0.75), ("hard_news", 1.0), ("talk_weight", 1.0), ("must_know", 6.25), ("also", 4.75),
             ("floor_cards", 20), ("floor_total", 40), ("floor_min", 3.0), ("editorials_floor", 15),
-            ("explained_floor", 12), ("fold_similarity", 0.25))}
+            ("explained_floor", 12), ("fold_similarity", 0.25), ("prelims_event", 2.0))}
         self.brief_events = [(float(w), re.compile(rx, re.I)) for w, rx in br.get("events") or []]
         self.brief_talk = [(float(w), re.compile(rx, re.I)) for w, rx in br.get("talk") or []]
         self.brief_hard = re.compile(br["hard_verbs"], re.I) if br.get("hard_verbs") else None
         self.brief_curators = {re.sub(r"\s+", "", str(p).lower()) for p in br.get("curators") or []}
+        self.brief_soft = re.compile(br["soft"], re.I) if br.get("soft") else None
+        self.brief_attribution = re.compile(br["attribution"]) if br.get("attribution") else None
 
         gz = topics.get("gazetteer") or {}
         self.place_names = {str(t): str(t) for t in (gz.get("india") or []) + (gz.get("world") or [])}
@@ -370,6 +374,21 @@ class Classifier:
         hard = 1.0 if self.brief_hard and self.brief_hard.search(title) else 0.0
         talk = sum(w for w, rx in self.brief_talk if rx.search(title))
         return event, hard, talk
+
+    def brief_soft_title(self, title: str) -> bool:
+        """A preview, a spat or a niche case ("loaded with expectations", "trade charges", "appellant"…):
+        kept out of the brief's cards, listed under them."""
+        return bool(self.brief_soft and self.brief_soft.search(title))
+
+    def brief_fact(self, title: str, tags: list[str] | set[str], event: float, talk: float) -> bool:
+        """Whether a headline reports a concrete, examinable development (an exercise, a pact signed, an Act in
+        force, a Cabinet approval, a scheme, a species, a verdict…) rather than a reaction, a preview, a spat or
+        a niche case: what the brief's "Prelims facts" tier lists."""
+        if talk > 0 or self.brief_soft_title(title):
+            return False
+        if self.brief_attribution and self.brief_attribution.search(title) and event < 3:
+            return False
+        return event >= self.brief["prelims_event"] or bool(FACT_TAGS.intersection(tags))
 
     def brief_score(self, score: float, title: str, publisher: str = "") -> float:
         """How must-know a story is for the Daily Brief: its grade score, lifted by an examinable

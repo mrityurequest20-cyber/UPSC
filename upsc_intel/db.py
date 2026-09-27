@@ -176,7 +176,7 @@ MIGRATIONS = [  # (table, column, type): added when missing, so old databases ke
     ("stories", "is_explained", "INTEGER DEFAULT 0"),
     ("stories", "video_hi", "TEXT"),
     ("videos", "lang", "TEXT"),
-    ("brief_picks", "tier", "TEXT"),  # "top" (a full card) / "more" (the list under the cards)
+    ("brief_picks", "tier", "TEXT"),  # "top" (Must-know card) / "prelims" (Prelims facts card) / "more" (the list)
     ("brief_picks", "lead", "TEXT"),  # folded into this story's card (same event, another outlet)
 ]
 

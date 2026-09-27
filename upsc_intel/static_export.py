@@ -56,7 +56,8 @@ def _archived_months(archive: Path | None) -> set[str]:
 def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: str, hi: str,
                   include_private: bool) -> dict:
     """Writes each day's whole brief to data/day/<day>.json and returns the month's review: every day's
-    full cards (not the "Also in the news" list or folded reports), with n_more saying how long that list is."""
+    cards (Must-know and Prelims facts, not the "Also in the news" list or folded reports), with n_more saying
+    how long that list is."""
     ensure_range(settings, db, clf, lo, hi)
     month: dict = {"from": lo, "to": hi, "days": {}, "stories": [], "videos": {}}
     seen: set[str] = set()
@@ -67,9 +68,9 @@ def _write_briefs(settings: Settings, db: DB, clf: Classifier, out: Path, lo: st
         v = day["days"].get(d)
         if not v:
             continue
-        keep = set(v["news"]) | set(v["editorials"]) | set(v["explained"])
-        month["days"][d] = {"news": v["news"], "editorials": v["editorials"], "explained": v["explained"],
-                            "n_more": len(v["more"])}
+        keep = set(v["news"]) | set(v["prelims"]) | set(v["editorials"]) | set(v["explained"])
+        month["days"][d] = {"news": v["news"], "prelims": v["prelims"], "editorials": v["editorials"],
+                            "explained": v["explained"], "n_more": len(v["more"])}
         month["videos"].update(day["videos"])
         for s in day["stories"]:
             if s["id"] in keep and s["id"] not in seen:
@@ -175,7 +176,7 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
     for m in sorted(set(written) | archived):
         b = json.loads((out / "data" / f"brief-{m}.json").read_text(encoding="utf-8"))
         for d, v in (b.get("days") or {}).items():
-            brief_days[d] = len(v.get("news") or []) + int(v.get("n_more") or 0)
+            brief_days[d] = len(v.get("news") or []) + len(v.get("prelims") or []) + int(v.get("n_more") or 0)
         for d, n in (b.get("reported") or {}).items():
             counts.setdefault(d, n)
 
