@@ -62,6 +62,10 @@ DEMONYM = {"Mongolian": "Mongolia", "French": "France", "American": "United Stat
            "Malaysian": "Malaysia", "Indonesian": "Indonesia", "Vietnamese": "Vietnam", "Omani": "Oman", "Saudi": "Saudi Arabia",
            "Kazakh": "Kazakhstan", "Bangladeshi": "Bangladesh", "Singaporean": "Singapore", "German": "Germany", "Greek": "Greece"}
 # recurring exercises and their standing partner, used only when the report names none
+# exercises with many participants: "Tarang Shakti — France" would be a wrong pair, whatever one report mentions
+MULTINATIONAL = {"tarang shakti", "malabar", "pitch black", "red flag", "milan", "rimpac", "cope thunder", "sea dragon",
+                 "la perouse", "kakadu", "cutlass express", "bright star", "cobra gold", "komodo", "sea breeze", "tiger triumph"}
+MANY_NATIONS = re.compile(r"\bmulti-?(national|lateral)\b|\b\d+\+?\s+(?:countries|nations)\b|\bcountries join\b", re.I)
 KNOWN_PARTNER = {"yudh abhyas": "United States", "nomadic elephant": "Mongolia", "varuna": "France", "garuda": "France",
                  "shakti": "France", "dharma guardian": "Japan", "mitra shakti": "Sri Lanka", "maitree": "Thailand",
                  "ekuverin": "Maldives", "harimau shakti": "Malaysia", "cope india": "United States", "sampriti": "Bangladesh",
@@ -338,7 +342,8 @@ def pairs_q(week: list[dict], texts: dict[str, str], day: str) -> list[dict]:
             partner = partners[0] if len(partners) == 1 else KNOWN_PARTNER.get(name.lower(), "") if not partners else ""
             if len(partners) > 1 and KNOWN_PARTNER.get(name.lower()) in partners:
                 partner = KNOWN_PARTNER[name.lower()]
-            if name and partner and name.lower() not in {"joint", "military", "naval", "air", "the"}:
+            many = name.lower() in MULTINATIONAL or MANY_NATIONS.search(t)  # no single partner to match
+            if name and partner and not many and name.lower() not in {"joint", "military", "naval", "air", "the"}:
                 relations["exercise"].setdefault(name, (partner, s))
         pm = PLACE.search(head)
         if pm:
