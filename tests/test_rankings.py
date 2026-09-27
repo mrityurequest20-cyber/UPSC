@@ -90,7 +90,7 @@ def test_live_stories_update_the_tracker(db, settings):
     assert (ghi["rank"], ghi["total"], ghi["previous"], ghi["edition"], ghi["score"]) == (102, 127, 105, "2025", "27.3 (serious)")
     assert ghi["why"][0].startswith("High child wasting") and ghi["source"] == "The Hindu" and ghi["url"].endswith("/ghi")
     assert by["passport"]["latest"]["rank"] == 77 and by["passport"]["latest"]["total"] is None
-    assert by["x_ocean_health_index"]["area"] == "other"  # an index not in the list starts a new entry
+    assert by["x_ocean_health"]["area"] == "other"  # an index not in the list starts a new entry
     assert by["innovation"]["latest"] is None  # an ungrounded rank is not kept
     # a second report of the same edition keeps the rank and fills in what was missing
     story(db, "pp2", "Passport index: India 77th of 199", "The Henley Passport Index puts India at 77 of 199.")
@@ -132,3 +132,33 @@ def test_the_sweep_looks_up_indices_in_the_free_news(db, settings, monkeypatch):
     assert (hunger["rank"], hunger["total"], hunger["edition"], hunger["day"]) == (102, 127, "2025", "2025-10-10")
     assert hunger["url"] == "https://www.ndtv.com/india-news/ghi" and hunger["source"] == "ndtv.com"  # the free copy, cited
     assert db.q("SELECT found FROM index_checks WHERE key='hunger'")[0]["found"] == "2025"  # found: looked up again in a month
+
+
+def test_one_card_per_index_and_official_figures_win(db, settings, monkeypatch):
+    assert R._slug("WorldSkills Competition 2026") == R._slug("WorldSkills") == "x_worldskills"
+    assert R._slug("Ocean Health Index") == "x_ocean_health" and R._slug("Index") == "x_"
+    assert R.official("https://www.pib.gov.in/PressReleasePage.aspx?PRID=1") and R.official("https://mea.gov.in/x")
+    assert not R.official("https://timesofindia.indiatimes.com/x") and not R.official("https://gov.in.example.com/x")
+    now = datetime.now(timezone.utc).isoformat()
+    toi = {"edition": "2026", "rank": 10, "total": 0, "previous": 39, "score": "", "why": ["Six silver medals."]}
+    # the old key of an unlisted index (before filler words were dropped), and a second report under the new key
+    R._keep(db, "x_worldskills_competition", "WorldSkills Competition", "", {**toi, "previous": 13, "why": []}, DAY, "pib", "https://www.pib.gov.in/x", "PIB", now)
+    R._keep(db, "x_worldskills", "WorldSkills", "", toi, DAY, "toi", "https://timesofindia.indiatimes.com/x", "Times of India", now)
+    db.commit()
+    real = R.load_indices(settings)
+    unlisted = [i for i in real if i["key"] != "worldskills"]
+    monkeypatch.setattr(R, "load_indices", lambda s: unlisted)
+    by = {x["key"]: x for x in R.rankings_payload(settings, db)["indices"]}
+    assert "x_worldskills_competition" not in by  # merged into one card
+    w = by["x_worldskills"]["latest"]
+    assert (w["rank"], w["previous"], w["source"]) == (10, 13, "PIB")  # the official release's figures
+    monkeypatch.setattr(R, "load_indices", lambda s: real)  # once the list has it, it takes over the "Other" card
+    by = {x["key"]: x for x in R.rankings_payload(settings, db)["indices"]}
+    assert "x_worldskills" not in by and by["worldskills"]["latest"]["rank"] == 10 and by["worldskills"]["area"] == "society"
+    # a newspaper report of an edition an official release already gave doesn't change it; the reverse replaces it
+    R._keep(db, "hunger", "Global Hunger Index", "", {**toi, "rank": 105, "previous": 0, "why": ["A reason."]}, DAY, "a", "https://www.ndtv.com/a", "NDTV", now)
+    R._keep(db, "hunger", "Global Hunger Index", "", {**toi, "rank": 102, "previous": 105, "why": []}, DAY, "b", "https://pib.gov.in/b", "PIB", now)
+    R._keep(db, "hunger", "Global Hunger Index", "", {**toi, "rank": 99}, DAY, "c", "https://www.thehindu.com/c", "The Hindu", now)
+    db.commit()
+    h = {x["key"]: x for x in R.rankings_payload(settings, db)["indices"]}["hunger"]["latest"]
+    assert (h["rank"], h["previous"], h["source"], h["why"]) == (102, 105, "PIB", ["A reason."])  # the report's reasons kept

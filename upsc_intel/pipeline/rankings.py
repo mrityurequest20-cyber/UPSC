@@ -92,8 +92,23 @@ def match_index(name: str, indices: list[dict]) -> dict | None:
     return best[0] if best else None
 
 
+FILLER = {"the", "index", "indices", "report", "reports", "ranking", "rankings", "rank", "competition", "competitions",
+          "championship", "championships", "edition", "annual", "survey", "list", "of"}
+
+
 def _slug(name: str) -> str:
-    return "x_" + re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:50]
+    """An unlisted index's key, without filler words or a year: "WorldSkills Competition 2026" and "WorldSkills" share
+    one card."""
+    words = [w for w in re.split(r"[^a-z0-9]+", name.lower()) if w and w not in FILLER and not re.fullmatch(r"(19|20)\d\d", w)]
+    return "x_" + "_".join(words)[:50]
+
+
+OFFICIAL = re.compile(r"^https?://([^/]+\.)?(pib\.gov\.in|[^/]+\.gov\.in|[^/]+\.nic\.in)(/|$)", re.I)
+
+
+def official(url: str) -> bool:
+    """A government release (PIB, a ministry): its figures beat a newspaper's when the two disagree."""
+    return bool(OFFICIAL.match(url or ""))
 
 
 def _edition(e: str, day: str) -> str:
@@ -102,19 +117,25 @@ def _edition(e: str, day: str) -> str:
 
 
 def _keep(db: DB, key: str, name: str, publisher: str, r: dict, day: str, story_id: str, url: str, source: str, now: str) -> bool:
-    """Stores an (index, edition); a known edition keeps its rank and only fills in what it lacked. → new?"""
+    """Stores an (index, edition); a known edition keeps its rank and only fills in what it lacked, unless the new report
+    is an official release and the stored one isn't: then the official figures replace it. → new?"""
     ed = _edition(r.get("edition", ""), day)
     rid = f"{key}|{ed}"
     why = [" ".join(str(w).split())[:160] for w in r.get("why") or [] if str(w).strip()][:4]
     total = r.get("total") if isinstance(r.get("total"), int) and r.get("total", 0) > 0 else None
     prev = r.get("previous") if isinstance(r.get("previous"), int) and r.get("previous", 0) > 0 else None
-    old = db.q("SELECT total, previous, score, why FROM rankings WHERE id=?", (rid,))
-    if not old:
+    old = db.q("SELECT total, previous, score, why, url FROM rankings WHERE id=?", (rid,))
+    if not old or (official(url) and not official(old[0]["url"])):
+        if old:  # the official release replaces the report; what only the report had stays
+            o = old[0]
+            total, prev = total or o["total"], prev or o["previous"]
+            why = why or json.loads(o["why"] or "[]")
+            r = {**r, "score": r.get("score") or o["score"] or ""}
+        db.x("DELETE FROM rankings WHERE id=?", (rid,))
         db.x("INSERT INTO rankings (id, index_key, name, publisher, edition, rank, total, previous, score, why, day, story_id, url, "
              "source, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
              (rid, key, name, publisher, ed, r["rank"], total, prev, (r.get("score") or "")[:80], json.dumps(why), day, story_id, url, source, now))
         return True
-    o = old[0]
     db.x("UPDATE rankings SET total=COALESCE(total, ?), previous=COALESCE(previous, ?), score=CASE WHEN COALESCE(score,'')='' THEN ? "
          "ELSE score END, why=CASE WHEN COALESCE(why,'[]')='[]' THEN ? ELSE why END WHERE id=?",
          (total, prev, (r.get("score") or "")[:80], json.dumps(why), rid))
@@ -230,6 +251,30 @@ def sweep(db: DB, gem: Gemini, indices: list[dict], topics: dict, http=None, lim
     return {"searched": len(todo), "found": found}
 
 
+def rekey(db: DB, indices: list[dict]) -> int:
+    """Moves an unlisted index's editions to its current key: the listed index it now matches (one added to
+    config/indices.yaml takes over its "Other" card), else its slug (see _slug), so one index keeps one card. Two reports
+    of the same edition: the official one stays, else the first. → rows moved or merged"""
+    moved = 0
+    for r in db.q("SELECT id, index_key, name, edition, url, at FROM rankings WHERE index_key LIKE 'x\\_%' ESCAPE '\\' ORDER BY at"):
+        idx = match_index(r["name"] or "", indices)
+        key = idx["key"] if idx else _slug(r["name"] or "")
+        if key in ("x_", r["index_key"]):
+            continue
+        rid = f"{key}|{r['edition']}"
+        there = db.q("SELECT url FROM rankings WHERE id=?", (rid,))
+        if there and not (official(r["url"]) and not official(there[0]["url"])):
+            db.x("DELETE FROM rankings WHERE id=?", (r["id"],))  # the edition is already there: that one stays
+        else:
+            db.x("DELETE FROM rankings WHERE id=?", (rid,))
+            db.x("UPDATE rankings SET id=?, index_key=?, name=?, publisher=? WHERE id=?",
+                 (rid, key, idx["name"] if idx else r["name"], idx["publisher"] if idx else "", r["id"]))
+        moved += 1
+    if moved:
+        db.commit()
+    return moved
+
+
 def update_rankings(settings: Settings, db: DB, days: list[str], http=None, search_http=None, pause: float = GEMINI_PAUSE,
                     max_calls: int = MAX_CALLS, sweep_limit: int = SWEEP_PER_RUN) -> dict:
     if not settings.gemini_api_key:
@@ -252,6 +297,7 @@ def rankings_payload(settings: Settings, db: DB) -> dict:
     """The tracker: every index in the list (and any other an article reported), India's latest rank with its reasons
     and source, the change from the previous edition, and the editions seen."""
     indices = load_indices(settings)
+    rekey(db, indices)
     rows = [dict(r) for r in db.q("SELECT * FROM rankings ORDER BY index_key, edition DESC, day DESC")]
     checked = {r["key"]: r["at"] for r in db.q("SELECT key, at FROM index_checks")}
     by: dict[str, list[dict]] = {}

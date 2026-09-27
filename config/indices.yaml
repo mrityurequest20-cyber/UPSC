@@ -46,6 +46,9 @@ indices:
   - {key: sdg, area: society, name: "SDG Index (Sustainable Development Report)", publisher: "UN Sustainable Development Solutions Network",
      about: "Progress on the 17 Sustainable Development Goals.",
      aliases: ["sdg index", "sustainable development report", "sdg ranking"]}
+  - {key: worldskills, area: society, name: "WorldSkills Competition", publisher: "WorldSkills International (India: NSDC / Skill India)",
+     about: "The biennial 'Skills Olympics' of young professionals in about 60 trades; countries are ranked by their medals and points.",
+     aliases: ["worldskills", "world skills competition", "worldskills competition"]}
   - {key: women_peace_security, area: society, name: "Women, Peace and Security Index", publisher: "Georgetown Institute for Women, Peace and Security and PRIO",
      about: "Women's inclusion, justice and security.",
      aliases: ["women, peace and security index", "women peace and security index", "wps index"]}
