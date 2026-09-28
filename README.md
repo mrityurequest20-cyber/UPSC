@@ -106,6 +106,25 @@ Week and Month views recap everything the daily briefs covered.
   - Top 10 / Top 15
   - everything the daily briefs covered, grouped by subject and dated
 - **Progress tracking:** tick **Mark done** on each card, and the bar at the top shows how much of the day's brief you've finished. Stars and notes build your revision list.
+- **Today's plan (app: Progress → Today, the first view; website: the top of the Practice tab):** your exam date and daily hours turn the app into one checklist a day.
+  - **Setup:** set the Prelims date (UPSC announces it in its yearly exam calendar) and your hours a day. Both stay on your device (`upsc-plan`, included in backups).
+  - **The tasks, in order of priority:**
+    - today's **must-know stories** (ticks when you've marked them all done)
+    - **flashcards** (ticks when none are due and you've reviewed today)
+    - the **daily MCQ set** (ticks when you've taken a set today)
+    - a **syllabus topic of the day**: the hottest topic you haven't studied yet, the same one all day. It ticks when you mark it studied on its page.
+    - **one Mains answer** (ticks when you've written one today)
+    - the **weekly mock** on Sundays
+    - a **month-end revision** day
+  - **Each task:** **Start** opens it where it's done (the brief, the right Practice tab, the topic's page). A task can also be ticked by hand.
+  - **Catch-up:** if most of yesterday's must-know is still unread and the plan was in use yesterday, a task adds the top 8.
+  - **Your hours:** what doesn't fit is marked "if time allows". The foot says how much time is left.
+  - **The countdown sets the phase:**
+    - **Foundation**, more than 150 days out.
+    - **Prelims focus**, 150 days or fewer.
+    - **Final revision**, the last 30 days: a full mock daily; the syllabus topic and the Mains answer become "if time allows".
+  - **Plan streak:** the days in a row with the plan's core tasks done.
+  - **App's Brief tab:** shows a one-line "Today's plan · 2 of 6 done" link on today's brief once a plan is set.
 - **Backup your progress:** marks, notes, streaks, flashcards, practice scores, Mains answers and followed dossiers live only in your browser. The website and the app share them.
   - **Download backup** (in the website's Starred tab or the app's Progress → My 30 days) saves them to a small `.json` file.
   - **Restore from a file** on any device adds that file's progress to the device's own. It's a merge, so nothing on the device is lost:
