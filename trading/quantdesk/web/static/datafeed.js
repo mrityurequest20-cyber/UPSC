@@ -19,9 +19,23 @@
 		return n >= 1e11 ? Math.floor(n / 1000) : n; // ms since 1973 vs seconds before year 5138
 	}
 
+	/* GoCharting passes resolutions as strings ("5m") or objects ({units, scale}); normalise. */
+	function toInterval(res) {
+		if (res == null) return "1D";
+		if (typeof res === "string") return res;
+		if (res.type) return res.type;
+		if (res.baseType) return res.baseType;
+		if (res.scale === "minutes") return (res.units || 1) + "m";
+		if (res.scale === "hours") return (res.units || 1) * 60 + "m";
+		return "1D";
+	}
+
+	/* opts.udf(symbol, interval, from, to, countBack) -> URL switches getBars to intraday bars
+	   (the intraday desk's recorded sessions); opts.resolutions lists what the chart may offer. */
 	function createQuantDeskDatafeed(apiBase, opts) {
 		const base = apiBase || "";
 		const o = opts || {};
+		const resolutions = o.resolutions || INTERVALS;
 		const fetchFn = o.fetch || root.fetch.bind(root);
 		const timers = new Map();
 		let symbolsPromise = null;
@@ -49,13 +63,13 @@
 				asset_type: index ? "INDEX" : "EQUITY",
 				session: "0915-1530",
 				timezone: "Asia/Kolkata",
-				has_intraday: false,
+				has_intraday: !!o.udf,
 				has_daily: true,
-				supported_resolutions: INTERVALS,
+				supported_resolutions: resolutions,
 				tick_size: 0.05,
 				display_tick_size: 0.05,
 				max_tick_precision: 2,
-				data_status: "endofday",
+				data_status: o.udf ? "streaming" : "endofday",
 				delay_seconds: 0,
 				tradeable: !!s.tradeable,
 				quote_currency: "INR",
@@ -65,14 +79,21 @@
 					code: "NSE",
 					zone: "Asia/Kolkata",
 					hours: [0, 1, 2, 3, 4, 5, 6].map((d) => ({ open: d >= 1 && d <= 5 })),
-					valid_intervals: INTERVALS,
+					valid_intervals: resolutions,
 				},
 			};
 		}
 
 		return {
-			async getBars(info, _resolution, periodParams) {
+			async getBars(info, resolution, periodParams) {
 				const p = periodParams || {};
+				if (o.udf) {
+					try {
+						return await getJSON(o.udf(bare(info), toInterval(resolution), toSec(p.from), toSec(p.to), p.countBack || p.rows));
+					} catch (e) {
+						return { s: "error", errmsg: String((e && e.message) || e) };
+					}
+				}
 				const q = new URLSearchParams({ symbol: bare(info) });
 				const from = toSec(p.from), to = toSec(p.to);
 				if (from != null) q.set("from", String(from));
@@ -147,6 +168,6 @@
 		};
 	}
 
-	if (typeof module !== "undefined" && module.exports) module.exports = { createQuantDeskDatafeed, toSec };
+	if (typeof module !== "undefined" && module.exports) module.exports = { createQuantDeskDatafeed, toSec, toInterval };
 	else root.createQuantDeskDatafeed = createQuantDeskDatafeed;
 })(typeof window !== "undefined" ? window : globalThis);

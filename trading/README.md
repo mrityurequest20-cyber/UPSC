@@ -30,9 +30,10 @@ data ─► analytics ─► regime ─► strategies ─► allocator ─► ri
 cd trading
 pip install -r requirements.txt
 
-python -m quantdesk --source synthetic demo       # the whole desk, offline, ~90 s
-python -m quantdesk --source synthetic serve      # desk UI → http://127.0.0.1:8765
-python -m pytest                                  # 104 tests
+python -m quantdesk --source synthetic demo       # the daily desk, offline, ~90 s
+python -m quantdesk intraday replay --synthetic 5 # the intraday options desk, offline, ~1 min
+python -m quantdesk serve --host 0.0.0.0          # the website, on your phone (prints a private link)
+python -m pytest                                  # 120 tests
 ```
 
 The demo writes everything to `runtime/demo/`:
@@ -76,9 +77,9 @@ Other commands:
 - `risk reset` re-arms the kill switch after a post-mortem.
 - `touch runtime/KILL` stops all order flow instantly.
 
-## Desk UI with GoCharting charts
+## Daily desk UI with GoCharting charts
 
-`python -m quantdesk serve` starts a local desk (standard library only, bound to `127.0.0.1`) with:
+`python -m quantdesk serve` (standard library only, `127.0.0.1` by default) serves the phone-friendly intraday app at `/` (see [The website](#the-website-use-it-from-your-phone)) and the daily desk at **`/daily`**, which has:
 - a watchlist with regimes
 - the chart
 - the analysis for the selected symbol
@@ -105,6 +106,86 @@ Other commands:
 - **Fallback:** if the SDK can't load (no network, no license, blocked domain), a built-in candlestick chart takes over. It shows SMA50/200, journal entry/exit markers, and open-trade stop, target and entry levels, with a crosshair tooltip. The desk always works.
 
 **License:** `@gocharting/chart-sdk` is a private package, and production use needs a commercial license from GoCharting. QuantDesk loads the SDK's hosted build from `https://gocharting.com/sdk/library/<license-key>/index.umd.js`. It ships with the public demo key from GoCharting's own CodePen. Put your key in `web.gocharting.license_key` or `GOCHARTING_LICENSE_KEY`.
+
+## Intraday options desk (real time)
+
+`python -m quantdesk intraday live` runs from 09:15 to 15:30 IST in paper mode. Every closed minute it:
+
+1. **reads the market:** new 1-minute bars (Yahoo free, or Kite ticks) and a fresh option chain every 3 minutes (NSE's free chain, Kite quotes, or a model). Everything is recorded to `runtime/intraday/data/`, so the desk builds its own intraday history.
+2. **thinks:** the analyst gathers weighted **evidence** in six groups:
+   - **trend:** VWAP side and slope, 5m EMA9/21, Supertrend, 15m slope
+   - **structure:** opening range, initial balance, value area and POC, prior-day high/low, CPR
+   - **momentum:** 5m RSI
+   - **flow:** CVD slope and price/CVD divergence (tick delta when a tick feed is attached)
+   - **options:** PCR, OI walls, max pain on expiry day
+   - **volatility:** India VIX change, ATM IV vs realised vol
+
+   From that it forms a **bias, a conviction and a day type** (trend / balance / volatile). It gives a **premium view** (IV rich, fair or cheap), lists explicit **no-trade flags**, and writes a narrative. The read is journaled every 5 minutes, on every bias flip, and on every trade.
+3. **picks a setup** from the playbook:
+   - **opening-range breakout**
+   - **trend pullback** to VWAP or EMA21
+   - **flag breakout** (continuation after a 30-minute consolidation)
+   - **value-area rejection** (fades only when the tape is balanced)
+   - **range premium-selling iron fly** (balance day with rich IV)
+
+   The structure follows the vol view: buy the option when premium is fair or cheap, a debit spread when it's rich, a defined-risk fly for range days. Strikes come from the real chain by delta. Each plan fixes its **invalidation level, targets, premium stop and time stop before entry**.
+4. **sizes and executes (simulated):**
+   - **Sizing:** 1% of capital at risk to the plan's stop, scaled by conviction.
+   - **Caps:** lots, premium outlay and margin.
+   - **Daily limits:** 6 trades a day, 2 open, −2.5% daily stop, cooldown after 2 losses.
+   - **Entry window:** new trades only between 09:20 and 14:45.
+   - **Fills:** buys at the ask, sells at the bid, plus a tick, plus the full cost stack (STT 0.15% on premium sold).
+5. **manages:** open options are marked with the IV implied by their last real quote, repriced with the live spot and minute-level time to expiry, so delta, gamma and theta all show up in P&L. Exits happen on invalidation, premium stop/target, underlying target, breakeven trail or time stop. Everything is squared off by 15:15.
+6. **reviews:** every trade gets a grade and lessons. The session review (how the read evolved, the bias path, each trade's why and how it ended) goes to `runtime/intraday/reviews/<date>.md`.
+
+```bash
+python -m quantdesk intraday live                       # Yahoo 1m bars + NSE option chain (free; best effort)
+python -m quantdesk intraday live --feed kite --chain kite   # real-time ticks + real quotes (Kite Connect)
+python -m quantdesk intraday replay --last 5            # re-run recorded real sessions through the same engine
+python -m quantdesk intraday replay --synthetic 20      # offline practice on synthetic sessions
+python -m quantdesk intraday thoughts -v                # what it thought, with the evidence
+python -m quantdesk intraday trades --id <id>           # full rationale, sizing, review for one trade
+python -m quantdesk intraday stats                      # by setup, structure, day type, exit, hour
+python -m quantdesk intraday review                     # the written session review
+```
+
+**Data reality check.**
+- Yahoo's 1-minute bars cover only ~7 days, may lag, and carry little or no volume for indices; the desk falls back to TWAP and flags it. So record every session.
+- NSE's option-chain API is free but throttled and changes without notice (the v3 endpoint is used).
+- Kite Connect (`KITE_API_KEY`/`KITE_ACCESS_TOKEN`) gives real-time ticks, depth and real option quotes.
+
+**Order flow and the GoCharting plan.** `quantdesk/intraday/orderflow.py` already computes:
+- volume profile (POC, value area, high/low-volume nodes)
+- footprint bars from ticks (buy/sell volume per price, delta, diagonal imbalances, stacked imbalances)
+- CVD and divergences
+
+With Kite, full-mode snapshots are classified with the quote rule and fed into it. A true tick-by-tick trade feed (e.g. what GoCharting's order-flow subscription is built on) plugs in through the same `Trade` records. When that data is attached, the analyst's `flow` evidence switches from the bar approximation to real delta.
+
+**On synthetic sessions** (built-in simulator: trend, range, reversal and volatile days) the desk made **+4.0% over 8 traded sessions** (10-session run, 40 trades, win rate 42%, profit factor 1.69, max drawdown −2.3%). Flag breakouts and ORB earned; VWAP pullbacks and value-area fades lost. That proves the machinery, not an edge. Judge it only on recorded real sessions (`intraday replay --last N`) and weeks of live paper trading.
+
+## The website (use it from your phone)
+
+`python -m quantdesk serve` serves a mobile-first web app, plus the daily desk at `/daily`:
+
+| Tab | What's there |
+|---|---|
+| **Live** | equity, today's P&L, engine status (running / paused / not running), **Pause / Resume / Flatten**, the analyst's current read per underlying (bias, conviction, day type, IV vs RV, narrative, evidence bars), the intraday chart (1m/5m/15m candles, VWAP, OR/IB/value/prior-day/OI-wall levels, entry/exit markers, touch crosshair; **Pro chart** switches to GoCharting), open positions with legs, marks, "Why?" and Close |
+| **Thinking** | the running feed of market reads; tap one to see its evidence |
+| **Trades** | every trade with grade, P&L and R; tap for the rationale, market read, sizing, exit, review, lessons and fills |
+| **Stats** | net P&L, win rate, profit factor, drawdown, equity by session, P&L by setup, tables by day type, structure, exit, hour and underlying |
+| **Reviews** | the written session reviews |
+
+**On your phone:**
+
+```bash
+python -m quantdesk serve --host 0.0.0.0     # prints http://<your-LAN-IP>:8765/?token=…
+```
+
+Open that link once on the phone, on the same Wi-Fi. The token is remembered in an HttpOnly cookie. Then use **Add to Home Screen** (it installs like an app, with its own icon, standalone and dark-mode aware).
+
+**Away from home:** install [Tailscale](https://tailscale.com) on the computer and the phone, then open `http://<computer's tailscale name>:8765/?token=…`. Don't port-forward it to the open internet.
+
+**How the pieces fit:** the engine (`intraday live`) and the website are separate processes sharing the journal. Commands from the phone are queued, and the engine applies them on its next minute. Everything is paper-only; the website can pause, close or flatten, but never places real orders.
 
 ## The quantitative stack
 
@@ -207,7 +288,7 @@ Everything is in `config/quantdesk.yaml`: account, universe, contract specs, cos
 
 - **Options history:** there's no free historical NSE option-chain data, so option P&L in backtests is model-priced (VIX × IV beta + skew). Real chains have wider, stickier spreads around events. Plug a chain source into `OptionPricer` and `SVI.fit` when you have one.
 - **Futures:** futures are priced off spot, and basis and roll cost are ignored. Pair legs ignore lot rounding.
-- **Timeframe:** daily bars only. An intraday engine would need a bar feed and an intraday cost model (MIS STT).
+- **Intraday data:** the free path (Yahoo + NSE) is best effort. For real-time decisions use Kite. The intraday desk models only index options on NIFTY and BANKNIFTY.
 - **Kite:** the Kite path and GoCharting's full SDK are untested from this environment. Both are behind guards and have fallbacks.
 
 ## Layout
@@ -226,9 +307,11 @@ trading/
     journal/                  SQLite journal, trade and period reviews
     ops/                      routine checks
     reporting/                HTML tearsheet, market analysis
-    web/                      desk server + GoCharting datafeed/broker bridge + fallback chart
+    intraday/                 real-time desk: feeds, chains (NSE/Kite/model), order flow, features, analyst,
+                              playbook, risk, sim broker, engine, recorder, synthetic sessions, CLI
+    web/                      server (token auth), intraday API, mobile app (PWA), daily desk, GoCharting datafeed
     data/                     Yahoo, CSV, synthetic market, validation
-  tests/                      104 tests
+  tests/                      120 tests
 ```
 
 ## Sources for the market rules

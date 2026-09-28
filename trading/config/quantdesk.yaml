@@ -79,6 +79,43 @@ risk:
   max_margin_utilisation: 0.95     # equity delivery counts at full notional
   futures_margin_pct: 0.15
 
+intraday:
+  capital: 500000                  # paper account for the intraday options desk
+  underlyings: [NIFTY, BANKNIFTY]
+  feed: yahoo                      # yahoo | kite   (replay/synthetic come from the CLI)
+  chain: nse                       # nse | kite | model
+  chain_refresh_min: 3             # NSE throttles; don't hammer it
+  chain_stale_min: 12              # no new entries on an older real chain
+  thought_every_min: 5             # journal the market read at least this often
+  history_days: 6                  # prior sessions loaded for levels, value areas, relative volume
+  expiry_min_days: 1               # skip 0-DTE: trade the next expiry on expiry day
+  adverse_ticks: 1                 # extra slippage on top of bid/ask fills
+  analyst:
+    min_conviction: 0.45
+    iv_rv_rich: 1.15
+    iv_rv_cheap: 0.90
+    weights: {}                    # override evidence weights, e.g. {vwap: 1.2, pcr: 0.5}
+  risk:
+    risk_per_trade: 0.01           # premium at risk to the plan's stop (₹5k on ₹5L), fraction of capital
+    max_trades_per_day: 6
+    max_open: 2
+    daily_loss_limit: 0.025
+    cooldown_after_losses: 2
+    cooldown_min: 30
+    no_entry_before: "09:20"
+    no_entry_after: "14:45"
+    square_off: "15:15"
+    max_spread_pct: 0.06
+    max_premium_outlay: 0.25
+    max_margin: 0.5
+    max_lots: 10
+  setups:
+    orb:          {enabled: true, until_min: 120, min_rel_volume: 0.8, long_delta: 0.55, short_delta: 0.25, premium_stop: 0.30, premium_target: 0.60, time_stop_min: 45}
+    vwap_trend:   {enabled: true, after_min: 45, long_delta: 0.55, short_delta: 0.25, premium_stop: 0.30, premium_target: 0.60, time_stop_min: 60}
+    trend_break:  {enabled: true, after_min: 60, until_min: 330, long_delta: 0.55, short_delta: 0.25, premium_stop: 0.30, premium_target: 0.60, time_stop_min: 45}
+    va_reversion: {enabled: true, after_min: 75, until_min: 300, max_abs_score: 0.40, rsi_hi: 60, rsi_lo: 40, long_delta: 0.50, short_delta: 0.25, premium_stop: 0.35, premium_target: 0.60, time_stop_min: 60}
+    range_sell:   {enabled: true, after_min: 75, until_min: 255, max_abs_score: 0.30, wing_mult: 1.0, stop_mult: 0.8, take_profit: 0.30, time_stop_min: 120}
+
 web:
   host: 127.0.0.1                  # the desk UI; keep it on localhost
   port: 8765

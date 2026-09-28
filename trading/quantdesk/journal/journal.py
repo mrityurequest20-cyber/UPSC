@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS checks (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, routine TEXT, name TEXT, status TEXT, detail TEXT
 );
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS thoughts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, symbol TEXT, bias TEXT, score REAL, conviction REAL,
+  day_type TEXT, vol_view TEXT, spot REAL, action TEXT, narrative TEXT, evidence TEXT, vetoes TEXT, levels TEXT, chain TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_thoughts_ts ON thoughts(ts);
 CREATE INDEX IF NOT EXISTS ix_trades_status ON trades(status);
 CREATE INDEX IF NOT EXISTS ix_decisions_ts ON decisions(ts);
 """
@@ -158,6 +163,26 @@ class Journal:
     def check(self, ts, routine: str, name: str, status: str, detail: str):
         self._exec("INSERT INTO checks (ts, routine, name, status, detail) VALUES (?,?,?,?,?)",
                    (str(ts), routine, name, status, detail))
+
+    def thought(self, view, action: str = "") -> None:
+        """The analyst's read at one moment (intraday), whether or not it traded."""
+        self._exec("INSERT INTO thoughts (ts, symbol, bias, score, conviction, day_type, vol_view, spot, action, narrative, "
+                   "evidence, vetoes, levels, chain) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   (str(view.ts), view.symbol, view.bias, view.score, view.conviction, view.day_type, view.vol_view,
+                    view.spot, action, view.narrative,
+                    _json([{"factor": e.factor, "category": e.category, "direction": e.direction, "weight": e.weight,
+                            "observation": e.observation} for e in view.evidence]),
+                    _json(view.vetoes), _json(view.levels), _json(view.chain)))
+
+    def thoughts(self, since: str | None = None, symbol: str | None = None) -> pd.DataFrame:
+        q, p = "SELECT * FROM thoughts WHERE 1=1", []
+        if since:
+            q += " AND ts >= ?"
+            p.append(since)
+        if symbol:
+            q += " AND symbol = ?"
+            p.append(symbol)
+        return self.df(q + " ORDER BY id", tuple(p))
 
     def set_state(self, key: str, value) -> None:
         self._exec("INSERT OR REPLACE INTO state (key, value) VALUES (?,?)", (key, _json(value)))

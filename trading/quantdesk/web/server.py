@@ -35,7 +35,8 @@ from ..reporting.market import analyze_symbol
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).resolve().parent / "static"
 TYPES = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
-         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json"}
+         ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".json": "application/json",
+         ".png": "image/png", ".webmanifest": "application/manifest+json"}
 
 
 def epoch_seconds(idx: pd.DatetimeIndex) -> np.ndarray:
@@ -64,14 +65,14 @@ class DeskAPI:
     def __init__(self, cfg, runner: LiveRunner):
         self.cfg = cfg
         self.runner = runner
-        self.eng = runner.engine or runner.load()
+        self.eng = runner.engine                  # the daily desk loads lazily, on first use
         self._loaded_marker = runner.journal.get_state("last_processed")
         self._analysis_cache: dict[str, str] = {}
 
     def _fresh(self):
         """Reload if a cron EOD run moved the account forward since we loaded."""
         marker = self.runner.journal.get_state("last_processed")
-        if marker != self._loaded_marker:
+        if self.eng is None or marker != self._loaded_marker:
             self.runner.engine = None
             self.eng = self.runner.load()
             self._loaded_marker = marker
@@ -90,7 +91,7 @@ class DeskAPI:
         key = os.environ.get("GOCHARTING_LICENSE_KEY") or g.get("license_key", "")
         return {"gocharting": {"enabled": bool(g.get("enabled", True)) and bool(key), "licenseKey": key,
                                "sdkUrl": str(g.get("sdk_url", "")).replace("{key}", key), "theme": g.get("theme", "dark")},
-                "symbols": [self.key(s) for s in self.eng.bars], "default": self.key(self.cfg.get("universe.benchmark", "NIFTY")),
+                "symbols": [self.key(s) for s in (self.eng.bars if self.eng else self.cfg.all_symbols())], "default": self.key(self.cfg.get("universe.benchmark", "NIFTY")),
                 "paperOnly": not getattr(self.runner.broker, "live", False)}
 
     def symbols(self) -> list[dict]:
@@ -111,7 +112,7 @@ class DeskAPI:
 
     def _sym(self, s: str) -> str:
         s = (s or "").split(":")[-1].upper()
-        if s not in self.eng.bars:
+        if s not in self._fresh().bars:
             raise KeyError(f"unknown symbol {s}")
         return s
 
@@ -279,30 +280,58 @@ class DeskAPI:
         return self.runner.cancel_queued(str(body.get("orderId") or body.get("id")))
 
 
-def make_handler(api: DeskAPI):
+def make_handler(api: DeskAPI, iapi=None, token: str | None = None):
+    import hmac
+
     class Handler(BaseHTTPRequestHandler):
-        server_version = "QuantDesk/0.1"
+        server_version = "QuantDesk/0.2"
 
         def log_message(self, fmt, *args):
             log.info("%s " + fmt, self.address_string(), *args)
 
-        def _send(self, code: int, body, ctype="application/json"):
+        def _send(self, code: int, body, ctype="application/json", extra_headers=None):
             data = body if isinstance(body, bytes) else json.dumps(_clean(body)).encode()
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            for k, v in (extra_headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(data)
+
+        # ---- auth: required whenever a token is configured (i.e. when reachable beyond localhost)
+        def _authed(self, q) -> tuple[bool, dict]:
+            if not token:
+                return True, {}
+            cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+            given = self.headers.get("X-QD-Token") or cookies.get("qd_token") or q.get("token") or ""
+            ok = hmac.compare_digest(given.encode(), token.encode())
+            extra = {}
+            if ok and q.get("token"):
+                extra["Set-Cookie"] = f"qd_token={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000"
+            return ok, extra
 
         def do_GET(self):
             u = urlparse(self.path)
             q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+            if u.path in ("/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"):
+                return self._static("app/" + u.path.lstrip("/"))
+            ok, extra = self._authed(q)
+            if not ok:
+                if u.path.startswith("/api/"):
+                    return self._send(401, {"error": "token required"})
+                return self._static("app/login.html", 401)
             try:
-                if u.path in ("/", "/index.html"):
-                    return self._static("index.html")
+                if u.path in ("/", "/index.html", "/app"):
+                    return self._static("app/index.html", extra_headers=extra)
+                if u.path in ("/daily", "/daily.html"):
+                    return self._static("index.html", extra_headers=extra)
                 if u.path.startswith("/static/"):
                     return self._static(u.path[len("/static/"):])
+                acct = q.get("account")
                 routes = {
                     "/api/config": lambda: api.config(), "/api/symbols": lambda: api.symbols(),
                     "/api/history": lambda: api.history(q.get("symbol"), q.get("from"), q.get("to"), q.get("countback")),
@@ -310,48 +339,88 @@ def make_handler(api: DeskAPI):
                     "/api/markers": lambda: api.markers(q.get("symbol")), "/api/broker": lambda: api.broker(q.get("symbol")),
                     "/api/status": lambda: api.status(), "/api/analysis": lambda: api.analysis(q.get("symbol")),
                 }
+                if iapi is not None:
+                    routes.update({
+                        "/api/i/accounts": lambda: iapi.accounts(), "/api/i/state": lambda: iapi.state(acct),
+                        "/api/i/thoughts": lambda: iapi.thoughts(acct, q.get("symbol"), q.get("n", 40), q.get("before")),
+                        "/api/i/trades": lambda: iapi.trades(acct, q.get("n", 100)),
+                        "/api/i/trade": lambda: iapi.trade(acct, q.get("id")),
+                        "/api/i/reviews": lambda: iapi.reviews(acct), "/api/i/review": lambda: iapi.review(acct, q.get("date")),
+                        "/api/i/stats": lambda: iapi.stats(acct),
+                        "/api/i/chart": lambda: iapi.chart(acct, q.get("symbol", "NIFTY"), q.get("date"), q.get("interval", "1m")),
+                        "/api/i/udf": lambda: iapi.udf(acct, q.get("symbol", "NIFTY"), q.get("interval", "1m"), q.get("from"),
+                                                       q.get("to"), q.get("countback")),
+                    })
                 if u.path not in routes:
                     return self._send(404, {"error": "not found"})
-                return self._send(200, routes[u.path]())
+                return self._send(200, routes[u.path](), extra_headers=extra)
             except KeyError as exc:
-                return self._send(404, {"error": str(exc)})
+                return self._send(404, {"error": str(exc).strip("'")})
             except Exception as exc:  # surface, don't crash the desk
                 log.exception("GET %s failed", u.path)
                 return self._send(500, {"error": repr(exc)})
 
         def do_POST(self):
             u = urlparse(self.path)
+            q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+            ok, _ = self._authed({k: v for k, v in q.items() if k != "token"})
+            if not ok:
+                return self._send(401, {"error": "token required"})
             n = int(self.headers.get("Content-Length") or 0)
             try:
                 body = json.loads(self.rfile.read(n) or b"{}")
-                fn = {"/api/order": api.order, "/api/close": api.close, "/api/modify": api.modify,
-                      "/api/cancel": api.cancel}.get(u.path)
+                routes = {"/api/order": api.order, "/api/close": api.close, "/api/modify": api.modify, "/api/cancel": api.cancel}
+                if iapi is not None:
+                    routes["/api/i/command"] = lambda b: iapi.command(q.get("account"), b)
+                fn = routes.get(u.path)
                 if fn is None:
                     return self._send(404, {"error": "not found"})
                 return self._send(200, fn(body))
             except PermissionError as exc:
                 return self._send(403, {"error": str(exc)})
             except (KeyError, ValueError) as exc:
-                return self._send(400, {"error": str(exc)})
+                return self._send(400, {"error": str(exc).strip("'")})
             except Exception as exc:
                 log.exception("POST %s failed", u.path)
                 return self._send(500, {"error": repr(exc)})
 
-        def _static(self, name: str):
+        def _static(self, name: str, code: int = 200, extra_headers=None):
             path = (STATIC / name).resolve()
             if STATIC not in path.parents or not path.is_file():
                 return self._send(404, {"error": "not found"})
-            return self._send(200, path.read_bytes(), TYPES.get(path.suffix, "application/octet-stream"))
+            return self._send(code, path.read_bytes(), TYPES.get(path.suffix, "application/octet-stream"), extra_headers)
 
     return Handler
 
 
-def serve(cfg, runner: LiveRunner, host: str | None = None, port: int | None = None) -> None:
+def lan_ip() -> str:
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+
+
+def serve(cfg, runner: LiveRunner, host: str | None = None, port: int | None = None, token: str | None = None) -> None:
+    import secrets
+
+    from .intraday_api import IntradayAPI
     api = DeskAPI(cfg, runner)
+    iapi = IntradayAPI(cfg)
     host = host or cfg.get("web.host", "127.0.0.1")
     port = int(port or cfg.get("web.port", 8765))
-    httpd = HTTPServer((host, port), make_handler(api))
-    print(f"QuantDesk desk UI on http://{host}:{port}  (Ctrl+C to stop)")
+    local = host in ("127.0.0.1", "localhost", "::1")
+    token = token or os.environ.get("QUANTDESK_TOKEN") or (None if local else secrets.token_urlsafe(18))
+    httpd = HTTPServer((host, port), make_handler(api, iapi, token))
+    if local:
+        print(f"QuantDesk on http://127.0.0.1:{port}  (this machine only; use --host 0.0.0.0 for your phone)")
+    else:
+        ip = lan_ip() if host in ("0.0.0.0", "::") else host
+        print(f"QuantDesk on http://{ip}:{port}/?token={token}\n"
+              f"Open that link once on your phone (same Wi-Fi, or over Tailscale); it remembers the token.\n"
+              f"Keep the token private: anyone with it can pause the desk or close paper positions.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

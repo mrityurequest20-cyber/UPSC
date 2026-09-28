@@ -13,7 +13,10 @@ import pandas as pd
 
 PLANNED_EXITS = {"stop", "target", "trend_reversal", "channel_exit", "mean_reverted", "time_stop", "rebalance_out",
                  "abs_momentum_off", "converged", "z_stop", "take_profit", "stop_loss", "time_exit", "expiry",
-                 "short_strike_breached", "regime_stress", "cointegration_broke"}
+                 "short_strike_breached", "regime_stress", "cointegration_broke",
+                 # intraday options exits
+                 "invalidation", "premium_stop", "premium_target", "underlying_target", "breakeven_stop", "square_off",
+                 "range_break"}
 FORCED_EXITS = {"risk_halt", "manual", "data_missing", "end_of_backtest"}
 
 

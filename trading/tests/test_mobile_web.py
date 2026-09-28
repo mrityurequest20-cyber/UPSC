@@ -1,0 +1,129 @@
+"""The mobile web app: token auth, the intraday API over a real engine's journal, and the
+phone → engine remote-control round trip (pause / close / flatten)."""
+import json
+import threading
+import urllib.error
+import urllib.request
+from http.server import HTTPServer
+
+import pandas as pd
+import pytest
+
+from quantdesk.core.calendar import TradingCalendar
+from quantdesk.engine.live import LiveRunner
+from quantdesk.execution.broker import PaperBroker
+from quantdesk.intraday.engine import IntradayEngine, run_replay
+from quantdesk.intraday.feeds import ReplayFeed
+from quantdesk.intraday.recorder import SessionRecorder
+from quantdesk.intraday.sim import IntradayBroker
+from quantdesk.intraday.synthetic import simulate_sessions
+from quantdesk.journal.journal import Journal
+from quantdesk.web.intraday_api import IntradayAPI
+from quantdesk.web.server import DeskAPI, make_handler
+
+TOKEN = "t0k3n-for-tests"
+
+
+@pytest.fixture(scope="module")
+def site(tmp_path_factory, market):
+    from quantdesk.config import DEFAULT_CONFIG, Config
+    tmp = tmp_path_factory.mktemp("site")
+    cfg = Config.load(DEFAULT_CONFIG, overrides={"runtime": {"dir": str(tmp / "rt")}})
+    cal = TradingCalendar(cfg.holidays())
+    days = [d.date() for d in cal.trading_days("2026-09-01", "2026-09-28")]
+    bars, _ = simulate_sessions(days, seed=3)
+    base = cfg.runtime_dir / "intraday"
+    j = Journal(base / "journal.db")
+    br = IntradayBroker(cfg, starting_cash=500000, state_path=base / "broker.json")
+    rec = SessionRecorder(base / "data")
+    for d in days[-2:]:
+        for s in ("NIFTY", "BANKNIFTY", "INDIAVIX"):
+            rec.record_bars(s, bars[s][bars[s].index.date == d])
+        run_replay(IntradayEngine(cfg, ReplayFeed(bars, d), "model", j, br, None, None, None, base / "reviews"))
+    j.commit()
+    runner = LiveRunner(cfg, broker=PaperBroker(cfg, state_path=tmp / "p.json"), journal_path=tmp / "d.db", provider=market[0])
+    httpd = HTTPServer(("127.0.0.1", 0), make_handler(DeskAPI(cfg, runner), IntradayAPI(cfg), TOKEN))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_port}", cfg, bars, days
+    httpd.shutdown()
+
+
+def call(base, path, body=None, token=TOKEN):
+    req = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"X-QD-Token": token} if token else {})
+    try:
+        with urllib.request.urlopen(req) as r:
+            ct = r.headers.get("Content-Type", "")
+            raw = r.read()
+            return r.status, (json.loads(raw) if "json" in ct else raw), r.headers
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), e.headers
+
+
+def test_token_required_everywhere_but_the_manifest(site):
+    base = site[0]
+    assert call(base, "/api/i/accounts", token=None)[0] == 401
+    assert call(base, "/api/i/accounts", token="wrong")[0] == 401
+    code, body, _ = call(base, "/", token=None)
+    assert code == 401 and b"access token" in body                         # the sign-in page
+    assert call(base, "/manifest.webmanifest", token=None)[0] == 200
+    code, _, headers = call(base, f"/?token={TOKEN}", token=None)
+    assert code == 200 and "qd_token=" in headers.get("Set-Cookie", "") and "HttpOnly" in headers["Set-Cookie"]
+    assert call(base, "/api/i/command", {"cmd": "pause"}, token=None)[0] == 401
+
+
+def test_live_state_thoughts_trades_stats_reviews(site):
+    base, cfg, bars, days = site
+    code, st, _ = call(base, "/api/i/state")
+    assert code == 200 and set(st["heartbeat"]["views"]) == {"NIFTY", "BANKNIFTY"}
+    v = st["heartbeat"]["views"]["NIFTY"]
+    assert v["narrative"] and v["evidence"] and {"factor", "direction", "observation"} <= set(v["evidence"][0])
+    code, th, _ = call(base, "/api/i/thoughts?n=5&symbol=NIFTY")
+    assert code == 200 and len(th) == 5 and all(t["symbol"] == "NIFTY" for t in th)
+    older = call(base, f"/api/i/thoughts?n=5&before={th[-1]['id']}")[1]
+    assert all(t["id"] < th[-1]["id"] for t in older)
+    code, trades, _ = call(base, "/api/i/trades")
+    assert code == 200
+    if trades:
+        code, t, _ = call(base, f"/api/i/trade?id={trades[0]['id']}")
+        assert code == 200 and "Trigger:" in t["rationale"] and t["fills"]
+    code, s, _ = call(base, "/api/i/stats")
+    assert code == 200 and s["capital"] == 500000
+    code, revs, _ = call(base, "/api/i/reviews")
+    assert revs == [str(days[-1]), str(days[-2])]
+    assert "session review" in call(base, f"/api/i/review?date={days[-1]}")[1]["markdown"]
+    assert call(base, "/api/i/review?date=../../etc")[0] == 404
+
+
+def test_chart_and_udf(site):
+    base, _, _, days = site
+    code, c, _ = call(base, "/api/i/chart?symbol=NIFTY&interval=5m")
+    assert code == 200 and c["day"] == str(days[-1]) and len(c["bars"]["t"]) == 75 and len(c["vwap"]) == 75
+    assert "or_high" in c["levels"]
+    code, u, _ = call(base, "/api/i/udf?symbol=NSE:INDEX:NIFTY&interval=15m&countback=10&to=2000000000")
+    assert u["s"] == "ok" and len(u["t"]) == 10 and u["t"] == sorted(u["t"])
+
+
+def test_phone_commands_reach_the_engine(site, tmp_path):
+    base, cfg, bars, days = site
+    assert call(base, "/api/i/command", {"cmd": "rm -rf"})[0] == 400
+    assert call(base, "/api/i/command", {"cmd": "close"})[0] == 400                 # needs a trade id
+    code, r, _ = call(base, "/api/i/command", {"cmd": "pause"})
+    assert code == 200 and r["queued"]["cmd"] == "pause"
+    assert call(base, "/api/i/state")[1]["paused"] is True
+    # the engine picks the command up on its next step and stops taking entries
+    base_dir = cfg.runtime_dir / "intraday"
+    j = Journal(base_dir / "journal.db")
+    eng = IntradayEngine(cfg, ReplayFeed(bars, days[-1]), "model", j, IntradayBroker(cfg, starting_cash=500000), None, None)
+    eng.start_session(days[-1])
+    for _ in range(90):
+        eng.feed.advance()
+        eng.step()
+    assert eng.paused and not eng.open_trades
+    th = j.thoughts(str(days[-1]))
+    assert th["action"].str.contains("paused from the app").any()
+    assert call(base, "/api/i/command", {"cmd": "resume"})[0] == 200
+    eng.feed.advance()
+    eng.step()
+    assert not eng.paused
+    assert j.events(level="WARN")["message"].str.contains("pause from the app").any()

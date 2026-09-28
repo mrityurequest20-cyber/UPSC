@@ -10,6 +10,8 @@
   python -m quantdesk demo                        everything, offline, on synthetic data
   python -m quantdesk schedule                    cron lines for the daily routine
   python -m quantdesk serve                       desk UI with GoCharting charts on http://127.0.0.1:8765
+  python -m quantdesk intraday live               real-time intraday options desk (paper), thinking out loud
+  python -m quantdesk intraday replay --synthetic 20   offline: 20 synthetic sessions through the same engine
 
 Global: --source yahoo|csv|synthetic, --config extra.yaml (repeatable), --live (Kite; real money).
 """
@@ -230,9 +232,7 @@ def cmd_serve(cfg, a):
     rt = cfg.runtime_dir
     broker = PaperBroker(cfg, state_path=Path(a.broker_state) if a.broker_state else rt / "paper_broker.json")
     runner = LiveRunner(cfg, a.source, broker=broker, journal_path=a.journal or rt / "journal.db")
-    print("loading data and models …", file=sys.stderr)
-    runner.load()
-    serve(cfg, runner, a.host, a.port)
+    serve(cfg, runner, a.host, a.port, a.token)
 
 
 def cmd_demo(cfg, a):
@@ -293,7 +293,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--port", type=int)
     s.add_argument("--journal", help="journal DB to serve (default runtime/journal.db)")
     s.add_argument("--broker-state", help="paper broker state JSON (default runtime/paper_broker.json)")
+    s.add_argument("--token", help="access token (auto-generated when --host is not localhost)")
     s.set_defaults(fn=cmd_serve)
+    from .intraday.cli import register as register_intraday
+    register_intraday(sub)
     s = sub.add_parser("demo", help="end-to-end offline demo on synthetic data")
     s.add_argument("--out")
     s.add_argument("--days", type=int, default=15, help="days of paper trading to replay")
