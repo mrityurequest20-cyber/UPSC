@@ -178,7 +178,7 @@ Week and Month views recap everything the daily briefs covered.
       - a small line of your last ten scores
 
       Your last answers are listed below it.
-    - **This week's writing set** (`pipeline/weekly.py`, `data/weekly.json`): once a week, one Intel AI call reads the last seven days' Must-know cards and editorials and sets:
+    - **This week's writing set** (`pipeline/weekly.py`, `data/weekly.json`): once a week, one Intel AI call reads the last seven days' Must-know cards and editorials (each day's top 6, so one busy day doesn't crowd out the week) and sets:
       - **4 essay topics** in the style of the Essay paper: 2 for Section A (abstract, often a quote) and 2 for Section B (issue-based). Each has the angles a strong essay covers, behind a "Stuck?" peek.
       - a **GS4 case study** (about 250 words, fictional roles drawn from a story of the week) with UPSC-style sub-questions.
       - a **GS4 ethics question** (10 marks).
@@ -453,7 +453,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 232 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 233 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 
