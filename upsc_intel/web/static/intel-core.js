@@ -1441,14 +1441,71 @@ If pages are attached as images, first transcribe the handwritten answer faithfu
 rubric: each criterion from 0 to 10. strengths, improve, missed (dimensions or points left out): short, specific points, at most 5 each.
 keywords: terms an examiner looks for that the answer lacks. examples: data, reports, cases or schemes it should cite.
 better_intro and better_conclusion: rewritten in 2-3 sentences each. outline: a model answer outline in 6-10 short points.
+model_answer: a model answer to the question within the word limit, in the answer's language, with an introduction,
+sub-headed or pointed body and a conclusion; use only facts you are sure of.
 Write the feedback in the language of the answer (Hindi if it is in Hindi). Be encouraging but honest.`;
+  const ESSAY_SYSTEM = `You are a senior examiner of the UPSC Civil Services Essay paper. Evaluate the candidate's essay the way UPSC does:
+- Demand of the topic: does it read the topic well (for an abstract topic, its deeper meaning) and stay on it throughout?
+- Content: the depth, accuracy and originality of the arguments.
+- Dimensions: a many-sided view (social, economic, political, ethical, historical, global, personal) with balance and counter-views.
+- Structure: an engaging introduction (an anecdote, a quote, a question), paragraphs that flow with links between them, a
+  conclusion that ties back to the topic and looks ahead.
+- Substantiation: examples, anecdotes, data, reports, thinkers' ideas.
+- Presentation: clarity of language and the length (1000-1200 words).
+Score like UPSC, out of {marks}: an average essay gets about 45-55% of the marks, a very good one 60-65%; above 70% is rare. Use whole marks.
+If pages are attached as images, first transcribe the handwritten essay faithfully into transcript; otherwise leave transcript empty.
+rubric: each criterion from 0 to 10. strengths, improve, missed (dimensions or ideas left out): short, specific points, at most 5 each.
+keywords: ideas or terms that would lift the essay. examples: anecdotes, data, reports or thinkers it could use.
+better_intro and better_conclusion: rewritten in 3-4 sentences each. outline: a model essay's flow in 8-12 short points,
+one per paragraph. model_answer: leave it empty (the outline is the model).
+Write the feedback in the language of the essay (Hindi if it is in Hindi). Be encouraging but honest.`;
+  const CASE_SYSTEM = `You are a senior UPSC GS Paper IV (Ethics, Integrity and Aptitude) examiner marking an answer to a case study.
+- Demand: does it answer every sub-question asked?
+- Content: the ethical issues and dilemmas correctly identified; the laws, rules and codes of conduct that apply.
+- Dimensions: every stakeholder and their interests; short- and long-term consequences.
+- Structure: stakeholders, then the ethical issues, then the options with their merits and demerits, then the course of
+  action chosen and why.
+- Substantiation: the values at play (integrity, impartiality, empathy, accountability, courage of conviction…),
+  thinkers' ideas and administrative examples.
+- Presentation: clarity and the word limit (250 words for 20 marks).
+Score like UPSC, out of {marks}: an average answer gets about 40-50% of the marks, a very good one 55-65%; above 70% is rare. Use steps of half a mark.
+If pages are attached as images, first transcribe the handwritten answer faithfully into transcript; otherwise leave transcript empty.
+rubric: each criterion from 0 to 10. strengths, improve, missed (stakeholders, issues or options left out): short, specific points, at most 5 each.
+keywords: ethical terms and values an examiner looks for that the answer lacks. examples: rules, cases or examples it could cite.
+better_intro and better_conclusion: rewritten in 2-3 sentences each. outline: a model answer outline in 6-10 short points.
+model_answer: a model answer within 250 words, in the answer's language.
+Write the feedback in the language of the answer (Hindi if it is in Hindi). Be encouraging but honest.`;
+  // what is being written: its marks, word limit, paper and examiner
+  const MAINS_KIND = {
+    gs: { label: "Mains", paper: null, system: () => MAINS_SYSTEM },
+    essay: { label: "Essay", paper: "Essay", marks: 125, limit: 1100, words: "1000-1200 words", system: () => ESSAY_SYSTEM },
+    case: { label: "Case study", paper: "GS4", marks: 20, limit: 250, words: "250 words", system: () => CASE_SYSTEM },
+    ethics: { label: "Ethics", paper: "GS4", marks: 10, limit: 150, words: "150 words", system: () => MAINS_SYSTEM },
+  };
+  const mainsLimit = (kind, marks) => (MAINS_KIND[kind] && MAINS_KIND[kind].limit) || (marks === 10 ? 150 : 250);
+  const paperOfStory = (s) => ((s && s.gs) || []).find((g) => /^GS[1-4]$/.test(g)) || "GS";
+  // your scores by paper: {paper: {n, avg (%), trend (points: the last three against the three before), pts (the last ten, %)}}
+  function mainsTrend(hist = mainsStore.get()) {
+    const by = {};
+    for (const h of hist) { const k = h.paper || "GS"; (by[k] = by[k] || []).push(h.marks ? Math.round((h.score * 100) / h.marks) : 0); }
+    const avg = (xs) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+    return Object.fromEntries(Object.entries(by).map(([k, pts]) => {
+      const last = pts.slice(-3); const prev = pts.slice(-6, -3);
+      return [k, { n: pts.length, avg: avg(pts), trend: prev.length ? avg(last) - avg(prev) : null, pts: pts.slice(-10) }];
+    }));
+  }
+  const spark = (pts) => {  // a tiny line of scores (0-100%)
+    if (pts.length < 2) return "";
+    const w = 64; const h = 18; const step = w / (pts.length - 1);
+    return `<svg class="mn-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline fill="none" stroke="currentColor" stroke-width="1.6" points="${pts.map((p, i) => `${(i * step).toFixed(1)},${(h - 1 - (Math.max(0, Math.min(100, p)) / 100) * (h - 2)).toFixed(1)}`).join(" ")}"/></svg>`;
+  };
   const STR = { type: "STRING" }; const STRS = { type: "ARRAY", items: STR }; const INT = { type: "INTEGER" };
   const MAINS_SCHEMA = { type: "OBJECT", properties: {
     transcript: STR, score: { type: "NUMBER" }, verdict: STR,
     rubric: { type: "OBJECT", properties: { demand: INT, content: INT, dimensions: INT, structure: INT, substantiation: INT, presentation: INT },
       required: ["demand", "content", "dimensions", "structure", "substantiation", "presentation"] },
-    strengths: STRS, improve: STRS, missed: STRS, keywords: STRS, examples: STRS, better_intro: STR, better_conclusion: STR, outline: STRS },
-    required: ["transcript", "score", "verdict", "rubric", "strengths", "improve", "missed", "keywords", "examples", "better_intro", "better_conclusion", "outline"] };
+    strengths: STRS, improve: STRS, missed: STRS, keywords: STRS, examples: STRS, better_intro: STR, better_conclusion: STR, outline: STRS, model_answer: STR },
+    required: ["transcript", "score", "verdict", "rubric", "strengths", "improve", "missed", "keywords", "examples", "better_intro", "better_conclusion", "outline", "model_answer"] };
   const RUBRIC = [["demand", "Answers the demand"], ["content", "Content"], ["dimensions", "Dimensions"], ["structure", "Structure"], ["substantiation", "Examples & data"], ["presentation", "Presentation"]];
   function shrinkImage(file) {  // a photo → a JPEG at most 1600 px on its longest side: {data (base64), url}
     return new Promise((resolve, reject) => {
@@ -1466,11 +1523,12 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
 
   // host: { day() → "YYYY-MM-DD", days() → days with questions, newest first, load(day) → Promise<{questions}>,
   //         label(day) → text, subject(key) → name, claude(prompt),
-  //         cardDays() → days with flashcards, loadCards(day) → Promise<{cards}>, loadDay(day) → Promise<the day's brief> }
+  //         cardDays() → days with flashcards, loadCards(day) → Promise<{cards}>, loadDay(day) → Promise<the day's brief>,
+  //         weekly() → Promise<data/weekly.json> (the week's essay topics, case study and ethics question) }
   function mountPractice(el, host) {
     const P = { tab: "mcq", view: "setup", day: host.day(), size: 15, mode: "practice", pool: null, loading: false, err: "", s: null, timer: 0 };
     const R = { loaded: false, loading: false, deck: [], queue: [], i: 0, flip: false, done: 0, due: 0, fresh: 0, on: false };
-    const M = { day: host.day(), stories: null, loading: false, err: "", pick: null, q: "", marks: 15, text: "", images: [], busy: false, result: null };
+    const M = { day: host.day(), stories: null, loading: false, err: "", pick: null, q: "", marks: 15, kind: "gs", text: "", images: [], busy: false, result: null, week: undefined };
     const L = (k) => (host.subject ? host.subject(k) : k) || k;
     async function load(day) {
       P.day = day; P.pool = null; P.loading = true; P.err = ""; render();
@@ -1667,24 +1725,45 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     }
     function pickMains(id) {
       const s = (M.stories || []).find((x) => x.id === id); if (!s) return;
-      M.pick = s; M.q = s.explain.mains; M.text = drafts.get(s.id); M.images = []; M.result = null; M.err = "";
+      M.pick = s; M.q = s.explain.mains; M.kind = "gs"; M.text = drafts.get(s.id); M.images = []; M.result = null; M.err = "";
       M.marks = /\b10\s*marks?\b|150 words/i.test(M.q) ? 10 : 15; render();
+    }
+    function loadWeek() {  // this week's writing set (data/weekly.json), once
+      if (M.week !== undefined || !host.weekly) return;
+      M.week = null;
+      Promise.resolve(host.weekly()).then((x) => { M.week = ((x && x.weeks) || [])[0] || false; if (P.tab === "mains" && !M.pick) render(); }).catch(() => { M.week = false; });
+    }
+    function pickWeek(k) {  // "essay:0" … "case" "ethics" → the write view, with the week's stories as the context
+      const w = M.week; if (!w) return;
+      const [kind, i] = k.split(":"); const K = MAINS_KIND[kind]; if (!K) return;
+      const links = kind === "essay" ? (w.essays[Number(i)] || {}).links : (w[kind] || {}).links;
+      const news = (links || []).map((id) => (w.stories || {})[id]).filter(Boolean).map((x) => `- ${x.d}: ${x.t}`);
+      let q = ""; let title = "";
+      if (kind === "essay") { const e = w.essays[Number(i)]; if (!e) return; q = e.topic; title = `Essay · Section ${e.section}`; }
+      else if (kind === "case") { const c = w.case; q = `${c.scenario}\n\n${c.questions.map((x, n) => `(${String.fromCharCode(97 + n)}) ${x}`).join("\n")}`; title = `Case study: ${c.title}`; }
+      else { q = w.ethics.question; title = "Ethics (GS4)"; }
+      const id = `wk:${w.week}:${k}`;
+      M.pick = { id, title, kind, gs: [K.paper], week: w, angles: kind === "essay" ? w.essays[Number(i)].angles : null,
+        ctx: `THE WEEK'S NEWS IT DRAWS ON (${w.from} to ${w.to}):\n${news.join("\n") || "- (none named)"}` };
+      M.q = q; M.kind = kind; M.marks = K.marks; M.text = drafts.get(id); M.images = []; M.result = null; M.err = ""; render();
     }
     async function evaluate() {
       const s = M.pick;
       if (!M.text.trim() && !M.images.length) { M.err = "Write your answer, or add a photo of it, first."; render(); return; }
       M.busy = true; M.err = ""; render();
-      const e = s.explain || {};
-      const ctx = [`Headline: ${s.title}`, e.why_in_news && `Why in news: ${e.why_in_news}`, e.what && `What happened: ${e.what}`, e.background && `Background: ${e.background}`,
+      const e = s.explain || {}; const K = MAINS_KIND[M.kind] || MAINS_KIND.gs;
+      const ctx = s.ctx || [`Headline: ${s.title}`, e.why_in_news && `Why in news: ${e.why_in_news}`, e.what && `What happened: ${e.what}`, e.background && `Background: ${e.background}`,
         (e.significance || []).length && `Why it matters: ${e.significance.join("; ")}`, s.sum && s.sum.text && `ARTICLE (${s.sum.domain}):\n${s.sum.text}`].filter(Boolean).join("\n");
-      const limit = M.marks === 10 ? 150 : 250;
-      const parts = [{ text: `STORY CONTEXT\n${ctx}\n\nQUESTION (${M.marks} marks, ${limit} words): ${M.q}\n\nCANDIDATE'S ANSWER${M.images.length ? " (typed part, if any; the handwritten pages are the attached images)" : ""}:\n${M.text.trim() || "(see the attached pages)"}` },
+      const limit = K.words || `${mainsLimit(M.kind, M.marks)} words`;
+      const what = M.kind === "essay" ? "ESSAY TOPIC" : M.kind === "case" ? "CASE STUDY" : "QUESTION";
+      const parts = [{ text: `${s.ctx ? "" : "STORY CONTEXT\n"}${ctx}\n\n${what} (${M.marks} marks, ${limit}): ${M.q}\n\nCANDIDATE'S ${M.kind === "essay" ? "ESSAY" : "ANSWER"}${M.images.length ? " (typed part, if any; the handwritten pages are the attached images)" : ""}:\n${M.text.trim() || "(see the attached pages)"}` },
         ...M.images.map((im) => ({ inlineData: { mimeType: "image/jpeg", data: im.data } }))];
       try {
-        const { data, model } = await gemini.json({ system: MAINS_SYSTEM.replace(/\{marks\}/g, M.marks), parts, schema: MAINS_SCHEMA });
+        const { data, model } = await gemini.json({ system: K.system().replace(/\{marks\}/g, M.marks), parts, schema: MAINS_SCHEMA });
         const score = Math.max(0, Math.min(M.marks, Math.round((Number(data.score) || 0) * 2) / 2));
         M.result = { ...data, score, max: M.marks, model, words: wordCount(M.text) || wordCount(data.transcript) };
-        mainsStore.add({ day: M.day, story_id: s.id, title: s.title, q: M.q, marks: M.marks, score, words: M.result.words, at: Date.now() });
+        mainsStore.add({ day: M.day, story_id: s.id, title: s.title, q: M.q, marks: M.marks, score, words: M.result.words, at: Date.now(),
+          kind: M.kind, paper: K.paper || paperOfStory(s) });
       } catch (err) { M.err = err.message; }
       M.busy = false; render();
     }
@@ -1695,10 +1774,17 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     }
     function mainsHtml() {
       if (M.stories == null && !M.loading) { setTimeout(() => loadMains(M.day)); }
+      loadWeek();
       if (M.pick && M.result) return mainsResultHtml();
       if (M.pick) return mainsWriteHtml();
       const hist = mainsStore.get().slice(-5).reverse();
-      const avg = hist.length ? Math.round(hist.reduce((x, h) => x + (h.score * 100) / h.marks, 0) / hist.length) : null;
+      const trend = mainsTrend(); const papers = ["GS1", "GS2", "GS3", "GS4", "Essay", "GS"].filter((k) => trend[k]);
+      const w = M.week;
+      const wk = (k, tag, b, small) => `<button class="mn-item" data-px="mn-wk" data-k="${esc(k)}"><span class="px-tags"><span class="px-type">${esc(tag)}</span>${drafts.get(`wk:${w.week}:${k}`) ? "<span class=\"px-type\">Draft</span>" : ""}</span><b>${esc(b)}</b>${small ? `<small>${esc(small)}</small>` : ""}</button>`;
+      const weekHtml = w ? `<div class="mn-week"><h3>This week's writing set <small>· from the news of ${esc(host.label(w.from))} to ${esc(host.label(w.to))} · ✦ Intel AI</small></h3>
+          ${(w.essays || []).map((e, i) => wk(`essay:${i}`, `Essay · Section ${e.section} · 125 marks`, e.topic, "1000-1200 words")).join("")}
+          ${w.case ? wk("case", "GS4 case study · 20 marks", w.case.title, "250 words") : ""}
+          ${w.ethics ? wk("ethics", "GS4 ethics · 10 marks", w.ethics.question, "150 words") : ""}</div>` : "";
       return `<section class="px">${tabsHtml()}
         <header class="px-head"><div class="px-eyebrow">Mains · answer writing · ${esc(host.label(M.day))}</div>
           <h2>${M.loading ? "Loading the day's questions…" : (M.stories || []).length ? `${M.stories.length} Mains question${M.stories.length === 1 ? "" : "s"} from this day's brief` : "No Mains questions for this day yet"}</h2>
@@ -1706,17 +1792,22 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
         <div class="px-row"><span class="px-lab">Day</span>${daySelect(M.day, "data-mn-day")}</div>
         ${(M.stories || []).map((s) => `<button class="mn-item" data-px="mn-pick" data-id="${esc(s.id)}"><span class="px-tags">${(s.gs || []).filter((g) => g !== "Prelims").map((g) => `<span>${esc(g)}</span>`).join("")}<span>${esc(L((s.subjects || [])[0]))}</span>${drafts.get(s.id) ? "<span class=\"px-type\">Draft</span>" : ""}</span>
           <b>${esc(s.explain.mains)}</b><small>${esc(s.title)}</small></button>`).join("")}
+        ${weekHtml}
         ${M.err ? `<p class="px-toast">${esc(M.err)}</p>` : ""}
-        ${hist.length ? `<div class="px-hist"><h3>Your last answers${avg != null ? ` · average ${avg}%` : ""}</h3><ul>${hist.map((h) => `<li><b>${h.score} / ${h.marks}</b> · ${esc(h.title)} <span class="px-fine">${h.words} words</span></li>`).join("")}</ul></div>` : ""}
+        ${papers.length ? `<div class="px-hist mn-trend"><h3>Your scores by paper</h3><ul>${papers.map((k) => { const t = trend[k];
+          return `<li><b>${esc(k === "GS" ? "Other" : k)}</b> <span>${t.n} answer${t.n === 1 ? "" : "s"} · average ${t.avg}%${t.trend != null ? ` · <span class="${t.trend >= 0 ? "up" : "down"}">${t.trend >= 0 ? "▲" : "▼"} ${Math.abs(t.trend)} pts</span> <span class="px-fine">(last 3 vs the 3 before)</span>` : ""}</span>${spark(t.pts)}</li>`; }).join("")}</ul></div>` : ""}
+        ${hist.length ? `<div class="px-hist"><h3>Your last answers</h3><ul>${hist.map((h) => `<li><b>${h.score} / ${h.marks}</b> · ${h.paper ? `${esc(h.paper)} · ` : ""}${esc(h.title)} <span class="px-fine">${h.words} words</span></li>`).join("")}</ul></div>` : ""}
         ${toast()}</section>`;
     }
     function mainsWriteHtml() {
-      const s = M.pick; const limit = M.marks === 10 ? 150 : 250; const wc = wordCount(M.text);
-      return `<section class="px"><div class="px-top"><button class="px-link" data-px="mn-back">← Questions</button><span class="px-sp"></span><span class="px-fine">${esc(host.label(M.day))}</span></div>
-        <article class="px-q"><div class="px-tags"><span class="px-type">Mains</span>${(s.gs || []).filter((g) => g !== "Prelims").map((g) => `<span>${esc(g)}</span>`).join("")}</div>
-          <p class="px-stem">${esc(M.q)}</p><p class="px-fine">From: ${esc(s.title)}</p>
-          <div class="px-row">${[10, 15].map((k) => `<button class="px-chip${M.marks === k ? " on" : ""}" data-px="mn-marks" data-n="${k}">${k} marks · ${k === 10 ? 150 : 250} words</button>`).join("")}</div>
-          <textarea class="mn-text" data-mn-text rows="12" placeholder="Write your answer here: introduction, body (points or sub-headings), conclusion with a way forward…"${M.busy ? " disabled" : ""}>${esc(M.text)}</textarea>
+      const s = M.pick; const K = MAINS_KIND[M.kind] || MAINS_KIND.gs; const limit = mainsLimit(M.kind, M.marks); const wc = wordCount(M.text);
+      const stem = M.kind === "case" ? `<div class="px-stem mn-case">${M.q.split("\n").filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join("")}</div>` : `<p class="px-stem">${esc(M.q)}</p>`;
+      return `<section class="px"><div class="px-top"><button class="px-link" data-px="mn-back">← Questions</button><span class="px-sp"></span><span class="px-fine">${esc(M.kind === "gs" ? host.label(M.day) : `Week of ${host.label(s.week.week)}`)}</span></div>
+        <article class="px-q"><div class="px-tags"><span class="px-type">${esc(K.label)}</span>${(s.gs || []).filter((g) => g !== "Prelims" && g !== K.label).map((g) => `<span>${esc(g)}</span>`).join("")}</div>
+          ${stem}<p class="px-fine">${M.kind === "gs" ? `From: ${esc(s.title)}` : esc(`${s.title} · ${M.marks} marks · ${K.words}`)}</p>
+          ${s.angles && s.angles.length ? `<details class="mn-angles"><summary>Stuck? Angles a strong essay covers</summary><ul>${s.angles.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
+          ${M.kind === "gs" ? `<div class="px-row">${[10, 15].map((k) => `<button class="px-chip${M.marks === k ? " on" : ""}" data-px="mn-marks" data-n="${k}">${k} marks · ${k === 10 ? 150 : 250} words</button>`).join("")}</div>` : ""}
+          <textarea class="mn-text" data-mn-text rows="${M.kind === "essay" ? 20 : 12}" placeholder="${M.kind === "essay" ? "Write your essay here: an introduction that draws the reader in, paragraphs that flow, a conclusion that ties back…" : M.kind === "case" ? "Stakeholders, the ethical issues, your options with their merits and demerits, the course of action you'd take and why…" : "Write your answer here: introduction, body (points or sub-headings), conclusion with a way forward…"}"${M.busy ? " disabled" : ""}>${esc(M.text)}</textarea>
           <div class="mn-bar"><span class="mn-wc${wc > limit * 1.1 ? " over" : ""}">${wc} / ${limit} words</span><span class="px-sp"></span>
             <label class="px-btn mn-photo">📷 Add photo of handwritten answer<input type="file" accept="image/*" multiple data-mn-photo hidden${M.busy ? " disabled" : ""}></label></div>
           ${M.images.length ? `<div class="mn-thumbs">${M.images.map((im, i) => `<figure><img src="${im.url}" alt="Page ${i + 1}"><button data-px="mn-unphoto" data-i="${i}" aria-label="Remove page ${i + 1}">✕</button></figure>`).join("")}</div>` : ""}
@@ -1729,7 +1820,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       const r = M.result; const pct = Math.round((r.score * 100) / r.max);
       const list = (title, items, cls = "") => (items && items.length ? `<div class="mn-block ${cls}"><h3>${title}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "");
       return `<section class="px"><div class="px-top"><button class="px-link" data-px="mn-back">← Questions</button><span class="px-sp"></span><span class="px-fine" title="${esc(r.model)}">✦ Intel AI</span></div>
-        <header class="px-res"><div class="px-eyebrow">Evaluation · ${M.marks} marks · ${r.words} words</div>
+        <header class="px-res"><div class="px-eyebrow">Evaluation · ${esc((MAINS_KIND[M.kind] || MAINS_KIND.gs).label)} · ${M.marks} marks · ${r.words} words</div>
           <div class="px-score">${r.score} <small>/ ${r.max}</small></div><p><b>${pct}%</b> · ${esc(r.verdict)}</p></header>
         <div class="px-sbars">${RUBRIC.map(([k, name]) => { const v = Math.max(0, Math.min(10, Number((r.rubric || {})[k]) || 0)); return `<div class="px-sbar"><span>${name}</span><div><i style="width:${v * 10}%"></i></div><b>${v}/10</b></div>`; }).join("")}</div>
         ${list("What works", r.strengths, "ok")}${list("Improve", r.improve)}${list("Missed dimensions or points", r.missed, "bad")}
@@ -1737,7 +1828,8 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
         ${list("Examples, data and reports to cite", r.examples)}
         ${r.better_intro ? `<div class="mn-block"><h3>A stronger introduction</h3><p>${esc(r.better_intro)}</p></div>` : ""}
         ${r.better_conclusion ? `<div class="mn-block"><h3>A stronger conclusion</h3><p>${esc(r.better_conclusion)}</p></div>` : ""}
-        ${r.outline && r.outline.length ? `<div class="mn-block"><h3>Model answer outline</h3><ol>${r.outline.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>` : ""}
+        ${r.outline && r.outline.length ? `<div class="mn-block"><h3>${M.kind === "essay" ? "A model essay's flow" : "Model answer outline"}</h3><ol>${r.outline.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>` : ""}
+        ${r.model_answer && M.kind !== "essay" ? `<details class="mn-block" open><summary>A model answer</summary><div class="mn-model">${String(r.model_answer).split(/\n+/).filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join("")}</div></details>` : ""}
         <details class="mn-block"><summary>Your answer${r.transcript ? " (as Intel read it)" : ""}</summary><p class="mn-mine">${esc(r.transcript || M.text)}</p></details>
         <div class="px-nav"><button class="px-btn primary" data-px="mn-rewrite">Rewrite it</button><button class="px-btn" data-px="mn-back">Another question</button></div>
         <p class="px-fine">Marked by Intel AI as a UPSC examiner would; check the facts it adds against a source.</p></section>`;
@@ -1783,7 +1875,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     el.oninput = (ev) => {
       if (!ev.target.matches("[data-mn-text]")) return;
       M.text = ev.target.value; drafts.set(M.pick.id, M.text);
-      const wc = el.querySelector(".mn-wc"); const limit = M.marks === 10 ? 150 : 250; const n = wordCount(M.text);
+      const wc = el.querySelector(".mn-wc"); const limit = mainsLimit(M.kind, M.marks); const n = wordCount(M.text);
       if (wc) { wc.textContent = `${n} / ${limit} words`; wc.classList.toggle("over", n > limit * 1.1); }
     };
     el.onclick = async (ev) => {
@@ -1817,6 +1909,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       else if (a === "rv-end") { R.on = false; plan(); render(); }
       else if (a === "rv-more") { plan(); R.on = !!R.queue.length; render(); }
       else if (a === "mn-pick") pickMains(t.dataset.id);
+      else if (a === "mn-wk") pickWeek(t.dataset.k);
       else if (a === "mn-back") { M.pick = null; M.result = null; M.err = ""; render(); }
       else if (a === "mn-marks") { M.marks = Number(t.dataset.n); render(); }
       else if (a === "mn-unphoto") { M.images.splice(Number(t.dataset.i), 1); render(); }
@@ -2562,6 +2655,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       ${(t.dossiers || []).length ? `<h3>Running stories</h3><p class="ds-chips">${t.dossiers.map((d) => `<button type="button" class="ds-chip" ${canDossier ? `data-sy-ds="${esc(d.key)}"` : "disabled"}>${esc(d.name)} ›</button>`).join("")}</p>` : ""}
       <h3>In the brief · ${(t.items || []).length ? `${t.n > (t.items || []).length ? `latest ${t.items.length} of ${t.n}` : t.n}` : "none yet"}</h3>
       ${(t.items || []).length ? `<ul class="sy-items">${t.items.map(row).join("")}</ul>` : `<p class="sy-src">No brief card on this topic in the last ${esc(dayLabel(data.from))} – ${esc(dayLabel(data.to))} window: a good day to revise its static part.</p>`}
+      ${t.bank && Object.keys(t.bank).length ? `<h3>For your Mains answers</h3><div class="sy-bank">${[["cases", "Judgments and cases"], ["reports", "Reports and committees"], ["data", "Data to quote"]].filter(([k]) => (t.bank[k] || []).length).map(([k, l]) => `<div><b>${l}</b><ul>${t.bank[k].map((x) => `<li>${esc(x.x)} <small>${esc(dayLabel(x.d))}${canOpen ? ` · <button type="button" class="linkbtn" data-sy-read="${esc(x.id)}" data-at="${esc(x.d)}">source</button>` : ""}</small></li>`).join("")}</ul></div>`).join("")}</div><p class="sy-src">Lines from the ✦ Intel AI notes of this topic's cards, checked against their articles when written.</p>` : ""}
       ${(t.cards || []).length ? `<h3>Quick recall · ${t.cards.length} flashcards</h3><div class="sy-cards">${t.cards.map((q) => `<details><summary>${esc(q.q)}</summary><p>${esc(q.a)}</p></details>`).join("")}</div>` : ""}
     </section>`;
   }
@@ -2889,5 +2983,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     backup: Object.freeze({ file: backupFile, restore: restoreBackup, info: backupInfo, html: backupHtml, KEYS: BACKUP_KEYS }),
     mountSyllabus, syllabusHtml, sylTopicHtml, syllabusStory, sylChips, sylCover, sylBlind, sylStudy,
     mountPlanner, planToday, planPhase, planStreak, planSummary, istDay,
+    mainsTrend,
   });
 })(window);

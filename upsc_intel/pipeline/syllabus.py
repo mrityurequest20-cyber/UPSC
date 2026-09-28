@@ -7,11 +7,14 @@
   WINDOW_DAYS days (the latest first), how many in the last 30 and 7 days, flashcards from the cards' notes and the
   running stories (dossiers) most of whose reports fall under it. The pages draw the heatmap from it, and each
   device's done marks give its coverage.
+* the Mains bank: each topic's lines worth quoting in an answer, from its cards' AI notes (checked against the articles
+  when they were written): judgments and cases, reports and committees, and data. Sorted by rules, no AI call.
 """
 from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -33,6 +36,15 @@ WINDOW_DAYS = 45      # the brief days a topic lists (the working database keeps
 MAX_ITEMS = 40        # cards listed per topic (the latest)
 MAX_CARDS = 10        # flashcards per topic
 DOSSIER_SHARE = 0.34  # a dossier belongs to a topic that holds this share of its tagged reports
+BANK_EACH = 6         # Mains bank lines per kind and topic
+CASES = re.compile(r"\b(Supreme Court|High Courts?|Constitution Bench|landmark (?:judgment|judgement|verdict)|tribunal|NGT|court (?:ruled|held|upheld|struck))\b", re.I)
+REPORTS = re.compile(r"\b(reports?|committee|survey|index|study|white paper|task force)\b", re.I)  # (not "Commission": a body's name)
+DATA = re.compile(r"(\d[\d,.]*\s*(%|per ?cent|crore|lakh|billion|million|trillion|tonnes?|km|MW|GW|hectares?)\b|₹\s?\d|\$\s?\d|\bRs\.?\s?\d)", re.I)
+
+
+def bank_kind(line: str) -> str:
+    """A note's line for the Mains bank: "cases", "reports" or "data", else ""."""
+    return "cases" if CASES.search(line) else "reports" if REPORTS.search(line) else "data" if DATA.search(line) else ""
 
 
 def _load(v):
@@ -160,6 +172,7 @@ def syllabus_payload(settings: Settings, db: DB, today: str | None = None, dossi
         "ORDER BY b.date_ist DESC, b.rank", (since, today))
     items: dict[str, list[dict]] = {t: [] for t in syl.topics}
     cards: dict[str, list[dict]] = {t: [] for t in syl.topics}
+    bank: dict[str, dict[str, list[dict]]] = {t: {"cases": [], "reports": [], "data": []} for t in syl.topics}
     seen: set[str] = set()
     by_story: dict[str, list[str]] = {}
     how = {"ai": 0, "rules": 0, "": 0}
@@ -182,6 +195,11 @@ def syllabus_payload(settings: Settings, db: DB, today: str | None = None, dossi
             for c in ai.get("flashcards") or []:
                 if isinstance(c, dict) and c.get("q") and c.get("a") and len(cards[tid]) < MAX_CARDS:
                     cards[tid].append({"q": c["q"], "a": c["a"], "id": r["id"], "d": r["day"]})
+            for line in (ai.get("points") or [])[:9]:
+                line = " ".join(str(line or "").split())
+                kind = bank_kind(line) if 30 <= len(line) <= 320 else ""
+                if kind and len(bank[tid][kind]) < BANK_EACH and all(x["x"] != line for x in bank[tid][kind]):
+                    bank[tid][kind].append({"x": line, "id": r["id"], "d": r["day"]})
     ds_of: dict[str, list[dict]] = {t: [] for t in syl.topics}
     for d in (dossiers or {}).get("dossiers") or []:
         count: dict[str, int] = {}
@@ -199,7 +217,7 @@ def syllabus_payload(settings: Settings, db: DB, today: str | None = None, dossi
         topics[tid] = {"name": t["name"], "paper": t["paper"], "line": t["line_key"], "prelims": t["prelims"],
                        "n30": sum(1 for x in lst if x["d"] >= d30), "n7": sum(1 for x in lst if x["d"] >= d7),
                        "n": len(lst), "last": lst[0]["d"] if lst else None, "items": lst[:MAX_ITEMS],
-                       "cards": cards[tid], "dossiers": ds_of[tid]}
+                       "cards": cards[tid], "dossiers": ds_of[tid], "bank": {k: v for k, v in bank[tid].items() if v}}
     return {"generated_at": iso(datetime.now(timezone.utc)), "from": since, "to": today,
             "papers": syl.papers, "topics": topics,
             "stats": {"cards": len(seen), "tagged": len(by_story), "by_ai": how["ai"], "by_rules": how["rules"]}}

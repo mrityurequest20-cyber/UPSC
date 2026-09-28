@@ -1032,6 +1032,7 @@
     cardDays: () => (STATIC ? (S.meta.cards_days || []) : practiceDays()).slice().sort().reverse(),
     loadCards: (d) => api.json(STATIC ? `data/cards/${d}.json?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/cards/${d}`),
     loadDay: (d) => api.json(STATIC ? `data/day/${d}.json?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/brief?${new URLSearchParams({ from: d, to: d })}`),
+    weekly: () => api.json(dataUrl("weekly.json", "api/weekly")),
   };
   function renderPractice() {
     const el = $("#content");

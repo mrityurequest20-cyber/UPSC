@@ -867,6 +867,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     cardDays: () => (STATIC ? ((A.meta && A.meta.cards_days) || []) : practiceDays()).slice().sort().reverse(),
     loadCards: (d) => api.json(STATIC ? `../data/cards/${d}.json?v=${api.stamp()}` : `../api/cards/${d}`),
     loadDay: (d) => api.json(STATIC ? `../data/day/${d}.json?v=${api.stamp()}` : `../api/brief?from=${d}&to=${d}`),
+    weekly: () => api.json(dataUrl("weekly.json", "weekly")),
   };
   function renderPractice() {
     const scr = $("#screen");
