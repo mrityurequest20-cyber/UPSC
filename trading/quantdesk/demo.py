@@ -27,8 +27,8 @@ def _say(msg: str) -> None:
 def run_demo(cfg, out: Path, paper_days: int = 15) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     today = pd.Timestamp.today().normalize()
-    prov = SyntheticProvider(cfg, start="2015-06-01", end=today)
-    data = prov.universe(cfg.all_symbols(), "2015-06-01")
+    prov = SyntheticProvider(cfg, end=today)
+    data = prov.universe(cfg.all_symbols(), SyntheticProvider.HORIZON_START)
     bench = data[cfg.get("universe.benchmark", "NIFTY")].index
     paper_start = bench[-paper_days]
     bt_end = bench[-paper_days - 1]

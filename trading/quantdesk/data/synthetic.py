@@ -164,22 +164,26 @@ def _vix_frame(rng, dates, vix: np.ndarray) -> pd.DataFrame:
 
 
 class SyntheticProvider(DataProvider):
-    """Deterministic (seeded) synthetic universe; the whole market is simulated once."""
+    """Deterministic (seeded) synthetic universe. The market is always simulated over the
+    same fixed horizon and then cut at `end`, so a given calendar day has the same bars no
+    matter when you run it (paper-trading replays stay consistent from day to day)."""
     name = "synthetic"
+    HORIZON_START = "2015-01-01"
+    HORIZON_END = "2030-12-31"
 
-    def __init__(self, cfg, start="2016-01-01", end=None, seed: int | None = None):
+    def __init__(self, cfg, start=None, end=None, seed: int | None = None):
         self.cfg = cfg
         cal = TradingCalendar(cfg.holidays())
-        end = end or pd.Timestamp.today().normalize()
-        self.dates = cal.trading_days(start, end)
-        self.market = simulate_market(self.dates, seed=seed if seed is not None else cfg.get("data.synthetic_seed", 7),
+        self.end = pd.Timestamp(end or pd.Timestamp.today().normalize())
+        self.dates = cal.trading_days(start or self.HORIZON_START, self.HORIZON_END)
+        self.market = simulate_market(self.dates, seed=seed if seed is not None else cfg.get("data.synthetic_seed", 1),
                                       symbols=cfg.all_symbols(), pairs=cfg.get("universe.pairs", []))
 
     def history(self, symbol: str, start, end=None) -> pd.DataFrame:
         if symbol not in self.market:
             raise KeyError(f"synthetic market has no {symbol}")
-        df = self.market[symbol].loc[pd.Timestamp(start):]
-        return df.loc[: pd.Timestamp(end)] if end is not None else df.copy()
+        stop = min(pd.Timestamp(end), self.end) if end is not None else self.end
+        return self.market[symbol].loc[pd.Timestamp(start):stop].copy()
 
     def regimes(self) -> pd.DataFrame:
-        return self.market["_regimes"]
+        return self.market["_regimes"].loc[: self.end]

@@ -9,6 +9,7 @@
   python -m quantdesk journal trades|events|decisions|export
   python -m quantdesk demo                        everything, offline, on synthetic data
   python -m quantdesk schedule                    cron lines for the daily routine
+  python -m quantdesk serve                       desk UI with GoCharting charts on http://127.0.0.1:8765
 
 Global: --source yahoo|csv|synthetic, --config extra.yaml (repeatable), --live (Kite; real money).
 """
@@ -31,7 +32,7 @@ def _load_data(cfg, source: str | None, start=None, end=None):
     source = source or cfg.get("data.source", "yahoo")
     end = pd.Timestamp(end) if end else pd.Timestamp.today().normalize()
     start = pd.Timestamp(start) if start else end - pd.DateOffset(years=cfg.get("data.history_years", 8))
-    kw = {"start": "2015-01-01", "end": end} if source == "synthetic" else {}
+    kw = {"end": end} if source == "synthetic" else {}
     prov = make_provider(cfg, source, **kw)
     data = prov.universe(cfg.all_symbols(), start, end)
     if not data:
@@ -222,6 +223,18 @@ CRON_TZ=Asia/Kolkata
 0 18 * * 5    cd {root} && {py} -m quantdesk paper review --days 7 >> runtime/cron.log 2>&1""")
 
 
+def cmd_serve(cfg, a):
+    from .engine.live import LiveRunner
+    from .execution.broker import PaperBroker
+    from .web.server import serve
+    rt = cfg.runtime_dir
+    broker = PaperBroker(cfg, state_path=Path(a.broker_state) if a.broker_state else rt / "paper_broker.json")
+    runner = LiveRunner(cfg, a.source, broker=broker, journal_path=a.journal or rt / "journal.db")
+    print("loading data and models …", file=sys.stderr)
+    runner.load()
+    serve(cfg, runner, a.host, a.port)
+
+
 def cmd_demo(cfg, a):
     from .demo import run_demo
     run_demo(cfg, Path(a.out) if a.out else cfg.runtime_dir / "demo", paper_days=a.days)
@@ -275,6 +288,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_risk)
     s = sub.add_parser("schedule", help="print cron lines for the daily routine")
     s.set_defaults(fn=cmd_schedule)
+    s = sub.add_parser("serve", help="desk UI: GoCharting charts + positions, queue, journal, checks")
+    s.add_argument("--host")
+    s.add_argument("--port", type=int)
+    s.add_argument("--journal", help="journal DB to serve (default runtime/journal.db)")
+    s.add_argument("--broker-state", help="paper broker state JSON (default runtime/paper_broker.json)")
+    s.set_defaults(fn=cmd_serve)
     s = sub.add_parser("demo", help="end-to-end offline demo on synthetic data")
     s.add_argument("--out")
     s.add_argument("--days", type=int, default=15, help="days of paper trading to replay")

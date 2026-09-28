@@ -45,7 +45,8 @@ class Routines:
             last = df.index[-1].date()
             if (prev - last).days > cfg.get("checks.max_data_staleness_days", 4):
                 stale.append(f"{s}@{last}")
-            issues += [i for i in audit(s, df.tail(60), cfg.get("checks.max_abs_return", 0.2)) if i.severity == "WARN"]
+            lim = 0.6 if cfg.instrument_spec(s).get("kind") == "vol_index" else cfg.get("checks.max_abs_return", 0.2)
+            issues += [i for i in audit(s, df.tail(60), lim) if i.severity == "WARN"]
         out.append(_res("data_freshness", not stale, "all series current" if not stale else "stale: " + ", ".join(stale)))
         out.append(_res("data_quality", not issues, "no anomalies in the last 60 bars" if not issues else
                         "; ".join(f"{i.symbol}: {i.message}" for i in issues[:5]), warn=True))

@@ -15,7 +15,7 @@ data:
   source: yahoo                    # yahoo | csv | synthetic
   csv_dir: data/csv                # <SYMBOL>.csv with date,open,high,low,close,volume
   history_years: 8
-  synthetic_seed: 1                # calibrated: ~11.5% CAGR, 16% vol, -31% max DD (close to real NIFTY 2016-26)
+  synthetic_seed: 1                # calibrated 2015-26: 11.3% CAGR, 15% vol, -39% max DD (real NIFTY: ~11%, ~16%, -38%)
 
 universe:
   indices: [NIFTY, BANKNIFTY]
@@ -78,6 +78,17 @@ risk:
   short_option_margin_pct: 0.12    # rough SPAN+exposure for naked short index options
   max_margin_utilisation: 0.95     # equity delivery counts at full notional
   futures_margin_pct: 0.15
+
+web:
+  host: 127.0.0.1                  # the desk UI; keep it on localhost
+  port: 8765
+  gocharting:
+    enabled: true
+    # Hosted UMD build; {key} is replaced with the license key. The public demo key is the one
+    # GoCharting's own CodePen uses; set GOCHARTING_LICENSE_KEY (or this field) to your key.
+    license_key: demo-550e8400-e29b-41d4-a716-446655440000
+    sdk_url: https://gocharting.com/sdk/library/{key}/index.umd.js
+    theme: dark
 
 live:
   price_protection: 0.01           # marketable LIMIT at LTP ± 1%, never a bare MARKET order

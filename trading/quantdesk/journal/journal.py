@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -91,20 +92,24 @@ class Journal:
         self.path = str(path)
         if self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(self.path)
+        # One connection, serialised by a lock, so the desk server may call from its own thread.
+        self.db = sqlite3.connect(self.path, check_same_thread=False)
+        self.lock = threading.RLock()
         self.db.executescript(SCHEMA)
         self._pending = 0
         self._every = autocommit_every
 
     def _exec(self, sql: str, params=()):
-        self.db.execute(sql, params)
-        self._pending += 1
-        if self._pending >= self._every:
-            self.commit()
+        with self.lock:
+            self.db.execute(sql, params)
+            self._pending += 1
+            if self._pending >= self._every:
+                self.commit()
 
     def commit(self):
-        self.db.commit()
-        self._pending = 0
+        with self.lock:
+            self.db.commit()
+            self._pending = 0
 
     def close(self):
         self.commit()
@@ -159,13 +164,15 @@ class Journal:
         self.commit()
 
     def get_state(self, key: str, default=None):
-        row = self.db.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
+        with self.lock:
+            row = self.db.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
     # ---- reads --------------------------------------------------------------------------------
     def df(self, sql: str, params=()) -> pd.DataFrame:
-        self.commit()
-        return pd.read_sql_query(sql, self.db, params=params)
+        with self.lock:
+            self.commit()
+            return pd.read_sql_query(sql, self.db, params=params)
 
     def trades(self, status: str | None = None) -> pd.DataFrame:
         q = "SELECT * FROM trades" + (" WHERE status=?" if status else "") + " ORDER BY opened_at"

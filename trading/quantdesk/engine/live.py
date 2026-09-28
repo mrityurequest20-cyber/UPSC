@@ -116,6 +116,84 @@ class LiveRunner:
         return {"processed": processed, "post": post, "equity": eng.curve[-1]["equity"] if eng.curve else None,
                 "open_trades": len(eng.open_trades), "queued": len(eng.pending_entries)}
 
+    # ---- manual trading from the chart (paper account only) ------------------------------------
+    def _guard_manual(self):
+        if getattr(self.broker, "live", False):
+            raise PermissionError("chart orders are paper-only; live orders go through the routines")
+        if (self.cfg.runtime_dir / "KILL").exists():
+            raise PermissionError("kill switch engaged")
+        eng = self.engine or self.load()
+        ok, why = eng.risk.can_enter()
+        return eng, ok, why
+
+    def manual_order(self, symbol: str, side: str, qty: int, stop: float | None = None,
+                     target: float | None = None, note: str = "") -> dict:
+        """Market order at the latest price. qty = shares for equities, lots for index futures."""
+        from ..core.types import LINEAR, Instrument, Trade, TradeLeg, new_trade_id
+        eng, ok, why = self._guard_manual()
+        if not ok:
+            raise PermissionError(why)
+        if symbol not in eng.bars or qty <= 0:
+            raise ValueError(f"unknown symbol or bad quantity: {symbol} x{qty}")
+        d = 1 if side.lower().startswith("b") else -1
+        spec = self.cfg.instrument_spec(symbol)
+        inst = Instrument.future(symbol, int(spec.get("lot_size", 1))) if spec.get("kind") == "index" else Instrument.equity(symbol)
+        ts = eng.timeline[-1]
+        px = float(eng.bars[symbol].at(ts, "close"))
+        units = int(qty)
+        risk = abs(px - stop) * units * inst.lot_size if stop else 0.02 * px * units * inst.lot_size
+        t = Trade(id=new_trade_id("M"), strategy="manual", family="manual", symbol=symbol, direction=d, kind=LINEAR,
+                  legs=[], units=units, opened_at=ts, entry_underlying=px, initial_risk=risk, stop=stop, target=target,
+                  rationale=note or "Manual order placed from the chart.", context={"regime": eng.ctx.regime()})
+        fill = eng._fill(t, inst, d * units * inst.lot_size, px, ts, "open")
+        if fill is None:
+            raise RuntimeError("broker rejected the order")
+        t.legs.append(TradeLeg(inst, fill.qty, fill.price))
+        t.fees, t.pnl = fill.fees, -fill.fees
+        t.last_mark = {inst.symbol: fill.price}
+        eng.open_trades.append(t)
+        self.journal.open_trade(t, ["manual order from the chart; sized by the user, gated by the kill switch and risk state"])
+        eng.save_state()
+        return {"trade_id": t.id, "price": fill.price, "qty": fill.qty, "fees": fill.fees}
+
+    def manual_close(self, trade_id: str) -> dict:
+        """Always allowed (even with the kill switch on): closing reduces risk."""
+        if getattr(self.broker, "live", False):
+            raise PermissionError("chart orders are paper-only")
+        eng = self.engine or self.load()
+        t = next((x for x in eng.open_trades if x.id == trade_id.split(":")[0]), None)
+        if t is None:
+            raise KeyError(f"no open trade {trade_id}")
+        ts = eng.timeline[-1]
+        eng._close(t, ts, "manual", "closed from the chart", field="close")
+        eng.save_state()
+        return {"trade_id": t.id, "pnl": t.pnl}
+
+    def manual_modify(self, trade_id: str, stop: float | None = None, target: float | None = None) -> dict:
+        eng = self.engine or self.load()
+        t = next((x for x in eng.open_trades if x.id == trade_id.split(":")[0]), None)
+        if t is None:
+            raise KeyError(f"no open trade {trade_id}")
+        if stop is not None:
+            t.stop = float(stop)
+        if target is not None:
+            t.target = float(target)
+        self.journal.update_open_trade(t)
+        self.journal.event(pd.Timestamp.now(), "INFO", "manual", f"{t.id} stop/target set to {t.stop}/{t.target} from the chart")
+        eng.save_state()
+        return {"trade_id": t.id, "stop": t.stop, "target": t.target}
+
+    def cancel_queued(self, key: str) -> dict:
+        eng = self.engine or self.load()
+        before = len(eng.pending_entries)
+        eng.pending_entries = [pe for pe in eng.pending_entries
+                               if f"Q-{pe['intent'].strategy}-{pe['intent'].symbol}" != key]
+        if len(eng.pending_entries) == before:
+            raise KeyError(f"no queued order {key}")
+        self.journal.event(pd.Timestamp.now(), "INFO", "manual", f"queued order {key} cancelled from the chart")
+        eng.save_state()
+        return {"cancelled": key}
+
     def review(self, days: int = 1, asof: dt.date | None = None) -> str:
         asof = asof or dt.date.today()
         start = (pd.Timestamp(asof) - pd.Timedelta(days=days - 1)).date()

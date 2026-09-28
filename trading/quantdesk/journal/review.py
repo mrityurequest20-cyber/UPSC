@@ -26,7 +26,7 @@ def review_trade(t, regime_at_exit: str | None = None) -> dict:
 
     # ---- process score -------------------------------------------------------------------------
     process = 50.0
-    if t.exit_reason in PLANNED_EXITS:
+    if t.exit_reason in PLANNED_EXITS or (t.strategy == "manual" and t.exit_reason == "manual"):
         process += 25
     elif t.exit_reason in FORCED_EXITS:
         process -= 10
