@@ -20,6 +20,7 @@ from ..pipeline.classify import GS_ORDER, Classifier
 from ..pipeline.enrich import auto_explain, has_ai_explainer
 from ..pipeline.glossary import glossary_for
 from ..pipeline.normalize import clean_summary, publisher_key, today_ist
+from ..pipeline.syllabus import load_syllabus, tags_of
 from ..pipeline.videos import daily_videos
 
 log = logging.getLogger("upsc_intel.web")
@@ -238,6 +239,7 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
             heavy.add(sid)
     by_outlet = outlet_texts(db, [i for i in ids if i in heavy], include_private)
     articles = db.articles([i for i in ids if i in heavy])
+    syl = load_syllabus(settings)
     tkeys = sorted({k for i in heavy if i in stories for k in (stories[i].get("extras") or {}).get("topics") or []})
     dossiers = {r["key"]: r["name"] for r in db.q(  # the topics that make a dossier (their timeline is signed)
         f"SELECT key, name FROM topics WHERE sig IS NOT NULL AND key IN ({','.join('?' * len(tkeys))})", tkeys)} if tkeys else {}
@@ -276,6 +278,10 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
                 o["summary"] = o["summary"][:LIGHT_SUMMARY].rsplit(" ", 1)[0] + "…"
             o["sources"] = o["sources"][:4]
             out_stories.append(o)
+    for o in out_stories:  # each card's and line's micro-topics of the syllabus (pipeline/syllabus.py): a link to the map
+        syl_ids, _ = tags_of(syl, stories[o["id"]])
+        if syl_ids:
+            o["syl"] = [{"k": k, "n": syl.topics[k]["name"], "p": syl.topics[k]["paper"]} for k in syl_ids]
     if full:  # the glossary of the day's cards (pipeline/glossary.py): the pages mark each term and show its meaning
         for d, v in days.items():
             ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v[k]]
@@ -418,6 +424,13 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         """Running stories with their timelines and story so far, as the static site's data/dossiers.json."""
         from ..pipeline.dossiers import dossiers_payload
         return dossiers_payload(settings, db)
+
+    @app.get("/api/syllabus")
+    def syllabus():
+        """The syllabus map: each micro-topic's brief cards, flashcards and dossiers, as the static site's data/syllabus.json."""
+        from ..pipeline.dossiers import dossiers_payload
+        from ..pipeline.syllabus import syllabus_payload
+        return syllabus_payload(settings, db, dossiers=dossiers_payload(settings, db))
 
     @app.get("/api/places")
     def places():

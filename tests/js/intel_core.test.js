@@ -467,6 +467,43 @@ test("Backup: the file carries this device's progress but never the AI key; rest
   assert.ok(C.backup.html().includes("Last backup: never") && C.backup.html().includes('data-backup="save"'));
 });
 
+test("Syllabus map: tiles by heat, coverage from done marks, blind spots, the topic page and the bot's story", () => {
+  const mem = memStore({});
+  const items = (n, pre, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `${pre}${i}`, d: `2026-09-${String(27 - from - i).padStart(2, "0")}`, t: `${pre} report ${i} <b>`, g: "NOTE", k: "top", s: "The Hindu", u: `https://www.thehindu.com/${pre}${i}` }));
+  const data = { from: "2026-08-14", to: "2026-09-27", stats: { cards: 20, tagged: 16 },
+    papers: [{ key: "GS2", name: "Polity", lines: [{ key: "cb", line: "Appointment to various constitutional posts.", ncert: ["Class 11 Political Science: Indian Constitution at Work"], topics: ["gs2-election-commission", "gs2-cag"] }] },
+      { key: "GS3", name: "Economy", lines: [{ key: "ec", line: "Indian economy.", ncert: [], topics: ["gs3-inflation"] }] }],
+    topics: {
+      "gs2-election-commission": { name: "Election Commission", paper: "GS2", line: "cb", prelims: true, n30: 12, n7: 4, n: 12, last: "2026-09-27", items: items(12, "ec"),
+        cards: [{ q: "Who appoints the CEC?", a: "The President." }], dossiers: [{ key: "sir", name: "SIR", last: "2026-09-27", n: 5 }] },
+      "gs2-cag": { name: "CAG", paper: "GS2", line: "cb", prelims: true, n30: 0, n7: 0, n: 0, last: null, items: [], cards: [], dossiers: [] },
+      "gs3-inflation": { name: "Inflation", paper: "GS3", line: "ec", prelims: true, n30: 4, n7: 1, n: 4, last: "2026-09-26", items: items(4, "in", 1), cards: [], dossiers: [] } } };
+  const marks = { ec0: { read: true }, ec1: { read: true }, in0: { read: true }, in1: { read: true } };
+  const c = C.sylCover(data, "gs2-election-commission", marks);
+  assert.deepStrictEqual([c.n, c.done, c.pct, c.heat], [12, 2, 17, 4]);
+  assert.strictEqual(C.sylCover(data, "gs2-cag", marks).heat, 0);
+  const blind = C.sylBlind(data, marks);
+  assert.deepStrictEqual(blind.map((x) => x.id), ["gs2-election-commission"], "hot and under a quarter done; inflation is half done");
+  const html = C.syllabusHtml(data, { marks });
+  assert.ok(html.includes('class="sy-tile h4" data-sy-go="gs2-election-commission"') && html.includes("12 in news · 2 done") && html.includes("Quiet this month"));
+  assert.ok(html.includes("Hot topics you haven't covered") && html.includes("2</b><span>of 3 topics in the news"));
+  assert.ok(!C.syllabusHtml(data, { marks, paper: "GS3" }).includes("Election Commission"), "a paper filter");
+  C.sylStudy.set("gs2-election-commission", 2);
+  assert.strictEqual(C.sylBlind(data, marks).length, 0, "a topic marked studied (okay or strong) is no blind spot");
+  assert.ok(C.syllabusHtml(data, { marks }).includes("· Okay"), "the tile shows your level");
+  const page = C.sylTopicHtml(data, "gs2-election-commission", { marks, canAsk: true, canDossier: true });
+  assert.ok(page.includes("The syllabus says</b> Appointment to various constitutional posts.") && page.includes("Class 11 Political Science"));
+  assert.ok(page.includes('data-sy-read="ec0" data-at="2026-09-27"') && page.includes("ec report 0 &lt;b&gt;") && page.includes("✓ done"));
+  assert.ok(page.includes('data-sy-ds="sir"') && page.includes("<summary>Who appoints the CEC?</summary>") && page.includes('data-sy-study="2" aria-pressed="true"'));
+  assert.ok(page.includes('data-sy-ask="gs2-election-commission"'));
+  const st = C.syllabusStory(data, "gs2-election-commission");
+  assert.ok(st.kind === "syllabus" && st.id === "sy:gs2-election-commission" && st.digest.points.length === 8 && /Appointment to various/.test(st.digest.note));
+  assert.strictEqual(C.staticFor(st), null, "its background is the syllabus line, not the glossary");
+  assert.ok(C.sylChips([{ k: "gs2-election-commission", n: "Election <Commission>", p: "GS2" }]).includes('data-sy-open="gs2-election-commission">GS2 · Election &lt;Commission&gt; ›'));
+  assert.strictEqual(C.sylChips([]), "");
+  assert.ok(JSON.parse(mem["upsc-syl"])["gs2-election-commission"].s === 2 && C.backup.KEYS.includes("upsc-syl"), "kept on the device, in backups");
+});
+
 test("Gemini's Markdown is rendered safely", () => {
   const h = C.mdHtml("## Head\n- **bold** <img src=x onerror=alert(1)>\n1. [ok](https://pib.gov.in/x) [bad](javascript:alert(1))");
   assert.ok(h.includes("<p class=\"bot-sub\">Head</p>") && h.includes("<ul><li><b>bold</b> &lt;img") && h.includes('<a href="https://pib.gov.in/x"'));

@@ -10,6 +10,8 @@
 * running topics: the ongoing issue the story belongs to (India–Canada relations, the Waqf Act, Manipur…), reusing
   a known topic's name when it fits, with a few search words. The topics table holds each; stories.extras.topics the
   card's topic keys; pipeline/dossiers.py builds each topic's timeline and "story so far".
+* syllabus: the 1-2 micro-topics of the UPSC syllabus (config/syllabus.yaml) the story serves: stories.extras.syl
+  (pipeline/syllabus.py tags the other cards by keyword rules).
 
 A card is asked once: stories.terms and stories.extras ([] and {} when it has none).
 """
@@ -24,6 +26,7 @@ from datetime import datetime, timezone
 from ..config import Settings
 from ..db import DB, iso
 from .enrich import GEMINI_PAUSE, Gemini, GeminiStop
+from .syllabus import load_syllabus
 
 log = logging.getLogger("upsc_intel.glossary")
 
@@ -53,10 +56,15 @@ For each numbered story (its headline and key lines) give:
   relations", "Waqf (Amendment) Act", "Manipur violence", "Monsoon session of Parliament"), not a one-off event. Use
   a name from KNOWN TOPICS when one fits, exactly as written; else a short new name. query: 1-3 distinctive words that
   every story on the topic contains (e.g. "Waqf", "Canada", "Manipur"), never generic words like "India" or "government".
+- syllabus: the 1-2 topics of the UPSC syllabus the story is most useful for, as ids from SYLLABUS TOPICS exactly as
+  written (the first one the best fit); [] when none fits.
 Answer for every story, using its number.
 
 KNOWN TOPICS:
-{known}"""
+{known}
+
+SYLLABUS TOPICS (id: paper · topic):
+{syllabus}"""
 
 SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": {"type": "object", "properties": {
     "n": {"type": "integer"},
@@ -66,8 +74,9 @@ SCHEMA = {"type": "object", "properties": {"items": {"type": "array", "items": {
         "name": {"type": "string"}, "kind": {"type": "string"}, "country": {"type": "string"}, "state": {"type": "string"},
         "lat": {"type": "number"}, "lon": {"type": "number"}}, "required": ["name", "kind", "country", "state", "lat", "lon"]}},
     "topics": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "query": {"type": "string"}},
-                                           "required": ["name", "query"]}}},
-    "required": ["n", "terms", "places", "topics"]}}}, "required": ["items"]}
+                                           "required": ["name", "query"]}},
+    "syllabus": {"type": "array", "items": {"type": "string"}}},
+    "required": ["n", "terms", "places", "topics", "syllabus"]}}}, "required": ["items"]}
 
 GENERIC = {"india", "indian", "government", "centre", "center", "minister", "ministry", "policy", "court", "news", "state",
            "states", "world", "global", "new", "report", "the", "and", "of"}
@@ -178,8 +187,9 @@ def build_glossary(settings: Settings, db: DB, days: list[str], http=None, pause
     if not todo:
         return {"enabled": True, "cards": 0, "terms": 0, "places": 0, "topics": 0, "calls": 0, "left": 0}
     gem = Gemini(settings.gemini_api_key, settings.gemini_model, http=http, db=db)
+    syl = load_syllabus(settings)
     now = iso(datetime.now(timezone.utc))
-    cards = new = n_places = n_topics = calls = 0
+    cards = new = n_places = n_topics = n_syl = calls = 0
     note = ""
     for i in range(0, len(todo), BATCH):
         if calls >= max_calls:
@@ -188,7 +198,8 @@ def build_glossary(settings: Settings, db: DB, days: list[str], http=None, pause
         if calls and pause:
             time.sleep(pause)
         calls += 1
-        system = SYSTEM.format(kinds=", ".join(PLACE_KINDS), known="\n".join(f"- {t}" for t in known_topics(db)) or "(none yet)")
+        system = SYSTEM.format(kinds=", ".join(PLACE_KINDS), known="\n".join(f"- {t}" for t in known_topics(db)) or "(none yet)",
+                               syllabus=syl.prompt_list() or "(none)")
         try:
             reply, model = gem.generate(system, "\n".join(f"{n}. {c['text']}" for n, c in enumerate(batch, 1)), SCHEMA)
         except GeminiStop as exc:
@@ -216,12 +227,13 @@ def build_glossary(settings: Settings, db: DB, days: list[str], http=None, pause
                 db.x("INSERT INTO topics (key, name, query, first_day, last_day, n, at) VALUES (?,?,?,?,?,1,?) "
                      "ON CONFLICT(key) DO UPDATE SET first_day=MIN(first_day, excluded.first_day), "
                      "last_day=MAX(last_day, excluded.last_day), n=n+1", (t["key"], t["name"], t["query"], d, d, now))
+            tags = syl.valid(items[sid].get("syllabus"))  # ids not in config/syllabus.yaml are dropped
             db.x("UPDATE stories SET terms=?, extras=? WHERE id=?",
                  (json.dumps([term_key(t["term"]) for t in terms]),
-                  json.dumps({"places": [p["key"] for p in places], "topics": [t["key"] for t in topics]}), sid))
-            cards += 1; n_places += len(places); n_topics += len(topics)
+                  json.dumps({"places": [p["key"] for p in places], "topics": [t["key"] for t in topics], "syl": tags}), sid))
+            cards += 1; n_places += len(places); n_topics += len(topics); n_syl += bool(tags)
         db.commit()
-    return {"enabled": True, "cards": cards, "terms": new, "places": n_places, "topics": n_topics, "calls": calls,
+    return {"enabled": True, "cards": cards, "terms": new, "places": n_places, "topics": n_topics, "syllabus": n_syl, "calls": calls,
             "left": len(todo) - cards, **({"paused": note} if note else {})}
 
 

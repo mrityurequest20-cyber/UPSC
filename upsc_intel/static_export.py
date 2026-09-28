@@ -244,8 +244,11 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         from .pipeline.rankings import rankings_payload
         _write_json(out / "data" / "rankings.json", rankings_payload(settings, db))
         from .pipeline.dossiers import dossiers_payload, places_payload  # running stories and the places map
-        _write_json(out / "data" / "dossiers.json", dossiers_payload(settings, db))
+        ds = dossiers_payload(settings, db)
+        _write_json(out / "data" / "dossiers.json", ds)
         _write_json(out / "data" / "places.json", places_payload(settings, db))
+        from .pipeline.syllabus import syllabus_payload  # the syllabus map: each micro-topic's cards, flashcards, dossiers
+        _write_json(out / "data" / "syllabus.json", syllabus_payload(settings, db, dossiers=ds))
     # Gemini's verdicts against the rules for the days still being rebuilt: what the AI moves in the brief
     audits = [a for a in (audit_day(db, clf, d) for d in recent_days()) if a]
     if audits and not include_private:

@@ -195,6 +195,26 @@ Week and Month views recap everything the daily briefs covered.
     - A card is asked once (`stories.terms`; `[]` when it has none).
     - Each day's file carries its cards' terms (`days[d].glossary`). Older days aren't backfilled.
     - The same call also names each card's **places** and **running story** (below), so neither costs an extra call. A card read before these were asked for is asked once more.
+- **Syllabus map (website: Trackers → Syllabus map; app: Track → Syllabus):** the UPSC syllabus, lit up by the news.
+  - **The map:** the GS papers' 57 official syllabus lines (`config/syllabus.yaml`), split into 96 micro-topics. For example: Election Commission (appointment, removal, powers); Space (ISRO missions); Pollution; Centre–state relations. The Prelims areas are the same topics, flagged, and a checkbox shows only those.
+  - **How cards are filed:** every brief card of the last 45 days sits under 1-2 topics.
+    - ✦ Intel AI picks them as it reads the day's cards. This is part of the glossary call it already makes, so it costs no extra requests.
+    - Keyword rules file the rest, including every card from before and every card when the AI is off. A topic needs a strong term or two different ones, so a single weak word never files a card.
+    - On the local copy, the rules filed 78% of the cards.
+  - **Each tile:** its colour is how often the topic was in the brief in the last 30 days (none, 1-2, 3-5, 6-10, 11+). Its green bar is how much of that you've marked done.
+  - **At the top:** how many topics were in the news, how much of their reports you've done, and **Hot topics you haven't covered**. These are topics with 3+ reports and under a quarter done that you haven't marked studied.
+  - **A topic's page:**
+    - the syllabus's own line
+    - its stats
+    - **Studied the basics?** (Not yet / Shaky / Okay / Strong, kept on your device and in backups)
+    - **✦ Ask Intel about this topic**: the bot answers from the topic's latest reports
+    - the NCERT books to read first
+    - the running stories (dossiers) most of whose reports fall under it
+    - every brief card on it, each opening in its day's brief
+    - flashcards from the cards' notes, tap to reveal
+  - **On a card:** an opened card (website) or a story (app) shows its topics as **📚 Syllabus** links.
+  - **App's Progress → My 30 days:** gains **Syllabus blind spots**, the hot topics you haven't covered, each opening its page.
+  - **Data:** `data/syllabus.json` (API `/api/syllabus`) holds the tree and each topic's cards (up to 40, latest first), 30-day and 7-day counts, flashcards and dossiers.
 - **Dossiers (website: Trackers → Dossiers; app: Track → Dossiers):** the running stories of the news (the Waqf Act, India–Canada relations, Manipur, a Parliament session…), each on one page.
   - **Each dossier has:**
     - **the timeline:** its reports from the last 45 days, the latest first, with the date, grade, source and one line. A report that was a brief card opens in its day's brief.
@@ -226,11 +246,11 @@ Week and Month views recap everything the daily briefs covered.
   - **Screens:**
     - Brief: week strip, the day's hero, GS chips, then the day by grade: Must-know, Quick read (Prelims facts and more), Background and Low
     - Read: editorials by GS paper, explainers
-    - Track: dossiers, the places map and India's ranks
+    - Track: the syllabus map, dossiers, the places map and India's ranks
     - Practice: MCQs, Revise, Mains, Weekly mock and Mistakes
     - Progress: My 30 days (streak, practice accuracy, paper mastery, blind spots, running stories, exam radar, a 30-min catch-up plan, backup), and the week or month in review
     - Saved: stars and notes, PDF
-  - **Kept uncluttered:** a brief card shows one row of labels (rank, GS paper, subject; its section is its grade) and the write-up's short headline. A story without a matched video gets a YouTube search link with its sources instead of an empty video box. The website groups Dossiers, Map and India's Ranks under one **Trackers** tab, and old links to those tabs (and the app's old Insights and Review links) still land in the right place.
+  - **Kept uncluttered:** a brief card shows one row of labels (rank, GS paper, subject; its section is its grade) and the write-up's short headline. A story without a matched video gets a YouTube search link with its sources instead of an empty video box. The website groups the Syllabus map, Dossiers, Map and India's Ranks under one **Trackers** tab, and old links to those tabs (and the app's old Insights and Review links) still land in the right place.
   - **Refresh (the ↻ button in the top bar):** checks for the latest build now instead of waiting for the app's own 5-minute check. It says what it found: new stories, "you're up to date" with when the next update is due, or that the scheduled update is running late. It also looks for a newer version of the app. On the local server it fetches every source, like the website's Refresh.
   - **Story view:** the summary (what's happening, then the static background; read from the web as soon as the story opens), video, Prelims facts, Mains question, sources, your note, and Ask Intel.
   - **Install it:** open the link on your phone, then **Add to Home Screen** (iPhone: Share menu) or **Install app** (Android: browser menu). It opens full-screen like an app, follows dark mode, and **works offline** on the days it has loaded (and the last three Daily Brief PDFs you opened).
@@ -393,7 +413,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 223 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 228 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

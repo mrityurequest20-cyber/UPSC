@@ -1059,9 +1059,9 @@ Rules:
         ["Background", !e.auto && e.background], ["Why it matters", !e.auto && (e.significance || []).join("; ")]].filter(([, v]) => v && !WEAK.test(v));
       if (w.length) lines.push("", "WRITE-UP:", ...w.map(([k, v]) => `${k}: ${v}`));
       if (page) lines.push("", `ARTICLE (${page.domain}${page.via === "search" ? ", a free report of the same story" : ""}):`, clip(page.paragraphs.join("\n"), 12000));
-      if (s.digest) lines.push("", s.kind === "dossier" ? "THE STORY SO FAR:" : "THE INDEX:", ...s.digest.points.map((x) => `- ${x}`));
+      if (s.digest) lines.push("", s.kind === "dossier" ? "THE STORY SO FAR:" : s.kind === "syllabus" ? `THE SYLLABUS TOPIC (${s.digest.note}); ITS LATEST REPORTS:` : "THE INDEX:", ...s.digest.points.map((x) => `- ${x}`));
       const reports = (s.texts || []).slice(0, s.kind ? 30 : 4).map((t) => `- ${t.p || "An outlet"}: ${clip(t.x, 700)}`);
-      if (reports.length) lines.push("", s.kind === "dossier" ? "TIMELINE (newest first):" : "OTHER REPORTS:", ...reports);
+      if (reports.length) lines.push("", s.kind === "dossier" || s.kind === "syllabus" ? "TIMELINE (newest first):" : "OTHER REPORTS:", ...reports);
       const out = { text: lines.join("\n"), page };
       ctxCache.set(s.id, out);
       return out;
@@ -1074,7 +1074,7 @@ Rules:
         contents, onText: (t) => { if (onPartial) onPartial(mdHtml(t)); } });
       history.set(s.id, [...contents, { role: "model", parts: [{ text }] }].slice(-8));
       const from = ctx.page ? `the article on ${link(ctx.page.url, ctx.page.domain)}${ctx.page.via === "search" ? ", a free report of the same story" : ""}`
-        : s.kind === "dossier" ? "the dossier's reports" : s.kind === "rank" ? "the index's report" : "the reports in the brief";
+        : s.kind === "dossier" ? "the dossier's reports" : s.kind === "rank" ? "the index's report" : s.kind === "syllabus" ? "the topic's reports" : "the reports in the brief";
       return `${mdHtml(text)}<p class="bot-src" title="${esc(model)}">✦ Intel AI, from ${from}. Check key facts against the source before quoting.</p>`;
     }
     async function storyAnswer(s, q, opts = {}) {
@@ -2488,6 +2488,128 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       state: () => ({ on: S.on, paused: S.paused, i: S.i, l: S.l, n: S.items.length, rate: S.rate, lang: S.lang, mode: S.mode, busy: S.busy, note: S.note, text: S.chunks[S.c] || "" }) };
   })();
 
+  // ─────────────────────────── The syllabus map ───────────────────────────
+  // data/syllabus.json (pipeline/syllabus.py): the GS papers' official lines, each split into micro-topics, and every
+  // brief card of the last 45 days filed under 1-2 of them. A tile's colour is how much the topic was in the news in
+  // the last 30 days; its bar, how much of that you've finished (this device's done marks). "Studied" is your own
+  // mark for the static part (NCERT and notes): shaky, okay or strong, kept on this device (upsc-syl).
+  // host: load() → the payload; marks() → {id: {read}}; open(id, day) → the card in its day's brief; ask(story);
+  // dossier(key) → a running story; key → the topic to open first; onShow(key).
+  const SYL_KEY = "upsc-syl";
+  const SYL_LEVEL = { 1: "Shaky", 2: "Okay", 3: "Strong" };
+  const sylStudy = {
+    get() { try { const v = JSON.parse(localStorage.getItem(SYL_KEY) || "{}"); return v && typeof v === "object" && !Array.isArray(v) ? v : {}; } catch (e) { return {}; } },
+    set(id, level) { const v = sylStudy.get(); if (level) v[id] = { s: level, at: Date.now() }; else delete v[id]; try { localStorage.setItem(SYL_KEY, JSON.stringify(v)); } catch (e) { /* private mode */ } return v; },
+  };
+  const SY_PAPERS = [["all", "All papers"], ["GS1", "GS1"], ["GS2", "GS2"], ["GS3", "GS3"], ["GS4", "GS4"]];
+  const heatOf = (n) => (n >= 11 ? 4 : n >= 6 ? 3 : n >= 3 ? 2 : n >= 1 ? 1 : 0);
+  // a topic's last 30 days: in the news, done by you → {n, done, pct, heat, items30}
+  function sylCover(data, id, marks) {
+    const t = ((data && data.topics) || {})[id] || {}; const to = (data && data.to) || "";
+    const from = to ? shiftDay(to, -29) : "";
+    const items30 = (t.items || []).filter((x) => !from || x.d >= from);
+    const n = Math.max(t.n30 || 0, items30.length); const done = items30.filter((x) => (marks[x.id] || {}).read).length;
+    return { n, done, pct: n ? Math.round((done * 100) / n) : 0, heat: heatOf(n), items30 };
+  }
+  // hot topics you haven't covered: 3+ reports in 30 days, under a quarter done, not marked studied → hottest first
+  function sylBlind(data, marks, study = sylStudy.get(), limit = 6) {
+    return Object.keys((data && data.topics) || {}).map((id) => ({ id, t: data.topics[id], c: sylCover(data, id, marks) }))
+      .filter((x) => x.c.n >= 3 && x.c.pct < 25 && !(study[x.id] && study[x.id].s >= 2))
+      .sort((a, b) => b.c.n - a.c.n || (b.t.n7 || 0) - (a.t.n7 || 0)).slice(0, limit);
+  }
+  function syllabusHtml(data, { marks = {}, paper = "all", prelims = false } = {}) {
+    const study = sylStudy.get(); const T = data.topics || {};
+    const ids = Object.keys(T); const hot = ids.filter((id) => sylCover(data, id, marks).n > 0);
+    const all30 = ids.reduce((a, id) => { const c = sylCover(data, id, marks); return [a[0] + c.n, a[1] + c.done]; }, [0, 0]);
+    const blind = sylBlind(data, marks, study, 99).filter((x) => paper === "all" || x.t.paper === paper).slice(0, 4);
+    const tile = (id) => {
+      const t = T[id]; if (!t || (prelims && !t.prelims)) return "";
+      const c = sylCover(data, id, marks); const st = study[id];
+      return `<button type="button" class="sy-tile h${c.heat}" data-sy-go="${esc(id)}" title="${esc(t.name)}"><b>${esc(t.name)}</b>
+        <span>${c.n ? `${c.n} in news${c.done ? ` · ${c.done} done` : ""}` : "Quiet this month"}${st ? ` · ${esc(SYL_LEVEL[st.s] || "")}` : ""}</span>
+        <i class="sy-bar" aria-hidden="true"><i style="width:${c.pct}%"></i></i></button>`;
+    };
+    const papers = (data.papers || []).filter((p) => paper === "all" || p.key === paper);
+    return `<section class="sy"><header class="sy-top"><div class="sy-eyebrow">Syllabus map</div>
+        <h2>The UPSC syllabus, lit up by the news</h2>
+        <p>Every topic of the GS papers, from the official syllabus. A tile's colour is how often it was in the brief in the last 30 days; its bar is how much of that you've marked done. Tap a topic for its reports, flashcards, running stories and NCERT books.</p></header>
+      <div class="sy-kpis"><div><b>${hot.length}</b><span>of ${ids.length} topics in the news</span></div><div><b>${all30[0] ? Math.round((all30[1] * 100) / all30[0]) : 0}%</b><span>of their reports done</span></div><div><b>${Object.keys(study).filter((k) => T[k]).length}</b><span>topics you've studied</span></div></div>
+      ${blind.length ? `<div class="sy-blind"><b>Hot topics you haven't covered</b><div>${blind.map((x) => `<button type="button" data-sy-go="${esc(x.id)}">${esc(x.t.name)} <small>${x.c.n} reports · ${x.c.pct}% done</small></button>`).join("")}</div></div>` : ""}
+      <div class="sy-tabs" role="tablist">${SY_PAPERS.map(([k, l]) => `<button type="button" role="tab" data-sy-paper="${k}" aria-selected="${paper === k}">${l}</button>`).join("")}
+        <label class="sy-pre"><input type="checkbox" data-sy-prelims ${prelims ? "checked" : ""}> Prelims topics only</label></div>
+      <div class="sy-legend" aria-hidden="true"><span>In the news, last 30 days:</span>${[0, 1, 2, 3, 4].map((h) => `<i class="h${h}"></i>`).join("")}<span>${["none", "1-2", "3-5", "6-10", "11+"].join(" · ")}</span></div>
+      ${papers.map((p) => `<div class="sy-paper"><h3>${esc(p.key)} <span>${esc(p.name)}</span></h3>${(p.lines || []).map((ln) => {
+        const tiles = ln.topics.map(tile).join(""); if (!tiles) return "";
+        return `<div class="sy-line"><p class="sy-lt">${esc(ln.line)}</p><div class="sy-grid">${tiles}</div></div>`;
+      }).join("")}</div>`).join("")}
+      <p class="sy-note">Cards are filed by ✦ Intel AI as it reads the day's brief, and by keyword rules for the rest${data.stats ? ` (${data.stats.tagged} of ${data.stats.cards} cards since ${esc(dayLabel(data.from))})` : ""}. Your done marks and studied levels stay on this device.</p></section>`;
+  }
+  function sylTopicHtml(data, id, { marks = {}, canOpen = true, canAsk = false, canDossier = false } = {}) {
+    const t = (data.topics || {})[id]; if (!t) return "";
+    const line = ((data.papers || []).find((p) => p.key === t.paper) || { lines: [] }).lines.find((l) => l.key === t.line) || {};
+    const c = sylCover(data, id, marks); const st = sylStudy.get()[id];
+    const row = (x) => `<li class="${(marks[x.id] || {}).read ? "done" : ""}"><span class="pill g-${esc(x.g)}">${esc({ NOTE: "Must-know", SKIM: "Quick read", READ: "Background", LOW: "Low" }[x.g] || x.g)}</span>
+      <div><b>${esc(x.t)}</b><small>${esc(dayLabel(x.d))}${x.s ? ` · ${esc(x.s)}` : ""}${x.k === "ed" ? " · Editorial" : x.k === "x" ? " · Explainer" : ""}${(marks[x.id] || {}).read ? " · ✓ done" : ""}</small></div>
+      ${canOpen ? `<button type="button" class="linkbtn" data-sy-read="${esc(x.id)}" data-at="${esc(x.d)}">Open</button>` : x.u ? `<a class="linkbtn" href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener">Read</a>` : ""}</li>`;
+    return `<section class="sy sy-one"><button type="button" class="ds-back" data-sy-back>‹ Syllabus map</button>
+      <div class="sy-eyebrow">${esc(t.paper)}${t.prelims ? " · Prelims and Mains" : " · Mains"}</div>
+      <h2>${esc(t.name)}</h2>
+      ${line.line ? `<blockquote class="sy-q"><b>The syllabus says</b> ${esc(line.line)}</blockquote>` : ""}
+      <div class="sy-stats"><span><b>${c.n}</b> in the news (30 days)</span><span><b>${t.n7 || 0}</b> this week</span><span><b>${c.done}</b> done by you</span>${t.last ? `<span>Last: ${esc(dayLabel(t.last))}</span>` : ""}</div>
+      <div class="sy-study" role="group" aria-label="How well you know the static part"><span>Studied the basics?</span>${[0, 1, 2, 3].map((lv) => `<button type="button" data-sy-study="${lv}" aria-pressed="${(st ? st.s : 0) === lv}">${lv ? SYL_LEVEL[lv] : "Not yet"}</button>`).join("")}</div>
+      ${canAsk ? `<div class="ds-acts"><button type="button" class="ask-intel" data-sy-ask="${esc(id)}">✦ Ask Intel about this topic</button></div>` : ""}
+      ${line.ncert && line.ncert.length ? `<h3>Read first · NCERT</h3><ul class="sy-ncert">${line.ncert.map((b) => `<li>${esc(b)}</li>`).join("")}</ul><p class="sy-src">Free at <a href="https://ncert.nic.in/textbook.php" target="_blank" rel="noopener">ncert.nic.in/textbook.php</a></p>` : ""}
+      ${(t.dossiers || []).length ? `<h3>Running stories</h3><p class="ds-chips">${t.dossiers.map((d) => `<button type="button" class="ds-chip" ${canDossier ? `data-sy-ds="${esc(d.key)}"` : "disabled"}>${esc(d.name)} ›</button>`).join("")}</p>` : ""}
+      <h3>In the brief · ${(t.items || []).length ? `${t.n > (t.items || []).length ? `latest ${t.items.length} of ${t.n}` : t.n}` : "none yet"}</h3>
+      ${(t.items || []).length ? `<ul class="sy-items">${t.items.map(row).join("")}</ul>` : `<p class="sy-src">No brief card on this topic in the last ${esc(dayLabel(data.from))} – ${esc(dayLabel(data.to))} window: a good day to revise its static part.</p>`}
+      ${(t.cards || []).length ? `<h3>Quick recall · ${t.cards.length} flashcards</h3><div class="sy-cards">${t.cards.map((q) => `<details><summary>${esc(q.q)}</summary><p>${esc(q.a)}</p></details>`).join("")}</div>` : ""}
+    </section>`;
+  }
+  // the topic as a story for the Intel bot: its latest reports are the "summary", the syllabus line the background
+  function syllabusStory(data, id) {
+    const t = ((data && data.topics) || {})[id]; if (!t) return null;
+    const line = ((data.papers || []).find((p) => p.key === t.paper) || { lines: [] }).lines.find((l) => l.key === t.line) || {};
+    const it = t.items || [];
+    const pts = it.slice(0, 8).map((x) => `${dayLabel(x.d)}: ${x.t}`);
+    return { id: `sy:${id}`, kind: "syllabus", title: t.name, url: (it[0] || {}).u || "", date: t.last || data.to, grade: "NOTE", gs: [t.paper],
+      subjects: [], tags: [], n_pub: it.length,
+      sources: it.slice(0, 8).map((x) => ({ p: x.s || domainOf(x.u), u: x.u, t: `${dayLabel(x.d)}: ${x.t}` })),
+      summary: it.map((x) => `${x.t}.`).join(" ").slice(0, 2400),
+      texts: it.map((x) => ({ p: `${x.s || "A report"} · ${dayLabel(x.d)}`, x: `${x.t}.` })),
+      explain: { why_in_news: it[0] ? `${dayLabel(it[0].d)}: ${it[0].t}` : "", background: line.line || "", significance: [] },
+      digest: { title: it.length ? `In the news on this topic · ${pts.length} latest reports` : "Not in the news lately", points: pts.length ? pts : [line.line || t.name],
+        note: `${t.paper} syllabus: ${line.line || t.name}` } };
+  }
+  function sylChips(syl) {  // a card's syllabus topics (s.syl [{k, n, p}]): a link to each on the map
+    if (!syl || !syl.length) return "";
+    return `<p class="ds-chips sy-chips"><span>📚 Syllabus:</span>${syl.map((t) => `<button type="button" class="ds-chip" data-sy-open="${esc(t.k)}">${esc(t.p)} · ${esc(t.n)} ›</button>`).join("")}</p>`;
+  }
+  function mountSyllabus(el, host) {
+    const Y = { data: null, key: host.key || null, paper: "all", prelims: false, err: "" };
+    const marks = () => (host.marks ? host.marks() || {} : {});
+    const paint = () => {
+      if (!Y.data) { el.innerHTML = `<p class="ds-note" style="padding:16px">${esc(Y.err || "Loading the syllabus map…")}</p>`; return; }
+      if (Y.key && !(Y.data.topics || {})[Y.key]) Y.key = null;
+      el.innerHTML = Y.key ? sylTopicHtml(Y.data, Y.key, { marks: marks(), canOpen: !!host.open, canAsk: !!host.ask, canDossier: !!host.dossier })
+        : syllabusHtml(Y.data, { marks: marks(), paper: Y.paper, prelims: Y.prelims });
+    };
+    const show = (k) => { Y.key = k || null; if (host.onShow) host.onShow(Y.key); paint(); if (el.scrollIntoView) el.scrollIntoView({ block: "start" }); };
+    el.onclick = (e) => {
+      const t = e.target.closest && e.target.closest("button"); if (!t || !el.contains(t)) return;
+      if (t.dataset.syGo) return show(t.dataset.syGo);
+      if (t.hasAttribute("data-sy-back")) return show(null);
+      if (t.dataset.syPaper) { Y.paper = t.dataset.syPaper; return paint(); }
+      if (t.dataset.syStudy != null && Y.key) { sylStudy.set(Y.key, Number(t.dataset.syStudy) || 0); return paint(); }
+      if (t.dataset.syRead && host.open) return host.open(t.dataset.syRead, t.dataset.at);
+      if (t.dataset.syAsk && host.ask) { const st = syllabusStory(Y.data, t.dataset.syAsk); if (st) host.ask(st); return; }
+      if (t.dataset.syDs && host.dossier) return host.dossier(t.dataset.syDs);
+    };
+    el.onchange = (e) => { if (e.target.matches && e.target.matches("[data-sy-prelims]")) { Y.prelims = e.target.checked; paint(); } };
+    paint();
+    Promise.resolve(host.load()).then((x) => { Y.data = x; paint(); }).catch(() => { Y.err = "Couldn't load the syllabus map. Check the connection and open this again."; paint(); });
+    return { show, get key() { return Y.key; } };
+  }
+
   // ─────────────────────────── Backup: this device's progress, to a file and back ───────────────────────────
   // Marks, notes, streaks, flashcards, practice scores, Mains answers and follows live only in this browser (the site
   // and the app share them). A backup file carries them to another phone or through a cleared browser. Restoring
@@ -2603,5 +2725,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     mountPractice, practiceStats, pxPick, srsNext, dayNo, listen, listenItems, gloss, mountRanks, ranksHtml, rankMove,
     mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn, dossierStory, rankStory, staticFor, staticHtml,
     backup: Object.freeze({ file: backupFile, restore: restoreBackup, info: backupInfo, html: backupHtml, KEYS: BACKUP_KEYS }),
+    mountSyllabus, syllabusHtml, sylTopicHtml, syllabusStory, sylChips, sylCover, sylBlind, sylStudy,
   });
 })(window);
