@@ -84,6 +84,21 @@ def test_the_weekly_set_is_written_once_from_the_weeks_news(db, settings):
     assert W.build_weekly(settings, db, today="2026-10-01", http=http) == {"week": MONDAY, "have": True} and len(http.calls) == 1
 
 
+def test_the_set_draws_on_every_day_of_the_week_not_just_the_busiest(db, settings):
+    busy = [(f"b{i}", MONDAY) for i in range(20)]  # a busy Monday: 20 Must-know cards
+    rest = [(f"d{i}", (date.fromisoformat(MONDAY) - timedelta(days=i)).isoformat()) for i in range(1, 7)]
+    for sid, d in busy + rest:
+        story(db, sid, f"Story {sid}", d, brief=False)
+    db.save_brief(MONDAY, [(sid, "news", n, "top") for n, (sid, _) in enumerate(busy, 1)])
+    for sid, d in rest:
+        db.save_brief(d, [(sid, "news", 1, "top")])
+    story(db, "old", "Story from eight days ago", (date.fromisoformat(MONDAY) - timedelta(days=7)).isoformat())
+    db.commit()
+    got = W._stories(db, MONDAY)
+    assert [x["id"] for x in got[:W.PER_DAY]] == [f"b{i}" for i in range(W.PER_DAY)]  # the day's top cards, in brief order
+    assert {x["day"] for x in got} == {MONDAY} | {d for _, d in rest} and len(got) == W.PER_DAY + 6 and "old" not in {x["id"] for x in got}
+
+
 def test_a_thin_week_waits_and_an_incomplete_reply_is_not_kept(db, settings):
     settings.gemini_api_key = "test-key"
     week(db, n=3)

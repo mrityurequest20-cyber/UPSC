@@ -24,7 +24,7 @@ from .normalize import today_ist
 log = logging.getLogger("upsc_intel.weekly")
 
 WEEKS = 8
-MAX_STORIES = 40
+PER_DAY = 6       # each day's top Must-know cards and editorials, so a busy day doesn't crowd out the week
 MIN_STORIES = 8   # a thin week (a new database) waits for more news
 
 SYSTEM = """You set the weekly writing practice of a UPSC Civil Services aspirant, from the week's news (numbered).
@@ -63,20 +63,21 @@ def week_of(day: str) -> str:
 
 
 def _stories(db: DB, day: str) -> list[dict]:
-    """The last seven days' Must-know cards and editorials (up to `day`), the latest first."""
-    since = (date.fromisoformat(day) - timedelta(days=7)).isoformat()
+    """The last seven days' Must-know cards and editorials (up to `day`): each day's top PER_DAY, the latest day first."""
+    since = (date.fromisoformat(day) - timedelta(days=6)).isoformat()
     rows = db.q("SELECT b.date_ist AS day, s.id, s.title, s.ai FROM brief_picks b JOIN stories s ON s.id = b.story_id "
                 "WHERE b.date_ist >= ? AND b.date_ist <= ? AND b.lead IS NULL AND COALESCE(b.tier, 'top') = 'top' "
                 "AND b.kind IN ('news', 'editorial') AND s.is_private = 0 ORDER BY b.date_ist DESC, b.rank", (since, day))
-    out, seen = [], set()
+    out, seen, per = [], set(), {}
     for r in rows:
-        if r["id"] in seen:
+        if r["id"] in seen or per.get(r["day"], 0) >= PER_DAY:
             continue
         seen.add(r["id"])
+        per[r["day"]] = per.get(r["day"], 0) + 1
         ai = json.loads(r["ai"]) if r["ai"] else {}
         line = ((ai.get("points") or [None])[0] or ai.get("why_in_news") or "") if isinstance(ai, dict) else ""
         out.append({"id": r["id"], "day": r["day"], "title": r["title"], "line": str(line)[:240]})
-    return out[:MAX_STORIES]
+    return out
 
 
 def _clean(reply: dict, stories: list[dict]) -> dict | None:
