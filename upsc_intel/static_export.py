@@ -249,6 +249,8 @@ def export_static(settings: Settings, db: DB, out: str | Path, days: int = 62,
         _write_json(out / "data" / "places.json", places_payload(settings, db))
         from .pipeline.syllabus import syllabus_payload  # the syllabus map: each micro-topic's cards, flashcards, dossiers
         _write_json(out / "data" / "syllabus.json", syllabus_payload(settings, db, dossiers=ds))
+        from .pipeline.weekly import weekly_payload  # the week's essay topics and GS4 case study
+        _write_json(out / "data" / "weekly.json", weekly_payload(db))
     # Gemini's verdicts against the rules for the days still being rebuilt: what the AI moves in the brief
     audits = [a for a in (audit_day(db, clf, d) for d in recent_days()) if a]
     if audits and not include_private:

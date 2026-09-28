@@ -253,6 +253,13 @@ CREATE TABLE IF NOT EXISTS gemini_usage (
     PRIMARY KEY (day, model)
 );
 
+-- the week's Mains writing set (pipeline/weekly.py): essay topics, a GS4 case study and an ethics question; key: its Monday
+CREATE TABLE IF NOT EXISTS weekly (
+    week TEXT PRIMARY KEY,
+    data TEXT,
+    at TEXT
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     item_id UNINDEXED, title, body, tokenize='porter unicode61'
 );

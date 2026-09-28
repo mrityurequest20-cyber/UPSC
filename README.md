@@ -169,8 +169,25 @@ Week and Month views recap everything the daily briefs covered.
     - Set 10 marks (150 words) or 15 marks (250 words). A live word count shows how close you are, and your draft is saved as you type.
     - **Evaluate with Intel AI** marks it like a UPSC examiner against the story: a score out of 10 or 15, and a verdict.
     - It also gives a rubric (demand, content, dimensions, structure, examples and data, presentation), what works, what to improve, points you missed and keywords to use.
-    - To finish, it writes a better introduction and conclusion, and a model answer outline. For photos, it shows what it read from your handwriting.
-    - It runs on your own Intel AI key (the same one as in Ask Intel; the form is right there if it isn't on yet). Your last answers and your average are listed.
+    - To finish, it writes a better introduction and conclusion, a model answer outline and **a model answer** within the word limit. For photos, it shows what it read from your handwriting.
+    - It runs on your own Intel AI key (the same one as in Ask Intel; the form is right there if it isn't on yet).
+    - **Your scores by paper** (GS1–GS4, Essay):
+      - how many answers
+      - the average percentage
+      - the trend: your last three against the three before, ▲ or ▼ in points
+      - a small line of your last ten scores
+
+      Your last answers are listed below it.
+    - **This week's writing set** (`pipeline/weekly.py`, `data/weekly.json`): once a week, one Intel AI call reads the last seven days' Must-know cards and editorials and sets:
+      - **4 essay topics** in the style of the Essay paper: 2 for Section A (abstract, often a quote) and 2 for Section B (issue-based). Each has the angles a strong essay covers, behind a "Stuck?" peek.
+      - a **GS4 case study** (about 250 words, fictional roles drawn from a story of the week) with UPSC-style sub-questions.
+      - a **GS4 ethics question** (10 marks).
+
+      Each is marked by its own examiner:
+      - essays out of 125 at 1000-1200 words, judged on reading the topic, flow, many sides, examples and language, with a model essay's flow in paragraphs
+      - case studies out of 20, judged on stakeholders, the ethical issues, the options and the course of action, with a model answer
+
+      It's written once per week (keyed by its Monday), never for past weeks. A thin week, with under 8 cards, waits.
   - **Weekly mock:** 50 questions from the last seven days, 60 minutes on a clock, exam mode with UPSC marking. Unseen questions come first.
   - **Mistakes:** every question you answer wrong, in any mode, lands here with how often you missed it. **Re-test** runs them as a set, and a question leaves once you answer it right.
 - **Listen (🎧 on the day's brief, website and app):** reads the day aloud: each Must-know story's headline and summary points (up to 8), then the Prelims facts.
@@ -231,6 +248,10 @@ Week and Month views recap everything the daily briefs covered.
     - the running stories (dossiers) most of whose reports fall under it
     - every brief card on it, each opening in its day's brief
     - flashcards from the cards' notes, tap to reveal
+    - **For your Mains answers:** lines worth quoting, taken from the ✦ Intel AI notes of the topic's cards (checked against their articles when written) and sorted by rules, with no extra AI call. Each links to its source card.
+      - **Judgments and cases:** Supreme Court, High Courts, tribunals
+      - **Reports and committees**
+      - **Data to quote:** figures in %, crore, lakh, ₹ and $
   - **On a card:** an opened card (website) or a story (app) shows its topics as **📚 Syllabus** links.
   - **App's Progress → My 30 days:** gains **Syllabus blind spots**, the hot topics you haven't covered, each opening its page.
   - **Data:** `data/syllabus.json` (API `/api/syllabus`) holds the tree and each topic's cards (up to 40, latest first), 30-day and 7-day counts, flashcards and dossiers.
@@ -432,7 +453,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 228 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 232 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

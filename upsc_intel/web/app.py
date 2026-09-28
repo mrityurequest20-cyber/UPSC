@@ -432,6 +432,12 @@ def create_app(settings: Settings | None = None, scheduler: bool = True, public_
         from ..pipeline.syllabus import syllabus_payload
         return syllabus_payload(settings, db, dossiers=dossiers_payload(settings, db))
 
+    @app.get("/api/weekly")
+    def weekly():
+        """The week's essay topics, GS4 case study and ethics question, as the static site's data/weekly.json."""
+        from ..pipeline.weekly import weekly_payload
+        return weekly_payload(db)
+
     @app.get("/api/places")
     def places():
         """The places-in-news map: the last month's cards by place, as the static site's data/places.json."""

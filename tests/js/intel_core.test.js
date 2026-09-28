@@ -475,7 +475,8 @@ test("Syllabus map: tiles by heat, coverage from done marks, blind spots, the to
       { key: "GS3", name: "Economy", lines: [{ key: "ec", line: "Indian economy.", ncert: [], topics: ["gs3-inflation"] }] }],
     topics: {
       "gs2-election-commission": { name: "Election Commission", paper: "GS2", line: "cb", prelims: true, n30: 12, n7: 4, n: 12, last: "2026-09-27", items: items(12, "ec"),
-        cards: [{ q: "Who appoints the CEC?", a: "The President." }], dossiers: [{ key: "sir", name: "SIR", last: "2026-09-27", n: 5 }] },
+        cards: [{ q: "Who appoints the CEC?", a: "The President." }], dossiers: [{ key: "sir", name: "SIR", last: "2026-09-27", n: 5 }],
+        bank: { cases: [{ x: "The Supreme Court ruled on Form 6.", id: "ec3", d: "2026-09-24" }], data: [{ x: "65 lakh names were removed.", id: "ec1", d: "2026-09-26" }] } },
       "gs2-cag": { name: "CAG", paper: "GS2", line: "cb", prelims: true, n30: 0, n7: 0, n: 0, last: null, items: [], cards: [], dossiers: [] },
       "gs3-inflation": { name: "Inflation", paper: "GS3", line: "ec", prelims: true, n30: 4, n7: 1, n: 4, last: "2026-09-26", items: items(4, "in", 1), cards: [], dossiers: [] } } };
   const marks = { ec0: { read: true }, ec1: { read: true }, in0: { read: true }, in1: { read: true } };
@@ -496,6 +497,8 @@ test("Syllabus map: tiles by heat, coverage from done marks, blind spots, the to
   assert.ok(page.includes('data-sy-read="ec0" data-at="2026-09-27"') && page.includes("ec report 0 &lt;b&gt;") && page.includes("✓ done"));
   assert.ok(page.includes('data-sy-ds="sir"') && page.includes("<summary>Who appoints the CEC?</summary>") && page.includes('data-sy-study="2" aria-pressed="true"'));
   assert.ok(page.includes('data-sy-ask="gs2-election-commission"'));
+  assert.ok(page.includes("For your Mains answers") && page.includes("<b>Judgments and cases</b>") && page.includes("<b>Data to quote</b>") && !page.includes("Reports and committees")
+    && page.includes('data-sy-read="ec3" data-at="2026-09-24">source'), "the topic's Mains bank");
   const st = C.syllabusStory(data, "gs2-election-commission");
   assert.ok(st.kind === "syllabus" && st.id === "sy:gs2-election-commission" && st.digest.points.length === 8 && /Appointment to various/.test(st.digest.note));
   assert.strictEqual(C.staticFor(st), null, "its background is the syllabus line, not the glossary");
@@ -641,6 +644,54 @@ test("Mains: an answer is evaluated by Intel AI and kept in the history", async 
     assert.ok(H.el.innerHTML.includes("6.5 <small>/ 15</small>") && H.el.innerHTML.includes("Model answer outline") && H.el.innerHTML.includes("Cite the CIC"), H.el.innerHTML.slice(0, 400));
     const hist = JSON.parse(mem["upsc-mains"]);
     assert.strictEqual(hist[0].score, 6.5); assert.strictEqual(hist[0].story_id, "tn");
+  } finally { global.fetch = prev; }
+});
+
+test("Mains toolkit: the week's essay and case study, marked by their own examiner, with a model answer and scores by paper", async () => {
+  const mem = memStore({ "upsc-gemini-key": "AIzaSyTESTKEY-0123456789abcdef", "upsc-gemini-models": JSON.stringify(["gemini-2.5-flash"]),
+    "upsc-mains": JSON.stringify([{ at: 1, marks: 15, score: 6, paper: "GS2" }, { at: 2, marks: 15, score: 7.5, paper: "GS2" }, { at: 3, marks: 10, score: 3 }]) });
+  const week = { week: "2026-09-28", from: "2026-09-22", to: "2026-09-28", by: "gemini-2.5-flash",
+    essays: [{ section: "A", topic: "Not all who wander are lost", angles: ["Exploration", "Doubt as a method"], links: ["s1"] },
+      { section: "B", topic: "Federalism is a conversation", angles: ["Finance Commission"], links: [] }],
+    case: { title: "The flooded district", scenario: "You are the District Collector of a flood-hit district.", questions: ["Who are the stakeholders?", "What will you do?"], links: ["s2"] },
+    ethics: { question: "What does accountability mean for a public servant?", links: [] },
+    stories: { s1: { t: "Floods in Assam", d: "2026-09-27" }, s2: { t: "Relief camps overflow", d: "2026-09-26" } } };
+  const verdict = (model) => ({ transcript: "", score: 71.3, verdict: "A thoughtful essay.", rubric: { demand: 7, content: 6, dimensions: 6, structure: 7, substantiation: 5, presentation: 7 },
+    strengths: ["A strong opening anecdote"], improve: ["More data"], missed: ["The global angle"], keywords: ["serendipity"], examples: ["Magellan"],
+    better_intro: "Every great discovery…", better_conclusion: "To wander is…", outline: ["Intro", "Body", "Conclusion"], model_answer: model });
+  const sent = []; const prev = global.fetch; let reply = verdict("");
+  global.fetch = async (url, init = {}) => {
+    if (!String(url).includes(":generateContent")) return prev(url, init);
+    sent.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(reply) }] } }] }), { status: 200 });
+  };
+  try {
+    const H = hub({ weekly: async () => ({ weeks: [week] }) });
+    await H.click("tab", { t: "mains" }); await H.tick(); await H.tick();
+    const home = H.el.innerHTML;
+    assert.ok(home.includes("This week's writing set") && home.includes('data-k="essay:0"') && home.includes("Essay · Section A · 125 marks") && home.includes('data-k="case"') && home.includes('data-k="ethics"'), home.slice(0, 600));
+    assert.ok(home.includes("Your scores by paper") && home.includes("<b>GS2</b>") && home.includes("average 45%") && home.includes("<b>Other</b>"), "scores by paper");
+    await H.click("mn-wk", { k: "essay:0" });
+    assert.ok(H.el.innerHTML.includes("Not all who wander are lost") && H.el.innerHTML.includes("0 / 1100 words") && H.el.innerHTML.includes("Angles a strong essay covers") && !H.el.innerHTML.includes('data-px="mn-marks"'));
+    H.el.oninput({ target: { matches: (sel) => sel === "[data-mn-text]", value: "To wander is to learn. ".repeat(40) } });
+    await H.click("mn-eval");
+    let body = sent[sent.length - 1];
+    assert.ok(body.systemInstruction.parts[0].text.includes("UPSC Civil Services Essay paper") && body.systemInstruction.parts[0].text.includes("out of 125"));
+    assert.ok(body.contents[0].parts[0].text.includes("ESSAY TOPIC (125 marks, 1000-1200 words): Not all who wander are lost") && body.contents[0].parts[0].text.includes("2026-09-27: Floods in Assam"));
+    assert.ok(H.el.innerHTML.includes("71.5 <small>/ 125</small>") && H.el.innerHTML.includes("A model essay's flow") && !H.el.innerHTML.includes("A model answer<"), "an essay's model is its flow");
+    let hist = JSON.parse(mem["upsc-mains"]); assert.deepStrictEqual([hist[3].paper, hist[3].kind, hist[3].marks], ["Essay", "essay", 125]);
+    await H.click("mn-back"); reply = verdict("The stakeholders are the flood victims…\nI would first…");
+    await H.click("mn-wk", { k: "case" });
+    assert.ok(H.el.innerHTML.includes("You are the District Collector") && H.el.innerHTML.includes("(a) Who are the stakeholders?") && H.el.innerHTML.includes("0 / 250 words"));
+    H.el.oninput({ target: { matches: (sel) => sel === "[data-mn-text]", value: "Stakeholders: the victims, the administration." } });
+    await H.click("mn-eval");
+    body = sent[sent.length - 1];
+    assert.ok(body.systemInstruction.parts[0].text.includes("GS Paper IV") && body.contents[0].parts[0].text.includes("CASE STUDY (20 marks, 250 words)"));
+    assert.ok(H.el.innerHTML.includes("20</small>") && H.el.innerHTML.includes("A model answer") && H.el.innerHTML.includes("<p>I would first…</p>"));
+    hist = JSON.parse(mem["upsc-mains"]); assert.deepStrictEqual([hist[4].paper, hist[4].kind, hist[4].score], ["GS4", "case", 20]);
+    const tr = C.mainsTrend(hist);
+    assert.deepStrictEqual([tr.GS2.n, tr.GS2.avg, tr.Essay.n, tr.GS4.avg, tr.GS.n], [2, 45, 1, 100, 1]);
+    assert.ok(JSON.parse(mem["upsc-mains-draft"])["wk:2026-09-28:case"], "a weekly draft is kept too");
   } finally { global.fetch = prev; }
 });
 
