@@ -504,6 +504,40 @@ test("Syllabus map: tiles by heat, coverage from done marks, blind spots, the to
   assert.ok(JSON.parse(mem["upsc-syl"])["gs2-election-commission"].s === 2 && C.backup.KEYS.includes("upsc-syl"), "kept on the device, in backups");
 });
 
+test("Study planner: the phase from the countdown, tasks that tick themselves, catch-up, hours and the streak", () => {
+  memStore({});
+  const syl = { topics: { a: { name: "Election Commission", paper: "GS2", n30: 12, n7: 3 }, b: { name: "Space", paper: "GS3", n30: 20, n7: 5 }, c: { name: "Ethics", paper: "GS4", n30: 0 } } };
+  assert.strictEqual(C.planPhase("2026-09-28", "").key, "none");
+  assert.deepStrictEqual(["2027-05-23", "2027-01-10", "2026-10-20", "2026-09-01"].map((e) => C.planPhase("2026-09-28", e).key), ["foundation", "prelims", "final", "past"]);
+  assert.strictEqual(C.planPhase("2026-09-28", "2027-05-23").left, 237);
+  const first = C.planToday({ today: "2026-09-28", plan: { exam: "2027-05-23", hours: 6, days: {} }, must: ["m1"], yMust: ["y1", "y2", "y3"], marks: {}, syl });
+  assert.ok(!first.tasks.some((t) => t.id === "catchup"), "a plan's first day: no catch-up for a day before it");
+  const base = { today: "2026-09-28", plan: { exam: "2027-05-23", hours: 6, days: { "2026-09-27": { done: 1, total: 6 } } }, must: ["m1", "m2", "m3", "m4"], yMust: ["y1", "y2", "y3"],
+    marks: { m1: { read: true }, y1: { read: true } }, study: { b: { s: 3, at: Date.parse("2026-09-20T10:00:00Z") } }, syl, srs: { due: 12, today: 0 } };
+  let r = C.planToday(base);  // a Monday
+  const ids = r.tasks.map((t) => t.id);
+  assert.deepStrictEqual(ids, ["brief", "catchup", "cards", "mcq", "topic", "mains"], ids.join());
+  const brief = r.tasks[0]; assert.ok(brief.detail === "1 of 4 marked done" && !brief.done && brief.go[0] === "brief");
+  assert.ok(/2 still unread/.test(r.tasks[1].detail) && r.tasks[1].go[1] === "2026-09-27", "yesterday mostly unread: a catch-up");
+  const topic = r.tasks.find((t) => t.id === "topic"); assert.ok(topic.topic === "a" && /Election Commission/.test(topic.title), "the hottest topic not yet studied");
+  assert.strictEqual(r.phase.key, "foundation");
+  r = C.planToday({ ...base, marks: { m1: { read: true }, m2: { read: true }, m3: { read: true }, m4: { read: true }, y1: { read: true }, y2: { read: true } },
+    srs: { due: 0, today: 14 }, setToday: true, mainsToday: true, study: { ...base.study, a: { s: 1, at: Date.now() } }, today: C.istDay() });
+  assert.ok(r.tasks.every((t) => t.id === "topic" ? true : t.done || t.id === "mock" || t.id === "month"), JSON.stringify(r.tasks.filter((t) => !t.done).map((t) => t.id)));
+  assert.ok(!r.tasks.some((t) => t.id === "catchup"), "no catch-up once most of yesterday is read");
+  r = C.planToday({ ...base, today: "2026-09-27" });  // a Sunday: the weekly mock
+  assert.ok(r.tasks.some((t) => t.id === "mock" && t.title === "Weekly mock"));
+  r = C.planToday({ ...base, today: "2026-09-30" });  // the month's last day
+  assert.ok(r.tasks.some((t) => t.id === "month"));
+  r = C.planToday({ ...base, plan: { ...base.plan, hours: 1 } });  // one hour: the rest is "if time allows"
+  assert.ok(r.tasks.filter((t) => t.optional).map((t) => t.id).includes("topic") && r.mins <= 60 && r.total < r.tasks.length);
+  r = C.planToday({ ...base, plan: { exam: "2026-10-20", hours: 8, days: { "2026-09-28": { tick: { mains: true } } } } });  // final month, a hand tick
+  assert.ok(r.tasks.find((t) => t.id === "mains").done && r.tasks.find((t) => t.id === "mains").ticked && r.tasks.find((t) => t.id === "topic").optional);
+  assert.ok(r.tasks.some((t) => t.id === "mock" && t.title === "Full mock"), "a mock most days in the final month");
+  assert.strictEqual(C.planStreak({ days: { "2026-09-26": { done: 5, total: 5 }, "2026-09-27": { done: 6, total: 6 }, "2026-09-28": { done: 2, total: 6 } } }, "2026-09-28"), 2);
+  assert.strictEqual(C.planStreak({ days: { "2026-09-27": { done: 3, total: 6 } } }, "2026-09-28"), 0);
+});
+
 test("Gemini's Markdown is rendered safely", () => {
   const h = C.mdHtml("## Head\n- **bold** <img src=x onerror=alert(1)>\n1. [ok](https://pib.gov.in/x) [bad](javascript:alert(1))");
   assert.ok(h.includes("<p class=\"bot-sub\">Head</p>") && h.includes("<ul><li><b>bold</b> &lt;img") && h.includes('<a href="https://pib.gov.in/x"'));
@@ -570,7 +604,7 @@ test("weekly mock: fifty questions from the week, on the clock, in exam mode", a
   await H.click("tab", { t: "mock" });
   assert.ok(H.el.innerHTML.includes("50 questions from the last seven days"));
   await H.click("mock");
-  assert.ok(H.el.innerHTML.includes("Q 1 of 50") && H.el.innerHTML.includes("px-timer") && H.el.innerHTML.includes(">60:00<"), H.el.innerHTML.slice(0, 300));
+  assert.ok(H.el.innerHTML.includes("Q 1 of 50") && H.el.innerHTML.includes("px-timer") && />(60:00|59:5\d)</.test(H.el.innerHTML), H.el.innerHTML.slice(0, 300));  // (the clock may tick once on a slow run)
   assert.ok(!loaded.includes("2026-09-19"), "only the last seven days");
   await H.click("pick", { i: "1" });
   assert.ok(!H.el.innerHTML.includes("px-why"), "exam mode: no answer shown");

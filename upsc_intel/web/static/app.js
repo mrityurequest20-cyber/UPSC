@@ -1035,9 +1035,21 @@
   };
   function renderPractice() {
     const el = $("#content");
-    if (PX.el && el.contains(PX.el)) { PX.w.setDay(practiceDay()); return; }  // keep a set in progress across refreshes
-    el.innerHTML = '<div id="pxRoot"></div>';
+    if (PX.el && el.contains(PX.el)) { PX.w.setDay(practiceDay()); if (PL.w) PL.w.refresh(); return; }  // keep a set in progress across refreshes
+    el.innerHTML = '<div id="plRoot" class="pl-root"></div><div id="pxRoot"></div>';
+    PL.w = CORE.mountPlanner($("#plRoot"), { today: todayIST, marks: () => S.marks, go: planGo,
+      syllabus: () => SY.data || (SY.data = api.json(dataUrl("syllabus.json", "api/syllabus")).catch((e) => { SY.data = null; throw e; })),
+      loadDay: (d) => api.json(STATIC ? `data/day/${d}.json?v=${encodeURIComponent(S.meta.built_at || "")}` : `api/brief?${new URLSearchParams({ from: d, to: d })}`) });
     PX.el = $("#pxRoot"); PX.w = CORE.mountPractice(PX.el, pxHost);
+  }
+  // Today's plan (the study planner, above the practice hub): each task opens where it's done
+  const PL = { w: null };
+  async function planGo(where, arg) {
+    if (where === "brief") return go({ view: "day", anchor: arg || todayIST(), tab: "brief" });
+    if (where === "practice") { if (PX.w && arg) PX.w.tab(arg); if (PX.el) PX.el.scrollIntoView({ block: "start" }); return; }
+    if (where === "syllabus") { SY.key = arg || null; S.trk = "syllabus"; return switchTab("trackers"); }
+    if (where === "progress") return go({ view: "month", anchor: todayIST(), tab: "brief" });
+    if (where === "starred") return switchTab("starred");
   }
 
   // India's Ranks (data/rankings.json): India in global indices, kept as the news reports each new edition

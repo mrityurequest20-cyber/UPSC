@@ -80,7 +80,7 @@
   // ─────────────────────────── state ───────────────────────────
   const A = {
     meta: null,
-    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", trackSeg: "syllabus", progSeg: "insights", period: "week", moreOpen: new Set(), lowOpen: false,
+    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", trackSeg: "syllabus", progSeg: "today", period: "week", moreOpen: new Set(), lowOpen: false,
     brief: null, briefDay: null, byId: new Map(),
     months: new Map(), cache: new Map(),  // month brief data; every story seen, by id
     open: null, sheet: null, calMonth: null,
@@ -304,6 +304,11 @@
   }
 
   // ─────────────────────────── screens ───────────────────────────
+  function planNudge(d) {  // today's plan, one line above today's brief (once a plan is set)
+    const p = d === todayIST() && CORE.planSummary(d);
+    if (!p) return "";
+    return `<button class="plan-nudge" data-act="plan-today"><b>Today's plan</b><span>${p.total ? `${p.done} of ${p.total} done` : "open it"}</span>${I.right}</button>`;
+  }
   function renderBrief() {
     const d = A.day; const today = todayIST(); const has = (A.meta && A.meta.brief_days) || {};
     const ws = weekStart(d);
@@ -343,7 +348,7 @@
       return `<div class="more">${shown.map(mrow).join("")}${arr.length > shown.length ? `<button class="showmore" data-act="moreall" data-k="${k}">Show all ${arr.length}</button>` : ""}</div>`;
     };
     const lowRow = (s) => `<div class="mrow low" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(s.title)}<small>${esc(srcName(s))}${s.ai_why ? ` · ✦ ${esc(s.ai_why)}` : ""}</small></div></div>`;
-    return `${head}${hero}${chips}
+    return `${head}${planNudge(d)}${hero}${chips}
       <div class="sechead"><h2>Must-know</h2><span>${cards.length} · make notes</span></div>
       <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${A.gs === "All" ? "" : `${esc(A.gs)} `}must-know story ${L.news.length ? "among today's cards" : "yet"}.</div>`}</div>
       ${G.note.length ? `<div class="sechead"><h2>More to make notes on</h2><span>${G.note.length} · as one-liners</span></div>${lines(G.note, "note")}` : ""}
@@ -477,7 +482,8 @@
     return `${seg}<div id="${id}" class="${{ syRoot: "sy-root", dsRoot: "ds-root", mpRoot: "mp-root" }[id] || "rk-root"}"></div>`;
   }
   function renderProgress() {  // your last 30 days (Insights) and the week or month in review
-    const seg = `<div style="padding:2px 16px 4px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["insights", "My 30 days"], ["week", "Week"], ["month", "Month"]].map(([k, l]) => `<button class="${A.progSeg === k ? "on" : ""}" data-pseg="${k}">${l}</button>`).join("")}</div></div>`;
+    const seg = `<div style="padding:2px 16px 4px"><div class="seg" style="grid-template-columns:repeat(4,1fr)">${[["today", "Today"], ["insights", "My 30 days"], ["week", "Week"], ["month", "Month"]].map(([k, l]) => `<button class="${A.progSeg === k ? "on" : ""}" data-pseg="${k}">${l}</button>`).join("")}</div></div>`;
+    if (A.progSeg === "today") return `${seg}<div id="plRoot" class="pl-root"></div>`;  // the study planner (mounted after)
     if (A.progSeg === "insights") return seg + renderInsights();
     A.period = A.progSeg;
     return seg + renderReview();
@@ -878,12 +884,24 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     A.tab = "brief"; await goDay(day || A.day);
     if (findStory(id)) openStory(id); else toast("That report isn't in the day's brief.");
   }
+  async function planGo(where, arg) {  // a task of today's plan: where it's done
+    window.scrollTo(0, 0);
+    if (where === "brief") { A.tab = "brief"; await goDay(arg || todayIST(), true); renderScreen(); return; }
+    if (where === "practice") { A.tab = "practice"; renderScreen(); if (PX.w && arg) PX.w.tab(arg); return; }
+    if (where === "syllabus") { A.tab = "track"; A.trackSeg = "syllabus"; A.syKey = arg || null; renderScreen(); return; }
+    if (where === "progress") { A.tab = "progress"; A.progSeg = arg || "insights"; renderScreen(); return; }
+    if (where === "starred") { A.tab = "saved"; renderScreen(); }
+  }
   function renderScreen() {
     if (A.tab === "practice") { renderPractice(); renderTabs(); return; }
     const html = A.tab === "read" ? renderRead() : A.tab === "track" ? renderTrack() : A.tab === "progress" ? renderProgress() : A.tab === "saved" ? renderSaved() : renderBrief();
     $("#screen").innerHTML = html;
     if (A.tab === "track" && A.trackSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
       CORE.mountRanks($("#rkRoot"), { ask: askIntel, load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
+    }
+    if (A.tab === "progress" && A.progSeg === "today" && $("#plRoot")) {  // today's plan (the study planner)
+      CORE.mountPlanner($("#plRoot"), { today: todayIST, marks: () => A.marks, syllabus: syLoad, go: planGo,
+        loadDay: (d) => api.json(STATIC ? `../data/day/${d}.json?v=${api.stamp()}` : `../api/brief?from=${d}&to=${d}`) });
     }
     if (A.tab === "track" && A.trackSeg === "syllabus" && $("#syRoot")) {  // the syllabus map (data/syllabus.json)
       CORE.mountSyllabus($("#syRoot"), { key: A.syKey, load: syLoad, marks: () => A.marks, open: openInBrief, ask: askIntel,
@@ -990,6 +1008,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
       case "runexport": runExport(); break;
       case "search": openSheet("search"); break;
       case "refresh": refreshNow(t); break;
+      case "plan-today": A.tab = "progress"; A.progSeg = "today"; renderScreen(); window.scrollTo(0, 0); break;
       case "searchwide": doSearch(A.search.q, true); break;
       case "askday": openBot({ kind: "brief" }); break;
       case "askstory": openBot({ kind: "story", id: A.open }); break;
@@ -1073,7 +1092,8 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     try { [A.meta, A.marks] = await Promise.all([api.meta(), api.marks()]); }
     catch (e) { $("#screen").innerHTML = `<div class="empty">Couldn't reach the data (${esc(e.message)}).<br>Check your connection and reopen the app.</div>`; return; }
     const q = new URLSearchParams(location.search);
-    const qt = { insights: "progress", review: "progress" }[q.get("tab")] || q.get("tab");  // the old tabs' links still land
+    const qt = { insights: "progress", review: "progress", today: "progress" }[q.get("tab")] || q.get("tab");  // the old tabs' links still land
+    if (q.get("tab") === "insights" || q.get("tab") === "review") A.progSeg = "insights";
     if (qt && TABS.some((x) => x.key === qt)) A.tab = qt;
     renderLive(); renderTabs();
     await goDay(todayIST(), true);

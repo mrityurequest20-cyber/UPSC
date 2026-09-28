@@ -2610,6 +2610,168 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     return { show, get key() { return Y.key; } };
   }
 
+  // ─────────────────────────── The study planner: today's plan ───────────────────────────
+  // Your exam date and daily hours (kept on this device: upsc-plan) turn what the app already has into one checklist
+  // a day: today's must-know stories, the flashcards due, the daily MCQ set, one Mains answer, a syllabus topic of the
+  // day, the weekly mock on Sunday and a revision day at month end. Most tasks tick themselves from what you do (done
+  // marks, reviews, sets, answers, "studied" levels); any can be ticked by hand. A missed day adds a catch-up task, and
+  // tasks beyond your hours are marked "if time allows". The countdown sets the phase: foundation, Prelims focus, final.
+  // host: today() → "YYYY-MM-DD" (IST); loadDay(d) → that day's brief; marks(); syllabus() → data/syllabus.json;
+  // go(where, arg): brief (arg: day) | practice (arg: mcq, revise, mains, mock) | syllabus (arg: topic) | progress | starred.
+  const PLAN_KEY = "upsc-plan";
+  const IST_FMT_D = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" });
+  const istDay = (t = Date.now()) => IST_FMT_D.format(new Date(t));
+  const planStore = {
+    get() { try { const v = JSON.parse(localStorage.getItem(PLAN_KEY) || "{}"); return v && typeof v === "object" && !Array.isArray(v) ? { days: {}, ...v } : { days: {} }; } catch (e) { return { days: {} }; } },
+    set(v) {
+      const keep = Object.keys(v.days || {}).sort().slice(-90);  // three months of history
+      try { localStorage.setItem(PLAN_KEY, JSON.stringify({ ...v, days: Object.fromEntries(keep.map((d) => [d, v.days[d]])) })); } catch (e) { /* private mode or full */ }
+    },
+  };
+  const PLAN_HOURS = [1, 2, 3, 4, 5, 6, 8, 10];
+  const daysBetweenISO = (a, b) => Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 864e5);
+  function planPhase(today, exam) {
+    if (!exam) return { key: "none", label: "No exam date yet", note: "Set your Prelims date for a countdown and a plan that changes as the exam comes closer." };
+    const left = daysBetweenISO(today, exam);
+    if (left < 0) return { key: "past", left, label: "Exam date passed", note: "Your exam date has passed: set the next one." };
+    if (left <= 30) return { key: "final", left, label: "Final revision", note: "Last month: revise what you've read, flashcards every day and a full mock most days. New topics only if time allows." };
+    if (left <= 150) return { key: "prelims", left, label: "Prelims focus", note: "Revision and practice lead: the daily set, flashcards and the weekly mock, with a syllabus topic a day." };
+    return { key: "foundation", left, label: "Foundation", note: "Build the base: a syllabus topic a day with its NCERT, the day's must-know news and one Mains answer." };
+  }
+  // the day's must-know card ids from a day payload (the Must-know section)
+  const mustOf = (day, d) => (((day && day.days) || {})[d] || {}).news || [];
+  // today's topic: the hottest syllabus topic you haven't studied yet (kept for the day once picked)
+  function planTopic(syl, study, keep) {
+    const T = (syl && syl.topics) || {};
+    if (keep && T[keep]) return keep;
+    const ids = Object.keys(T).filter((id) => !study[id]);
+    ids.sort((a, b) => (T[b].n30 || 0) - (T[a].n30 || 0) || (T[b].n7 || 0) - (T[a].n7 || 0));
+    return ids[0] || null;
+  }
+  // ctx → {phase, tasks, done, total, mins, budget}. Pure: every input comes in ctx (the tests call it directly).
+  function planToday(ctx) {
+    const { today, plan = {}, marks = {}, study = {}, syl = null } = ctx;
+    const tick = ((plan.days || {})[today] || {}).tick || {};
+    const phase = planPhase(today, plan.exam);
+    const dow = new Date(`${today}T00:00:00Z`).getUTCDay();  // 0 Sunday
+    const lastOfMonth = shiftDay(today, 1).slice(8) === "01";
+    const tasks = [];
+    const add = (t) => tasks.push({ optional: false, ...t, done: !!(t.done || tick[t.id]), ticked: !!tick[t.id] });
+    const must = ctx.must || []; const mDone = must.filter((id) => (marks[id] || {}).read).length;
+    add({ id: "brief", title: "Today's must-know stories", mins: must.length ? Math.max(5, 4 * (must.length - mDone)) : 5,
+      detail: must.length ? `${mDone} of ${must.length} marked done` : "Today's brief fills up through the day", done: must.length > 0 && mDone >= must.length, go: ["brief", today] });
+    const yMust = ctx.yMust || []; const yLeft = yMust.filter((id) => !(marks[id] || {}).read);
+    const planned = !!(plan.days || {})[shiftDay(today, -1)];  // the plan was in use yesterday (not a first day)
+    if (planned && yMust.length && yLeft.length > yMust.length / 2) {  // most of yesterday's must-know unread: a catch-up (the top 8)
+      add({ id: "catchup", title: "Catch up: yesterday's must-know", mins: 4 * Math.min(8, yLeft.length), detail: `${yLeft.length} still unread · the top ${Math.min(8, yLeft.length)} will do`,
+        done: false, go: ["brief", shiftDay(today, -1)] });
+    }
+    const srs = ctx.srs || {};
+    add({ id: "cards", title: "Flashcards", mins: Math.max(5, Math.ceil((srs.due || 0) * 0.4)),
+      detail: srs.due ? `${srs.due} due${srs.today ? ` · ${srs.today} reviewed today` : ""}` : srs.today ? `${srs.today} reviewed today` : "Nothing due: learn today's new cards",
+      done: !srs.due && srs.today > 0, go: ["practice", "revise"] });
+    add({ id: "mcq", title: "Daily MCQ set", mins: 15, detail: ctx.setToday ? "Done today" : "15 UPSC-style questions from the news", done: !!ctx.setToday, go: ["practice", "mcq"] });
+    const topic = planTopic(syl, study, ctx.topic);
+    if (topic) {
+      const t = syl.topics[topic]; const st = study[topic];
+      add({ id: "topic", title: `Syllabus topic: ${t.name}`, mins: 45, topic,
+        detail: `${t.paper} · read its NCERT, then mark it studied${t.n30 ? ` · ${t.n30} reports this month` : ""}`,
+        done: !!(st && st.at && istDay(st.at) === today), go: ["syllabus", topic], optional: phase.key === "final" });
+    }
+    add({ id: "mains", title: "One Mains answer", mins: 20, detail: ctx.mainsToday ? "Written today" : "Write and get it marked (Practice → Mains)",
+      done: !!ctx.mainsToday, go: ["practice", "mains"], optional: phase.key === "final" });
+    if (dow === 0 || phase.key === "final") {
+      add({ id: "mock", title: dow === 0 ? "Weekly mock" : "Full mock", mins: 60, detail: ctx.mockToday ? "Done today" : "50 questions, 60 minutes, exam marking", done: !!ctx.mockToday, go: ["practice", "mock"] });
+    }
+    if (lastOfMonth) add({ id: "month", title: "Month-end revision", mins: 60, detail: "Your starred stories and the month in review", done: false, go: ["progress", "month"] });
+    const budget = (Number(plan.hours) || 0) * 60;
+    let used = 0;
+    for (const t of tasks) {  // in order of priority: what doesn't fit your hours is "if time allows"
+      if (budget && !t.done && used + t.mins > budget) t.optional = true;
+      if (!t.optional) used += t.done ? 0 : t.mins;
+    }
+    const core = tasks.filter((t) => !t.optional);
+    return { phase, tasks, done: core.filter((t) => t.done).length, total: core.length, mins: used, budget, topic };
+  }
+  function planStreak(plan, today) {  // days in a row (up to yesterday, and today if complete) with the plan's core done
+    const days = plan.days || {}; let n = 0;
+    const full = (d) => days[d] && days[d].total && days[d].done >= days[d].total;
+    for (let d = full(today) ? today : shiftDay(today, -1); full(d); d = shiftDay(d, -1)) n += 1;
+    return n;
+  }
+  const hm = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}` : `${m} min`);
+  function plannerHtml(r, plan, { editing = false, today } = {}) {
+    const exam = plan.exam || ""; const hours = Number(plan.hours) || 0;
+    const form = `<form class="pl-form" data-pl-form><label>Prelims date <input type="date" name="exam" value="${esc(exam)}" min="${esc(today)}"></label>
+      <label>Hours a day <select name="hours">${PLAN_HOURS.map((h) => `<option value="${h}"${h === (hours || 4) ? " selected" : ""}>${h} h</option>`).join("")}</select></label>
+      <button class="btn-p" type="submit">Save plan</button>${exam || hours ? '<button class="btn-o" type="button" data-pl-cancel>Cancel</button>' : ""}
+      <p class="pl-fine">UPSC announces the date in its yearly exam calendar (upsc.gov.in). Kept on this device.</p></form>`;
+    if (!r) return `<section class="pl"><header class="pl-top"><div class="pl-eyebrow">Today's plan</div><h2>Loading…</h2></header></section>`;
+    const when = dayLabel(today);
+    const left = r.phase.left;
+    return `<section class="pl"><header class="pl-top"><div class="pl-eyebrow">Today's plan · ${esc(when)}</div>
+        <h2>${r.done} of ${r.total} done${r.done >= r.total && r.total ? " ✓" : ""}</h2>
+        ${exam && left >= 0 ? `<div class="pl-count"><b>${left}</b> ${left === 1 ? "day" : "days"} to Prelims (${esc(dayLabel(exam))}) · <span>${esc(r.phase.label)}</span></div>` : ""}
+        <p>${esc(r.phase.note)}</p></header>
+      ${editing || !exam ? form : ""}
+      <ol class="pl-tasks">${r.tasks.map((t) => `<li class="${t.done ? "pl-done" : ""}${t.optional ? " pl-opt" : ""}">
+        <button type="button" class="pl-tick" data-pl-tick="${esc(t.id)}" aria-pressed="${t.done}" aria-label="${t.done ? "Done" : "Mark done"}: ${esc(t.title)}"${t.done && !t.ticked ? " disabled" : ""}>✓</button>
+        <div class="pl-t"><b>${esc(t.title)}</b><span>${esc(t.detail)}${t.done ? "" : ` · about ${hm(t.mins)}`}${t.optional ? " · if time allows" : ""}</span></div>
+        ${t.go ? `<button type="button" class="btn-o" data-pl-go="${esc(t.id)}">${t.done ? "Open" : "Start"}</button>` : ""}</li>`).join("")}</ol>
+      <div class="pl-foot"><span>${r.budget ? `Left to do: about ${hm(r.mins)} of your ${Math.round(r.budget / 60)} hours` : "Set your hours to fit the plan to your day"}${planStreak(plan, today) ? ` · plan streak ${planStreak(plan, today)} ${planStreak(plan, today) === 1 ? "day" : "days"}` : ""}</span>
+        ${exam && !editing ? '<button type="button" class="linkbtn" data-pl-edit>Change date or hours</button>' : ""}</div></section>`;
+  }
+  function mountPlanner(el, host) {
+    const K = { must: null, yMust: null, syl: null, editing: false, r: null };
+    const today = () => (host.today ? host.today() : istDay());
+    const ctxNow = () => {
+      const t = today(); const plan = planStore.get(); const day = plan.days[t] || {};
+      const st = srsStore.get(); const now = dayNo();
+      const px = pxStore.get(); const mains = mainsStore.get();
+      return { today: t, plan, marks: host.marks ? host.marks() || {} : {}, study: sylStudy.get(), syl: K.syl, must: K.must || [], yMust: K.yMust || [],
+        topic: day.topic, srs: { due: Object.values(st.cards).filter((c) => c.due <= now).length, today: Object.values(st.cards).filter((c) => c.at && istDay(c.at) === t).length },
+        setToday: px.attempts.some((a) => a.at && istDay(a.at) === t && a.src !== "mock"), mockToday: px.attempts.some((a) => a.at && istDay(a.at) === t && a.src === "mock"),
+        mainsToday: mains.some((m) => m.at && istDay(m.at) === t) };
+    };
+    const paint = () => {
+      const ctx = ctxNow(); const r = planToday(ctx); K.r = r;
+      const plan = ctx.plan; const d = plan.days[ctx.today] || {};
+      plan.days[ctx.today] = { ...d, topic: r.topic || d.topic, done: r.done, total: r.total };  // kept for the streak
+      planStore.set(plan);
+      el.innerHTML = plannerHtml(r, plan, { editing: K.editing, today: ctx.today });
+    };
+    el.onclick = (e) => {
+      const b = e.target.closest && e.target.closest("button"); if (!b || !el.contains(b)) return;
+      if (b.dataset.plTick) {
+        const plan = planStore.get(); const t = today(); const d = plan.days[t] || {};
+        d.tick = { ...(d.tick || {}) }; if (d.tick[b.dataset.plTick]) delete d.tick[b.dataset.plTick]; else d.tick[b.dataset.plTick] = true;
+        plan.days[t] = d; planStore.set(plan); paint(); return;
+      }
+      if (b.dataset.plGo) { const t = (K.r && K.r.tasks.find((x) => x.id === b.dataset.plGo)) || null; if (t && t.go && host.go) host.go(t.go[0], t.go[1]); return; }
+      if (b.hasAttribute("data-pl-edit")) { K.editing = true; paint(); return; }
+      if (b.hasAttribute("data-pl-cancel")) { K.editing = false; paint(); }
+    };
+    el.onsubmit = (e) => {
+      if (!e.target.matches || !e.target.matches("[data-pl-form]")) return;
+      e.preventDefault();
+      const f = new FormData(e.target); const plan = planStore.get();
+      const exam = String(f.get("exam") || ""); plan.exam = /^\d{4}-\d{2}-\d{2}$/.test(exam) ? exam : "";
+      plan.hours = Number(f.get("hours")) || 4; K.editing = false; planStore.set(plan); paint();
+    };
+    paint();
+    const t = today();
+    Promise.all([
+      Promise.resolve(host.loadDay ? host.loadDay(t) : null).then((x) => { K.must = mustOf(x, t); }).catch(() => { K.must = []; }),
+      Promise.resolve(host.loadDay ? host.loadDay(shiftDay(t, -1)) : null).then((x) => { K.yMust = mustOf(x, shiftDay(t, -1)); }).catch(() => { K.yMust = []; }),
+      Promise.resolve(host.syllabus ? host.syllabus() : null).then((x) => { K.syl = x; }).catch(() => { K.syl = null; }),
+    ]).then(paint);
+    return { refresh: paint };
+  }
+  function planSummary(today = istDay()) {  // for a one-line nudge: {done, total} as last worked out, or null
+    const p = planStore.get(); const d = (p.days || {})[today];
+    return p.exam || p.hours ? { done: d ? d.done || 0 : 0, total: d ? d.total || 0 : 0 } : null;
+  }
+
   // ─────────────────────────── Backup: this device's progress, to a file and back ───────────────────────────
   // Marks, notes, streaks, flashcards, practice scores, Mains answers and follows live only in this browser (the site
   // and the app share them). A backup file carries them to another phone or through a cleared browser. Restoring
@@ -2726,5 +2888,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     mountDossiers, dossiersHtml, dossierHtml, dossierChips, follows, mountMap, placesIn, dossierStory, rankStory, staticFor, staticHtml,
     backup: Object.freeze({ file: backupFile, restore: restoreBackup, info: backupInfo, html: backupHtml, KEYS: BACKUP_KEYS }),
     mountSyllabus, syllabusHtml, sylTopicHtml, syllabusStory, sylChips, sylCover, sylBlind, sylStudy,
+    mountPlanner, planToday, planPhase, planStreak, planSummary, istDay,
   });
 })(window);
