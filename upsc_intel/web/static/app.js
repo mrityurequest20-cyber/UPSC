@@ -126,7 +126,7 @@
     meta: null,
     view: "day",
     anchor: todayIST(),
-    tab: "brief", trk: "dossiers",
+    tab: "brief", trk: "syllabus",
     stories: [], loadedKey: "", loadedAt: null,
     brief: null, briefKey: "", briefById: new Map(), pendingBrief: null,
     lastRunSeen: null,
@@ -451,7 +451,7 @@
         <button class="done ${mk.read ? "on" : ""}" data-act="read" aria-pressed="${mk.read}">${ICON.check}<span>${mk.read ? "Done" : "Mark done"}</span></button>
       </div>
       ${alsoReported(s)}
-      ${CORE.dossierChips(s.topics)}
+      ${CORE.dossierChips(s.topics)}${open ? CORE.sylChips(s.syl) : ""}
       ${open ? explainBody(s) : ""}
     </article>`;
   }
@@ -891,7 +891,7 @@
   function readHash() {
     const m = location.hash.match(/^#(day|week|month)\/(\d{4}-\d{2}-\d{2})(?:\/(\w+))?/);
     if (m) { S.view = m[1]; S.anchor = m[2]; if (m[3]) S.tab = m[3]; }
-    if (["dossiers", "map", "ranks"].includes(S.tab)) { S.trk = S.tab; S.tab = "trackers"; }  // the old tabs' links still land
+    if (["syllabus", "dossiers", "map", "ranks"].includes(S.tab)) { S.trk = S.tab; S.tab = "trackers"; }  // the old tabs' links still land
   }
   async function loadBrief(force = false) {
     const [from, to] = periodRange(S.view, S.anchor);
@@ -1043,14 +1043,14 @@
   // India's Ranks (data/rankings.json): India in global indices, kept as the news reports each new edition
   const RK = { el: null, data: null };
   // Trackers: running stories, the places map and India's ranks, one tab with three views
-  const TRK = [["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]];
+  const TRK = [["syllabus", "Syllabus map"], ["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]];
   function renderTrackers() {
     const el = $("#content"); let body = $("#trkBody");
     if (!body || !el.contains(body) || body.dataset.trk !== S.trk) {
       el.innerHTML = `<div class="trk-seg" role="tablist" aria-label="Trackers">${TRK.map(([k, l]) => `<button type="button" role="tab" data-trk="${k}" aria-selected="${S.trk === k}">${l}</button>`).join("")}</div><div id="trkBody" data-trk="${S.trk}"></div>`;
       body = $("#trkBody");
     }
-    return S.trk === "map" ? renderMap(body) : S.trk === "ranks" ? renderRanks(body) : renderDossiers(body);
+    return S.trk === "map" ? renderMap(body) : S.trk === "ranks" ? renderRanks(body) : S.trk === "dossiers" ? renderDossiers(body) : renderSyllabus(body);
   }
   function renderRanks(el) {
     if (RK.el && el.contains(RK.el)) return;
@@ -1066,6 +1066,15 @@
     S.openCards.add(id);
     await go({ view: "day", anchor: day || S.anchor, tab: "brief" });
     const c = $(`.bcard[data-id="${id}"]`); if (c) c.scrollIntoView({ block: "center" });
+  }
+  const SY = { el: null, w: null, data: null, key: null };  // the syllabus map (data/syllabus.json)
+  function renderSyllabus(el) {
+    if (SY.el && el.contains(SY.el)) { if (SY.key !== SY.w.key) SY.w.show(SY.key); return; }
+    el.innerHTML = '<div id="syRoot" class="sy-root"></div>';
+    SY.el = $("#syRoot");
+    SY.w = CORE.mountSyllabus(SY.el, { key: SY.key, marks: () => S.marks, open: openInBrief, ask: askIntel, onShow: (k) => { SY.key = k; },
+      dossier: (k) => { DS.key = k; S.trk = "dossiers"; renderTrackers(); },
+      load: () => SY.data || (SY.data = api.json(dataUrl("syllabus.json", "api/syllabus")).catch((e) => { SY.data = null; throw e; })) });
   }
   const DS = { el: null, w: null, data: null, key: null };
   function renderDossiers(el) {
@@ -1293,6 +1302,7 @@
     if (t.dataset.tabGo) return switchTab(t.dataset.tabGo);
     if (t.dataset.jump) { const target = document.getElementById(t.dataset.jump); if (target) target.scrollIntoView({ behavior: "smooth", block: "start" }); closeDrawer(); return; }
     if (t.dataset.dsOpen) { DS.key = t.dataset.dsOpen; S.trk = "dossiers"; return switchTab("trackers"); }  // a card's running story
+    if (t.dataset.syOpen) { SY.key = t.dataset.syOpen; S.trk = "syllabus"; return switchTab("trackers"); }  // a card's syllabus topic
     if (t.dataset.trk) { S.trk = t.dataset.trk; return renderTrackers(); }
     if (t.dataset.openCard) {
       S.openCards.add(t.dataset.openCard); await switchTab("brief");

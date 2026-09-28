@@ -1,0 +1,452 @@
+# The UPSC Civil Services syllabus as a map (pipeline/syllabus.py): the Mains GS papers' official lines, each split into
+# micro-topics the news can be filed under. The Prelims GS paper's areas (history, geography, polity, economy,
+# environment, science) are the same topics, flagged `prelims: true`.
+#
+# Every brief card is tagged with 1-2 micro-topics: Intel AI picks them from this list as it reads the day's cards, and
+# the keyword rules below tag the rest (and every card when the AI is off). The rules work like config/topics.yaml's:
+#   * whole-word matching; a single word with a capital (ISRO, RBI, Quad) matches case-sensitively; lowercase terms also
+#     match their plural
+#   * `term: weight`: a headline hit counts double. A topic needs 2 points (plus 1 when the story's subject in
+#     topics.yaml is one of the topic's `subj`), and a term of weight 1.5 or more, or two different terms
+#   * keep the terms specific: a term that fits several topics belongs to none
+# ncert: the NCERT books (and chapters where it helps) that cover the line's basics, free at ncert.nic.in/textbook.php.
+#
+# `line` is the syllabus's own wording (lightly trimmed). Edit freely; the ids are what progress on a device is kept
+# against, so rename an id only with care.
+
+papers:
+  - key: GS1
+    name: "Indian heritage and culture, history and geography of the world and society"
+    lines:
+      - key: culture
+        line: "Indian culture: the salient aspects of art forms, literature and architecture from ancient to modern times."
+        ncert: ["Class 11 Fine Arts: An Introduction to Indian Art (Part I)", "Class 12 History: Themes in Indian History I & II"]
+        topics:
+          - {id: gs1-architecture, name: "Architecture, temples, sculpture and heritage sites", subj: [history_culture], prelims: true,
+             kw: {temple: 1.5, stupa: 3, sculpture: 2, "rock-cut": 3, "Dravidian": 2, "Nagara": 3, "Vesara": 3, "World Heritage": 3, "heritage site": 2.5, "ASI": 1.5, "Archaeological Survey": 3, excavation: 2, inscription: 2.5, monument: 2, fort: 1, "Harappan": 3, "Indus Valley": 3, "Hampi": 2, "Konark": 2, "Ajanta": 2, "Ellora": 2}}
+          - {id: gs1-art-forms, name: "Painting, music, dance, crafts and GI tags", subj: [history_culture], prelims: true,
+             kw: {"classical dance": 3, "folk dance": 3, "Kathak": 3, "Bharatanatyam": 3, "Kuchipudi": 3, "Odissi": 3, "Kathakali": 3, "Mohiniyattam": 3, "Sattriya": 3, "Manipuri dance": 3, painting: 1.5, "Madhubani": 3, "Pattachitra": 3, "Warli": 3, "Hindustani": 2, "Carnatic": 2.5, "GI tag": 3, "geographical indication": 3, handloom: 1.5, handicraft: 1.5, "puppetry": 3, "folk art": 3, "folk arts": 3, "intangible cultural heritage": 3, "Sangeet Natak": 3}}
+          - {id: gs1-literature-religion, name: "Literature, languages, religion and philosophy", subj: [history_culture], prelims: true,
+             kw: {"classical language": 3, "Sanskrit": 1.5, "Pali": 2.5, "Prakrit": 3, "Tamil Sangam": 3, "Sangam": 2, manuscript: 2, "Buddhism": 2, "Buddhist": 1.5, "Jainism": 2.5, "Jain": 1, "Bhakti": 3, "Sufi": 2.5, "Vedas": 2.5, "Upanishad": 3, "Tipitaka": 3, relics: 2, "Eighth Schedule": 1.5}}
+          - {id: gs1-festivals-personalities, name: "Festivals, saints and cultural personalities", subj: [history_culture], prelims: true,
+             kw: {"birth anniversary": 2, jayanti: 2, festival: 1, saint: 1.5, "Guru": 1, "Basavanna": 3, "Thiruvalluvar": 3, "Kabir": 2, "Ramanuja": 3, "Adi Shankaracharya": 3, "Chaitanya": 3}}
+      - key: modern
+        line: "Modern Indian history from about the middle of the eighteenth century until the present: significant events, personalities, issues."
+        ncert: ["Class 8 History: Our Pasts III", "Class 12 History: Themes in Indian History III"]
+        topics:
+          - {id: gs1-modern-history, name: "British expansion, revolts and reform movements", subj: [history_culture], prelims: true,
+             kw: {"East India Company": 3, "1857": 2, "revolt of 1857": 3, "Battle of Plassey": 3, "Battle of Buxar": 3, "Permanent Settlement": 3, "Brahmo Samaj": 3, "Arya Samaj": 3, "Raja Ram Mohan Roy": 3, "Jyotirao Phule": 3, "Savitribai Phule": 3, "tribal revolt": 3, "Santhal": 2.5, "Birsa Munda": 3, colonial: 1.5, "British Raj": 2}}
+      - key: freedom
+        line: "The freedom struggle: its various stages and important contributors and contributions from different parts of the country."
+        ncert: ["Class 8 History: Our Pasts III", "Class 12 History: Themes in Indian History III (Mahatma Gandhi and the Nationalist Movement)"]
+        topics:
+          - {id: gs1-freedom-struggle, name: "The national movement and freedom fighters", subj: [history_culture], prelims: true,
+             kw: {"freedom struggle": 3, "freedom fighter": 3, "freedom movement": 3, "Indian National Congress": 1.5, "Quit India": 3, "Civil Disobedience": 3, "Non-Cooperation": 3, "Dandi": 3, "Salt Satyagraha": 3, "Swadeshi": 2, "Jallianwala": 3, "Bhagat Singh": 3, "Netaji": 3, "Subhas Chandra Bose": 3, "INA": 2, "Sardar Patel": 2.5, "Vallabhbhai Patel": 2.5, "Mahatma Gandhi": 1.5, "Tilak": 2, "Gokhale": 3, "Partition": 1.5, "Vande Mataram": 3, "Azad Hind": 3}}
+      - key: post-independence
+        line: "Post-independence consolidation and reorganisation within the country."
+        ncert: ["Class 12 Political Science: Politics in India since Independence"]
+        topics:
+          - {id: gs1-post-independence, name: "Integration of states, linguistic reorganisation and nation-building", subj: [history_culture, polity], prelims: false,
+             kw: {"integration of princely states": 3, "princely states": 3, "States Reorganisation": 3, "linguistic states": 3, "Emergency": 1.5, "1975 Emergency": 3, "Samvidhan Hatya Diwas": 3, "Hyderabad liberation": 3, "Operation Polo": 3, "Goa liberation": 3, "Green Revolution": 1.5}}
+      - key: world-history
+        line: "History of the world from the 18th century: industrial revolution, world wars, redrawing of national boundaries, colonisation, decolonisation, political philosophies (communism, capitalism, socialism) and their effect on society."
+        ncert: ["Class 9 History: India and the Contemporary World I", "Class 10 History: India and the Contemporary World II", "Class 11 History: Themes in World History"]
+        topics:
+          - {id: gs1-world-history, name: "Revolutions, world wars, colonialism and ideologies", subj: [history_culture], prelims: false,
+             kw: {"World War": 2.5, "Second World War": 3, "First World War": 3, "Industrial Revolution": 3, "French Revolution": 3, "Russian Revolution": 3, "Cold War": 2, decolonisation: 3, decolonization: 3, colonialism: 2, imperialism: 2.5, "Holocaust": 3, "Hiroshima": 3, "Nagasaki": 3, communism: 1.5, fascism: 2.5, "Nazi": 2}}
+      - key: society
+        line: "Salient features of Indian society, diversity of India."
+        ncert: ["Class 12 Sociology: Indian Society", "Class 12 Sociology: Social Change and Development in India"]
+        topics:
+          - {id: gs1-society-diversity, name: "Indian society: diversity, caste, tribes and family", subj: [society], prelims: false,
+             kw: {caste: 1.5, "caste census": 3, "caste survey": 3, tribal: 1.5, "tribal communities": 2.5, "Adivasi": 2.5, "joint family": 3, "honour killing": 3, "inter-caste": 3, diversity: 1, "social structure": 3, "manual scavenging": 2.5, "Gen Z": 2.5}}
+      - key: women-population
+        line: "Role of women and women's organisations, population and associated issues, poverty and developmental issues, urbanisation, their problems and remedies."
+        ncert: ["Class 12 Sociology: Indian Society", "Class 12 Geography: India: People and Economy (Population, Human Settlements)"]
+        topics:
+          - {id: gs1-women, name: "Women: status, safety and empowerment", subj: [society, social_justice], prelims: false,
+             kw: {"women's reservation": 3, "Nari Shakti": 3, "gender gap": 3, "gender equality": 2.5, "female labour force": 3, "women's safety": 3, "dowry": 3, "sexual harassment": 2.5, "POSH": 3, "crimes against women": 3, "child marriage": 3, "maternity": 2, "self-help group": 1.5, feminism: 2.5, "women-led development": 3}}
+          - {id: gs1-population, name: "Population, demography, census and migration", subj: [society], prelims: true,
+             kw: {census: 2.5, "population census": 3, demographic: 2, "demographic dividend": 3, "fertility rate": 3, "total fertility": 3, "sex ratio": 3, ageing: 2, "elderly population": 3, migration: 1.5, "migrant workers": 2.5, "population growth": 3, "NFHS": 3, "Sample Registration System": 3, "SRS": 1.5}}
+          - {id: gs1-urbanisation, name: "Urbanisation and its problems", subj: [society, infrastructure, governance], prelims: false,
+             kw: {urbanisation: 3, urbanization: 3, "urban flooding": 3, slum: 2.5, "Smart Cities": 3, "Smart City": 3, "AMRUT": 3, "urban local bodies": 1.5, "urban planning": 3, "urban heat": 3, "urban poor": 2.5, "master plan": 1.5}}
+      - key: globalisation
+        line: "Effects of globalisation on Indian society."
+        ncert: ["Class 12 Sociology: Social Change and Development in India (Globalisation and Social Change)"]
+        topics:
+          - {id: gs1-globalisation, name: "Globalisation, consumerism and culture", subj: [society], prelims: false,
+             kw: {globalisation: 3, globalization: 3, consumerism: 3, "cultural homogenisation": 3, "gig economy": 1.5, "social media": 1, westernisation: 3}}
+      - key: social-issues
+        line: "Social empowerment, communalism, regionalism and secularism."
+        ncert: ["Class 12 Sociology: Indian Society (The Challenges of Cultural Diversity)", "Class 11 Political Science: Political Theory (Secularism)"]
+        topics:
+          - {id: gs1-communalism-secularism, name: "Communalism, regionalism and secularism", subj: [society, polity], prelims: false,
+             kw: {communalism: 3, communal: 2, "communal violence": 3, secularism: 3, secular: 1.5, regionalism: 3, "sons of the soil": 3, "hate speech": 2.5, "mob lynching": 3, "religious conversion": 3, "anti-conversion": 3}}
+      - key: physical-geography
+        line: "Salient features of the world's physical geography."
+        ncert: ["Class 11 Geography: Fundamentals of Physical Geography", "Class 11 Geography: India: Physical Environment"]
+        topics:
+          - {id: gs1-physical-geography, name: "Landforms, climate, oceans and the monsoon", subj: [geography], prelims: true,
+             kw: {monsoon: 2, "southwest monsoon": 3, "El Nino": 3, "El Niño": 3, "La Nina": 3, "La Niña": 3, "Indian Ocean Dipole": 3, "ocean current": 3, "jet stream": 3, "western disturbance": 3, "tectonic plate": 3, glacier: 1.5, plateau: 2, "IMD": 2, "rainfall deficit": 3, "excess rainfall": 3, "heatwave": 1.5, "cold wave": 2.5, "MJO": 3}}
+      - key: resources-industry
+        line: "Distribution of key natural resources across the world (including South Asia and the Indian subcontinent); factors behind the location of primary, secondary and tertiary industries across the world (including India)."
+        ncert: ["Class 12 Geography: Fundamentals of Human Geography", "Class 12 Geography: India: People and Economy (Mineral and Energy Resources)"]
+        topics:
+          - {id: gs1-resources, name: "Minerals, critical minerals and resource geography", subj: [geography, economy], prelims: true,
+             kw: {"critical minerals": 3, "critical mineral": 3, "rare earth": 3, lithium: 3, cobalt: 2.5, "coal reserves": 3, "iron ore": 2.5, bauxite: 3, mining: 1.5, "mineral block": 3, "deep sea mining": 3, "National Critical Mineral Mission": 3, "KABIL": 3}}
+      - key: geophysical
+        line: "Important geophysical phenomena (earthquakes, tsunamis, volcanic activity, cyclones), geographical features and their location; changes in critical geographical features (water bodies, ice caps) and in flora and fauna, and their effects."
+        ncert: ["Class 11 Geography: Fundamentals of Physical Geography", "Class 11 Geography: India: Physical Environment (Natural Hazards and Disasters)"]
+        topics:
+          - {id: gs1-geophysical, name: "Earthquakes, volcanoes, cyclones and glaciers", subj: [geography, disaster], prelims: true,
+             kw: {earthquake: 3, tremor: 2.5, "Richter": 3, tsunami: 3, volcano: 3, volcanic: 3, eruption: 2, cyclone: 2, cyclonic: 2.5, "glacial lake": 3, "ice sheet": 3, "ice cap": 3, "sea ice": 3, "Arctic": 1.5, "Antarctic": 1.5, "Antarctica": 1.5, "sea level": 2, landslide: 1.5}}
+          - {id: gs1-places-mapping, name: "Places in news: rivers, straits, islands and borders", subj: [geography], prelims: true,
+             kw: {strait: 3, "Strait of Hormuz": 3, "Malacca": 3, "Red Sea": 2, "Bab-el-Mandeb": 3, "South China Sea": 1.5, archipelago: 3, peninsula: 2, "river basin": 3, tributary: 3, gulf: 1.5, isthmus: 3, "Suez Canal": 3, "Panama Canal": 3}}
+
+  - key: GS2
+    name: "Governance, Constitution, polity, social justice and international relations"
+    lines:
+      - key: constitution
+        line: "Indian Constitution: historical underpinnings, evolution, features, amendments, significant provisions and basic structure."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work", "Class 11 Political Science: Political Theory"]
+        topics:
+          - {id: gs2-constitution, name: "Constitution: basic structure, amendments and the Preamble", subj: [polity], prelims: true,
+             kw: {"basic structure": 3, "constitutional amendment": 3, "Amendment Act": 2, "Preamble": 3, "Constituent Assembly": 3, "Article 368": 3, "Kesavananda": 3, "Constitution Day": 3, "Samvidhan": 2, "Schedule": 1, "Ninth Schedule": 3, "Sixth Schedule": 3, "Fifth Schedule": 3}}
+          - {id: gs2-fundamental-rights, name: "Fundamental rights, DPSPs and duties", subj: [polity], prelims: true,
+             kw: {"fundamental right": 3, "Article 14": 3, "Article 19": 3, "Article 21": 3, "Article 32": 3, "right to privacy": 3, "free speech": 2.5, "freedom of speech": 2.5, "right to life": 3, "personal liberty": 3, "directive principles": 3, "DPSP": 3, "fundamental duties": 3, "reservation": 1.5, "creamy layer": 3, "sub-classification": 3, "Uniform Civil Code": 3, "right to vote": 1.5, "Article 25": 3, "Article 370": 3}}
+      - key: federalism
+        line: "Functions and responsibilities of the Union and the States, issues and challenges of the federal structure, devolution of powers and finances up to local levels and the challenges therein."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work (Federalism, Local Governments)"]
+        topics:
+          - {id: gs2-centre-state, name: "Centre–state relations, governors and federalism", subj: [polity, governance], prelims: true,
+             kw: {federalism: 3, federal: 1.5, "cooperative federalism": 3, "Centre-State": 3, "Centre–State": 3, "Centre-state relations": 3, "Governor": 1.5, "Governor's assent": 3, "assent to Bills": 3, "Article 200": 3, "Article 356": 3, "President's Rule": 3, "Inter-State Council": 3, "Sarkaria": 3, "Punchhi": 3, "statehood": 2.5, "Union Territory": 1.5, "Seventh Schedule": 3, "concurrent list": 3, "state list": 2.5, "delimitation": 3}}
+          - {id: gs2-fiscal-federalism, name: "Fiscal federalism: Finance Commission, tax devolution and GST Council", subj: [polity, economy], prelims: true,
+             kw: {"Finance Commission": 3, "tax devolution": 3, devolution: 1.5, "divisible pool": 3, "GST Council": 3, "GST compensation": 3, "grants-in-aid": 3, "state finances": 3, "borrowing limit": 3, "cess and surcharge": 3, "Sixteenth Finance Commission": 3, "16th Finance Commission": 3}}
+          - {id: gs2-local-government, name: "Panchayats, municipalities and local government", subj: [polity, governance], prelims: true,
+             kw: {panchayat: 2.5, "Panchayati Raj": 3, "gram sabha": 3, "gram panchayat": 3, "73rd Amendment": 3, "74th Amendment": 3, municipality: 2.5, "municipal corporation": 2, "local body": 2, "local bodies": 2, "PESA": 3, "State Election Commission": 3, "e-Gram Swaraj": 3, "SVAMITVA": 3}}
+      - key: separation-of-powers
+        line: "Separation of powers between the various organs, dispute redressal mechanisms and institutions."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work (Judiciary)"]
+        topics:
+          - {id: gs2-separation-powers, name: "Separation of powers, judicial review and tribunals", subj: [polity], prelims: true,
+             kw: {"separation of powers": 3, "judicial review": 3, "judicial overreach": 3, "judicial activism": 3, tribunal: 2, tribunals: 2, "Tribunals Reforms": 3, "NCLT": 1.5, "Lok Adalat": 3, "alternative dispute resolution": 3, arbitration: 2, mediation: 2, "Mediation Act": 3, "Article 142": 3, "legislative privilege": 2}}
+      - key: comparison
+        line: "Comparison of the Indian constitutional scheme with those of other countries."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work (Constitution: Why and How?)"]
+        topics:
+          - {id: gs2-comparative, name: "Comparing constitutions: US, UK and others", subj: [polity], prelims: false,
+             kw: {"US Constitution": 3, "British Parliament": 2.5, "presidential system": 3, "parliamentary system": 3, "Westminster": 2.5, "impeachment of the US": 3, "Supreme Court of the United States": 3, "US Supreme Court": 2.5}}
+      - key: legislature
+        line: "Parliament and state legislatures: structure, functioning, conduct of business, powers and privileges, and issues arising from these."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work (Legislature)"]
+        topics:
+          - {id: gs2-parliament, name: "Parliament and state legislatures: sessions, Bills and privileges", subj: [polity], prelims: true,
+             kw: {"Lok Sabha": 2, "Rajya Sabha": 2, Parliament: 1.5, "monsoon session": 3, "winter session": 3, "budget session": 3, "Speaker": 1.5, "Deputy Speaker": 3, "Question Hour": 3, "Zero Hour": 3, "money bill": 3, "private member": 3, "parliamentary committee": 3, "standing committee": 2.5, "PAC": 3, "Public Accounts Committee": 3, "Estimates Committee": 3, "Joint Parliamentary Committee": 3, "JPC": 3, "privilege motion": 3, "no-confidence motion": 3, adjournment: 2, "anti-defection": 3, "Tenth Schedule": 3, "legislative council": 3, "Vidhan Sabha": 1.5, "passed the Bill": 2, "introduced in Lok Sabha": 3}}
+      - key: executive-judiciary
+        line: "Structure, organisation and functioning of the executive and the judiciary; ministries and departments of the government; pressure groups and formal and informal associations and their role in the polity."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work (Executive, Judiciary)"]
+        topics:
+          - {id: gs2-executive, name: "The executive: President, PM, Council of Ministers and ministries", subj: [polity, governance], prelims: true,
+             kw: {"President of India": 2.5, "Vice-President": 2.5, "Council of Ministers": 3, "Cabinet Secretariat": 3, ordinance: 3, "pardon": 2, "Article 72": 3, "Cabinet reshuffle": 3, "Allocation of Business": 3, "collective responsibility": 3, "pressure group": 3}}
+          - {id: gs2-judiciary, name: "Judiciary: Supreme Court, High Courts, appointments and reforms", subj: [polity], prelims: true,
+             kw: {"Supreme Court": 1.5, "High Court": 1, "CJI": 2, "Chief Justice of India": 2.5, collegium: 3, "judicial appointments": 3, "Memorandum of Procedure": 3, "constitution bench": 3, "pendency": 3, "pending cases": 3, "judicial vacancies": 3, "impeachment of judge": 3, "removal of judge": 3, "contempt of court": 3, "Bar Council": 2.5, "eCourts": 3, "fast-track court": 3, "undertrial": 2.5, "bail": 1}}
+      - key: rpa
+        line: "Salient features of the Representation of the People Act."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work (Election and Representation)"]
+        topics:
+          - {id: gs2-elections, name: "Elections, the RPA and electoral reforms", subj: [polity], prelims: true,
+             kw: {"Representation of the People Act": 3, "RPA": 2, "electoral roll": 3, "electoral rolls": 3, "Special Intensive Revision": 3, "SIR": 1.5, "EVM": 3, "VVPAT": 3, "Model Code of Conduct": 3, "electoral bonds": 3, "election funding": 3, disqualification: 1.5, "One Nation One Election": 3, "simultaneous elections": 3, "bypoll": 2.5, "by-election": 2.5, "NOTA": 3, "voter turnout": 2, "electoral reform": 3, "criminalisation of politics": 3, "Form 6": 3}}
+      - key: constitutional-bodies
+        line: "Appointment to various constitutional posts, powers, functions and responsibilities of various constitutional bodies."
+        ncert: ["Class 11 Political Science: Indian Constitution at Work"]
+        topics:
+          - {id: gs2-election-commission, name: "Election Commission: appointment, removal and powers", subj: [polity], prelims: true,
+             kw: {"Election Commission": 3, "Chief Election Commissioner": 3, "CEC": 2.5, "Election Commissioner": 3, "Article 324": 3, "ECI": 3, "Election Commissioners Act": 3}}
+          - {id: gs2-constitutional-bodies, name: "CAG, UPSC, Finance Commission and other constitutional bodies", subj: [polity, governance], prelims: true,
+             kw: {"CAG": 3, "Comptroller and Auditor General": 3, "Union Public Service Commission": 3, "Attorney General": 3, "Solicitor General": 2, "Advocate General": 3, "National Commission for Scheduled Castes": 3, "NCSC": 3, "National Commission for Scheduled Tribes": 3, "NCST": 3, "National Commission for Backward Classes": 3, "NCBC": 3, "GST Council": 1, "constitutional body": 3}}
+      - key: statutory-bodies
+        line: "Statutory, regulatory and various quasi-judicial bodies."
+        ncert: []
+        topics:
+          - {id: gs2-statutory-bodies, name: "Statutory, regulatory and quasi-judicial bodies", subj: [governance, polity], prelims: true,
+             kw: {"NITI Aayog": 3, "NHRC": 3, "National Human Rights Commission": 3, "Lokpal": 3, "Lokayukta": 3, "CVC": 3, "Central Vigilance Commission": 3, "CBI": 2, "Central Information Commission": 3, "NCW": 3, "National Commission for Women": 3, "NGT": 1.5, "SEBI": 1, "TRAI": 2, "CCI": 2, "Competition Commission": 2.5, "regulator": 1.5, "statutory body": 3, "quasi-judicial": 3, "National Green Tribunal": 1.5, "FSSAI": 2, "NMC": 2}}
+      - key: policies
+        line: "Government policies and interventions for development in various sectors and issues arising out of their design and implementation."
+        ncert: []
+        topics:
+          - {id: gs2-policies, name: "Government policies and their implementation", subj: [governance], prelims: true,
+             kw: {"flagship scheme": 3, "Cabinet approves": 2, "Cabinet approved": 2, "new policy": 2, "National Policy": 2.5, "draft policy": 2.5, guidelines: 1, "Centrally Sponsored": 3, "Central Sector Scheme": 3, "implementation of the scheme": 3, "PM Vishwakarma": 3, "PM-JANMAN": 3, "Viksit Bharat": 2, "Aspirational Districts": 3, "Aspirational Blocks": 3}}
+      - key: development-sector
+        line: "Development processes and the development industry: the role of NGOs, SHGs, groups and associations, donors, charities, institutional and other stakeholders."
+        ncert: ["Class 11 Economics: Indian Economic Development (Rural Development)"]
+        topics:
+          - {id: gs2-ngos-shgs, name: "NGOs, SHGs, cooperatives and civil society", subj: [governance, social_justice], prelims: true,
+             kw: {NGO: 3, NGOs: 3, "self-help group": 3, "self help group": 3, "SHG": 3, "SHGs": 3, "FCRA": 3, "civil society": 2.5, cooperative: 2, cooperatives: 2, "Ministry of Cooperation": 3, "Lakhpati Didi": 3, "DAY-NRLM": 3, "NRLM": 3, "philanthropy": 3, "CSR": 2, "corporate social responsibility": 3}}
+      - key: welfare
+        line: "Welfare schemes for vulnerable sections of the population by the Centre and states and their performance; mechanisms, laws, institutions and bodies constituted for the protection and betterment of these sections."
+        ncert: ["Class 12 Sociology: Indian Society (Patterns of Social Inequality and Exclusion)"]
+        topics:
+          - {id: gs2-sc-st-obc, name: "SCs, STs, OBCs and minorities: rights and schemes", subj: [social_justice], prelims: true,
+             kw: {"Scheduled Castes": 3, "Scheduled Caste": 3, "Scheduled Tribes": 3, "Scheduled Tribe": 3, "Dalit": 2.5, "OBC": 2.5, "Other Backward Classes": 3, "SC/ST Act": 3, "Prevention of Atrocities": 3, "Forest Rights Act": 3, "PVTG": 3, minorities: 2, "minority institution": 3, "Waqf": 3, "Denotified Tribes": 3, "Eklavya": 3}}
+          - {id: gs2-children-elderly-pwd, name: "Children, the elderly, persons with disabilities and transgender persons", subj: [social_justice], prelims: true,
+             kw: {"child rights": 3, "child labour": 3, "juvenile justice": 3, "POCSO": 3, "child trafficking": 3, "Mission Vatsalya": 3, "senior citizens": 2.5, "elderly": 1.5, disability: 2, "persons with disabilities": 3, "divyang": 3, "Divyangjan": 3, "Transgender Persons": 3, transgender: 2.5, "NCPCR": 3, "adoption": 2, "CARA": 3}}
+          - {id: gs2-welfare-schemes, name: "Social security, labour welfare and welfare schemes", subj: [social_justice, governance], prelims: true,
+             kw: {"welfare scheme": 3, "social security": 3, "Labour Codes": 3, "labour code": 3, "gig workers": 3, "platform workers": 3, "e-Shram": 3, "MGNREGA": 3, "MGNREGS": 3, "PM Awas": 3, "PMAY": 3, "Ujjwala": 3, "Jan Dhan": 2.5, "pension scheme": 2.5, "Atal Pension": 3, "EPFO": 2, "minimum wage": 3, "universal basic income": 3, "cash transfer": 3, "DBT": 2}}
+      - key: social-sector
+        line: "Development and management of the social sector and services relating to health, education and human resources."
+        ncert: ["Class 11 Economics: Indian Economic Development (Human Capital Formation in India)"]
+        topics:
+          - {id: gs2-health, name: "Health: policy, schemes, diseases and the health system", subj: [health], prelims: true,
+             kw: {"Ayushman Bharat": 3, "PM-JAY": 3, "National Health Mission": 3, "public health": 2, "health insurance": 2.5, "health infrastructure": 3, "primary health": 3, "tuberculosis": 3, "TB elimination": 3, malaria: 3, dengue: 2.5, "Nipah": 3, "mpox": 3, vaccine: 2, vaccination: 2.5, immunisation: 3, "anaemia": 3, "maternal mortality": 3, "infant mortality": 3, "non-communicable": 3, "mental health": 3, "WHO": 1, "drug regulator": 2.5, "CDSCO": 3, "antimicrobial resistance": 3, "AMR": 2.5, "One Health": 3, "medical education": 2.5, "NEET": 1.5}}
+          - {id: gs2-education, name: "Education: NEP, schools, higher education and exams", subj: [education], prelims: true,
+             kw: {"National Education Policy": 3, "NEP": 2.5, "NEP 2020": 3, "school education": 3, "higher education": 3, "UGC": 3, "AICTE": 3, "NCERT": 2, "CBSE": 2, "board exam": 2.5, "learning outcomes": 3, "ASER": 3, "PM SHRI": 3, "Samagra Shiksha": 3, "mid-day meal": 3, "PM POSHAN": 3, "dropout": 2.5, "three-language formula": 3, "mother tongue": 2, "NTA": 2.5, "paper leak": 3, "Right to Education": 3, "RTE": 2.5, "APAAR": 3}}
+          - {id: gs2-skills-hr, name: "Skills, employment and human resources", subj: [education, economy, social_justice], prelims: false,
+             kw: {skilling: 3, "skill development": 3, "Skill India": 3, "PMKVY": 3, apprenticeship: 3, "internship scheme": 3, "PM Internship": 3, "human capital": 3, "vocational training": 3, "ITI": 2, "employability": 3, "Employment Linked Incentive": 3}}
+      - key: poverty-hunger
+        line: "Issues relating to poverty and hunger."
+        ncert: ["Class 9 Economics (Poverty as a Challenge, Food Security in India)", "Class 11 Economics: Indian Economic Development (Poverty)"]
+        topics:
+          - {id: gs2-poverty-hunger, name: "Poverty, hunger, nutrition and food security", subj: [social_justice], prelims: true,
+             kw: {poverty: 2, "multidimensional poverty": 3, "MPI": 2, "poverty line": 3, hunger: 2.5, "Global Hunger Index": 3, malnutrition: 3, stunting: 3, wasting: 2, undernutrition: 3, "POSHAN Abhiyaan": 3, "Poshan": 2.5, "Anganwadi": 3, "food security": 3, "National Food Security Act": 3, "NFSA": 3, "PMGKAY": 3, "free ration": 3, "fortified rice": 3, "food inflation": 1.5}}
+      - key: governance
+        line: "Important aspects of governance, transparency and accountability, e-governance (applications, models, successes, limitations and potential), citizens' charters, transparency and accountability and institutional and other measures."
+        ncert: []
+        topics:
+          - {id: gs2-transparency-accountability, name: "Transparency, accountability, RTI and anti-corruption", subj: [governance], prelims: true,
+             kw: {"Right to Information": 3, "RTI": 3, "RTI Act": 3, transparency: 2, accountability: 2, "citizen's charter": 3, "citizens' charter": 3, "social audit": 3, whistleblower: 3, "Whistle Blowers": 3, corruption: 1.5, "Prevention of Corruption Act": 3, "public grievance": 3, "CPGRAMS": 3, "good governance": 2.5}}
+          - {id: gs2-e-governance, name: "E-governance and digital public infrastructure", subj: [governance, science_tech], prelims: true,
+             kw: {"e-governance": 3, "digital public infrastructure": 3, "DPI": 2.5, "Aadhaar": 2.5, "UPI": 1.5, "DigiLocker": 3, "Digital India": 2.5, "ONDC": 3, "India Stack": 3, "Data Protection": 2, "DPDP": 3, "Digital Personal Data Protection": 3, "UMANG": 3, "e-office": 3, "GeM": 2.5, "Government e-Marketplace": 3}}
+          - {id: gs2-police-reforms, name: "Police, prisons and criminal justice reforms", subj: [governance, polity], prelims: false,
+             kw: {"police reforms": 3, "custodial death": 3, "custodial torture": 3, "prison reforms": 3, prisons: 2, undertrials: 3, "Bharatiya Nyaya Sanhita": 3, "BNS": 2.5, "BNSS": 3, "Bharatiya Nagarik Suraksha Sanhita": 3, "Bharatiya Sakshya": 3, "criminal laws": 3, "Prakash Singh": 3, "encounter killing": 3, "bulldozer": 2.5, "death penalty": 2.5, "capital punishment": 2.5}}
+      - key: civil-services
+        line: "Role of civil services in a democracy."
+        ncert: []
+        topics:
+          - {id: gs2-civil-services, name: "Civil services: role, reforms and lateral entry", subj: [governance], prelims: false,
+             kw: {"civil services": 2.5, "civil servants": 2.5, "civil servant": 2.5, "IAS": 2, "IPS": 1.5, bureaucracy: 2.5, bureaucrat: 2, "lateral entry": 3, "Mission Karmayogi": 3, "iGOT": 3, "All India Services": 3, "Article 311": 3, "civil service reform": 3, "generalist": 2}}
+      - key: neighbourhood
+        line: "India and its neighbourhood: relations."
+        ncert: ["Class 12 Political Science: Contemporary World Politics (Contemporary South Asia)"]
+        topics:
+          - {id: gs2-neighbourhood, name: "India and its neighbours", subj: [ir], prelims: true,
+             kw: {"Neighbourhood First": 3, "Pakistan": 1.5, "China": 1, "Bangladesh": 2, "Nepal": 2, "Sri Lanka": 2, "Bhutan": 2.5, "Myanmar": 2, "Maldives": 2.5, "Afghanistan": 2, "LAC": 2, "Line of Actual Control": 3, "LoC": 2, "Teesta": 3, "Indus Waters Treaty": 3, "Kalapani": 3, "Katchatheevu": 3, "Doklam": 3, "SAARC": 3, "BIMSTEC": 3, "Chabahar": 3, "Ganga water treaty": 3}}
+      - key: groupings
+        line: "Bilateral, regional and global groupings and agreements involving India and/or affecting India's interests."
+        ncert: ["Class 12 Political Science: Contemporary World Politics (Contemporary Centres of Power)"]
+        topics:
+          - {id: gs2-bilateral, name: "Bilateral ties: US, Russia, EU, Japan, Gulf, Africa and others", subj: [ir], prelims: true,
+             kw: {"bilateral ties": 3, "bilateral relations": 3, "strategic partnership": 3, "joint statement": 2.5, "state visit": 2.5, "India-US": 2.5, "India–US": 2.5, "India-Russia": 2.5, "India–Russia": 2.5, "India-Japan": 2.5, "India–Japan": 2.5, "India-France": 2.5, "India–France": 2.5, "India-Canada": 2.5, "India–Canada": 2.5, "India-UK": 2.5, "India–UK": 2.5, "India-EU": 2.5, "India–EU": 2.5, "India-Africa": 2.5, "India–Africa": 2.5, "free trade agreement": 2, "FTA": 1.5, "CEPA": 2, "MoU": 1.5, "EAM": 1, "Jaishankar": 1}}
+          - {id: gs2-groupings, name: "Regional and global groupings: Quad, BRICS, SCO, G20, ASEAN", subj: [ir], prelims: true,
+             kw: {"Quad": 3, "BRICS": 3, "SCO": 3, "Shanghai Cooperation Organisation": 3, "G20": 3, "G7": 3, "ASEAN": 3, "IBSA": 3, "I2U2": 3, "IMEC": 3, "Indo-Pacific": 2, "IPEF": 3, "RCEP": 3, "Colombo Security Conclave": 3, "IORA": 3, "Global South": 2.5, "Voice of Global South": 3, "Commonwealth": 2, "East Asia Summit": 3, "Mekong": 2.5}}
+      - key: diaspora
+        line: "Effect of the policies and politics of developed and developing countries on India's interests; the Indian diaspora."
+        ncert: ["Class 12 Political Science: Contemporary World Politics"]
+        topics:
+          - {id: gs2-world-affairs, name: "World affairs and their effect on India: wars, tariffs, sanctions", subj: [ir], prelims: false,
+             kw: {tariff: 1.5, tariffs: 1.5, sanctions: 2, "Russia-Ukraine": 3, "Russia–Ukraine": 3, "Ukraine war": 3, "Gaza": 2.5, "Israel-Hamas": 3, "West Asia": 2, "Middle East": 2, "Iran": 1.5, "Red Sea crisis": 3, "Trump administration": 2, "US election": 2.5, "H-1B": 3, "de-dollarisation": 3, "protectionism": 3, "reciprocal tariff": 3}}
+          - {id: gs2-diaspora, name: "The Indian diaspora and migration abroad", subj: [ir], prelims: true,
+             kw: {diaspora: 3, "Indian diaspora": 3, "NRI": 2.5, "NRIs": 2.5, "Overseas Citizen": 3, "OCI": 3, "PIO": 2.5, "Pravasi Bharatiya": 3, remittance: 2.5, remittances: 2.5, "Indian nationals": 2, "evacuation": 2, "Operation Ajay": 3, "Operation Kaveri": 3, "Operation Sindhu": 3, "emigration": 3, "Indian students abroad": 3, deportation: 2.5, "study permit": 3, "student visa": 3, "international students": 3, "work visa": 3}}
+      - key: institutions
+        line: "Important international institutions, agencies and fora: their structure and mandate."
+        ncert: ["Class 12 Political Science: Contemporary World Politics (International Organisations)"]
+        topics:
+          - {id: gs2-international-institutions, name: "UN, WTO, IMF, World Bank and other international bodies", subj: [ir, economy], prelims: true,
+             kw: {"United Nations": 2.5, "UN General Assembly": 3, "UNGA": 3, "UN Security Council": 3, "UNSC": 3, "permanent member": 2, "UN reform": 3, "WTO": 3, "World Trade Organization": 3, "IMF": 2.5, "World Bank": 2, "WHO": 1.5, "UNESCO": 2, "UNHRC": 3, "ICJ": 3, "International Court of Justice": 3, "ICC": 1.5, "International Criminal Court": 3, "IAEA": 3, "FATF": 2, "NDB": 2.5, "New Development Bank": 3, "AIIB": 3, "ILO": 3, "FAO": 2.5, "UNEP": 2.5, "Interpol": 2.5}}
+
+  - key: GS3
+    name: "Technology, economic development, biodiversity, environment, security and disaster management"
+    lines:
+      - key: economy
+        line: "Indian economy and issues relating to planning, mobilisation of resources, growth, development and employment."
+        ncert: ["Class 12 Economics: Introductory Macroeconomics", "Class 11 Economics: Indian Economic Development"]
+        topics:
+          - {id: gs3-growth-data, name: "Growth, GDP, planning and economic data", subj: [economy], prelims: true,
+             kw: {GDP: 3, "GDP growth": 3, GVA: 3, "growth rate": 2, "Economic Survey": 3, "IIP": 3, "Index of Industrial Production": 3, "PMI": 3, recession: 2.5, "base year": 3, "NSO": 2.5, "MoSPI": 3, "national accounts": 3, "per capita income": 3, "five trillion": 3, "$5 trillion": 3, "planning commission": 2.5, "core sector": 3, "economic growth": 2.5, "growth engine": 2.5}}
+          - {id: gs3-banking-monetary, name: "Money, banking, RBI and monetary policy", subj: [economy], prelims: true,
+             kw: {"RBI": 2.5, "Reserve Bank": 2.5, "repo rate": 3, "monetary policy": 3, "Monetary Policy Committee": 3, "MPC": 2, "CRR": 3, "SLR": 3, liquidity: 2, "NPA": 3, "bad loans": 3, "non-performing": 3, "bank merger": 3, "public sector banks": 3, "PSB": 2.5, "NBFC": 3, "digital rupee": 3, "CBDC": 3, "UPI": 1.5, "financial inclusion": 3, "deposit insurance": 3, "credit growth": 2.5, "microfinance": 2.5, "IBC": 3, "insolvency": 2.5}}
+          - {id: gs3-inflation, name: "Inflation and prices", subj: [economy], prelims: true,
+             kw: {inflation: 3, "retail inflation": 3, "CPI": 2.5, "WPI": 3, "wholesale inflation": 3, "food inflation": 3, "core inflation": 3, deflation: 3, "price rise": 2.5, "inflation target": 3}}
+          - {id: gs3-employment, name: "Employment, unemployment and labour markets", subj: [economy], prelims: true,
+             kw: {unemployment: 3, "unemployment rate": 3, "PLFS": 3, "Periodic Labour Force": 3, "labour force participation": 3, jobs: 1.5, "job creation": 3, "informal sector": 3, "informal workers": 3, "formal employment": 3, "EPFO payroll": 3, "gig economy": 2.5}}
+          - {id: gs3-external-sector, name: "Trade, balance of payments, the rupee and FDI", subj: [economy], prelims: true,
+             kw: {"trade deficit": 3, exports: 1.5, imports: 1.5, "merchandise exports": 3, "current account": 3, "current account deficit": 3, "balance of payments": 3, "forex reserves": 3, "foreign exchange reserves": 3, rupee: 2, "rupee depreciation": 3, "exchange rate": 3, "FDI": 3, "foreign direct investment": 3, "FPI": 3, "foreign portfolio": 3, "Foreign Trade Policy": 3, "anti-dumping": 3, "rupee trade": 3, "external debt": 3, "export promotion": 3, "bilateral investment treaty": 3, "investment treaty": 3}}
+          - {id: gs3-capital-markets, name: "Capital markets, SEBI and insurance", subj: [economy], prelims: true,
+             kw: {"SEBI": 3, "stock market": 2, "Sensex": 2, "Nifty": 2, IPO: 2.5, "mutual fund": 3, "mutual funds": 3, "capital market": 3, "bond market": 3, "corporate bond": 3, "insurance sector": 3, "IRDAI": 3, "LIC": 2, "pension fund": 3, "PFRDA": 3, "F&O": 3, "derivatives": 2.5, "GIFT City": 3}}
+      - key: inclusive-growth
+        line: "Inclusive growth and issues arising from it."
+        ncert: ["Class 11 Economics: Indian Economic Development"]
+        topics:
+          - {id: gs3-inclusive-growth, name: "Inclusive growth, inequality and MSMEs", subj: [economy, social_justice], prelims: true,
+             kw: {"inclusive growth": 3, inequality: 2.5, "income inequality": 3, "wealth inequality": 3, "Gini": 3, "MSME": 3, "MSMEs": 3, "micro, small and medium": 3, "Udyam": 3, "credit guarantee": 3, "PM SVANidhi": 3, "Mudra": 3, "Stand-Up India": 3, "regional disparity": 3, "K-shaped": 3}}
+      - key: budgeting
+        line: "Government budgeting."
+        ncert: ["Class 12 Economics: Introductory Macroeconomics (Government Budget and the Economy)"]
+        topics:
+          - {id: gs3-budget-fiscal, name: "Budget, fiscal policy, taxes and GST", subj: [economy], prelims: true,
+             kw: {"Union Budget": 3, budget: 1.5, "fiscal deficit": 3, "revenue deficit": 3, "fiscal consolidation": 3, "FRBM": 3, "capital expenditure": 3, "capex": 2.5, "public debt": 3, "tax revenue": 3, "direct tax": 3, "income tax": 2.5, "Income Tax Bill": 3, "GST": 2.5, "GST collection": 3, "GST rate": 3, "customs duty": 3, "disinvestment": 3, "divestment": 3, "gross tax": 3, "outcome budget": 3, "gender budget": 3}}
+      - key: agriculture
+        line: "Major crops and cropping patterns; types of irrigation and irrigation systems; storage, transport and marketing of farm produce and related constraints; e-technology to aid farmers."
+        ncert: ["Class 12 Geography: India: People and Economy (Land Resources and Agriculture, Water Resources)"]
+        topics:
+          - {id: gs3-crops-irrigation, name: "Crops, cropping patterns and irrigation", subj: [agriculture], prelims: true,
+             kw: {kharif: 3, rabi: 3, zaid: 3, "sowing": 2.5, "crop production": 3, "foodgrain production": 3, "cropping pattern": 3, "crop diversification": 3, irrigation: 3, "micro-irrigation": 3, "drip irrigation": 3, "PMKSY": 3, groundwater: 2, pulses: 2.5, oilseeds: 3, millets: 3, "Shree Anna": 3, "natural farming": 3, "organic farming": 3, "soil health": 3, fertiliser: 2.5, fertilizer: 2.5, "urea": 2.5, "DAP": 3, "GM crop": 3, "GM mustard": 3, "seed variety": 3, "Bt cotton": 3}}
+          - {id: gs3-agri-marketing, name: "Farm marketing, storage, e-NAM and agri-tech", subj: [agriculture], prelims: true,
+             kw: {"agricultural marketing": 3, "e-NAM": 3, "APMC": 3, mandi: 2.5, "warehousing": 3, "cold storage": 3, "cold chain": 3, "FPO": 3, "Farmer Producer": 3, "agri-tech": 3, "agritech": 3, "Digital Agriculture Mission": 3, "Agristack": 3, "AgriStack": 3, "kisan drone": 3, "crop insurance": 3, "PMFBY": 3, "Fasal Bima": 3, "Kisan Credit Card": 3, "KCC": 2.5, "agri exports": 3}}
+      - key: farm-support
+        line: "Direct and indirect farm subsidies and minimum support prices; the public distribution system (objectives, functioning, limitations, revamping); buffer stocks and food security; technology missions; economics of animal rearing."
+        ncert: ["Class 9 Economics (Food Security in India)", "Class 11 Economics: Indian Economic Development (Rural Development)"]
+        topics:
+          - {id: gs3-msp-subsidies, name: "MSP, farm subsidies and farmer incomes", subj: [agriculture, economy], prelims: true,
+             kw: {"minimum support price": 3, "MSP": 3, "farm subsidy": 3, "fertiliser subsidy": 3, "PM-KISAN": 3, "PM Kisan": 3, "farm loan waiver": 3, "farmers' income": 3, "farmer protest": 2, "CACP": 3, "procurement": 2, "price deficiency": 3, "farm distress": 3}}
+          - {id: gs3-pds-food-security, name: "PDS, buffer stocks and food security", subj: [agriculture, social_justice], prelims: true,
+             kw: {"Public Distribution System": 3, "PDS": 3, "ration card": 3, "One Nation One Ration Card": 3, "buffer stock": 3, "FCI": 3, "Food Corporation of India": 3, "open market sale": 3, "OMSS": 3, "wheat stock": 3, "rice stock": 3, "food subsidy": 3, "fair price shop": 3}}
+          - {id: gs3-animal-husbandry, name: "Animal husbandry, dairy and fisheries", subj: [agriculture], prelims: true,
+             kw: {"animal husbandry": 3, livestock: 3, dairy: 2.5, "milk production": 3, "Rashtriya Gokul Mission": 3, "lumpy skin": 3, "foot-and-mouth": 3, fisheries: 3, fishermen: 2, "blue revolution": 3, "PMMSY": 3, aquaculture: 3, poultry: 2.5, "bird flu": 3, "avian influenza": 3, "livestock census": 3}}
+      - key: food-processing
+        line: "Food processing and related industries in India: scope and significance, location, upstream and downstream requirements, supply chain management."
+        ncert: []
+        topics:
+          - {id: gs3-food-processing, name: "Food processing and supply chains", subj: [agriculture, economy], prelims: false,
+             kw: {"food processing": 3, "food park": 3, "mega food park": 3, "PMKSY food": 3, "PMFME": 3, "supply chain": 1.5, "post-harvest": 3, "food wastage": 3, "food loss": 3, "processed food": 3, "PLI for food": 3}}
+      - key: land-reforms
+        line: "Land reforms in India."
+        ncert: ["Class 11 Economics: Indian Economic Development (Indian Economy 1950-1990)"]
+        topics:
+          - {id: gs3-land-reforms, name: "Land reforms, land records and land acquisition", subj: [agriculture, economy, governance], prelims: true,
+             kw: {"land reform": 3, "land reforms": 3, "land records": 3, "land acquisition": 3, "land titling": 3, "Bhu-Aadhaar": 3, "ULPIN": 3, "tenancy": 3, "land ceiling": 3, "zamindari": 3, "land pooling": 3, "DILRMP": 3, "SVAMITVA": 2}}
+      - key: liberalisation
+        line: "Effects of liberalisation on the economy, changes in industrial policy and their effects on industrial growth."
+        ncert: ["Class 11 Economics: Indian Economic Development (Liberalisation, Privatisation and Globalisation)"]
+        topics:
+          - {id: gs3-industry, name: "Industrial policy, manufacturing and PLI", subj: [economy], prelims: true,
+             kw: {"industrial policy": 3, manufacturing: 2, "Make in India": 3, "PLI": 3, "production-linked incentive": 3, "semiconductor": 2, "electronics manufacturing": 3, liberalisation: 3, "1991 reforms": 3, privatisation: 3, "ease of doing business": 3, "Jan Vishwas": 3, "industrial corridor": 3, "SEZ": 3, "special economic zone": 3, "startup": 2, "startups": 2, "Startup India": 3, "unicorn": 2.5, "PSU": 2, "CPSE": 3}}
+      - key: infrastructure
+        line: "Infrastructure: energy, ports, roads, airports, railways, etc."
+        ncert: ["Class 11 Economics: Indian Economic Development (Infrastructure)", "Class 12 Geography: India: People and Economy (Transport and Communication)"]
+        topics:
+          - {id: gs3-energy, name: "Energy: power, renewables, nuclear, oil and gas", subj: [infrastructure], prelims: true,
+             kw: {"renewable energy": 3, "solar power": 3, "solar energy": 3, "wind energy": 3, "green hydrogen": 3, "nuclear power": 3, "nuclear energy": 3, "SHANTI": 3, "small modular reactor": 3, "SMR": 2.5, "power sector": 3, "electricity": 1.5, "discom": 3, "discoms": 3, "power demand": 3, "coal-fired": 3, "thermal power": 3, "crude oil": 2.5, "natural gas": 2.5, "LNG": 3, "energy security": 3, "PM Surya Ghar": 3, "rooftop solar": 3, "battery storage": 3, "pumped storage": 3, "ethanol blending": 3, "biofuel": 3, "GOBARdhan": 3, "compressed biogas": 3, "CBG": 2.5, "biogas": 3, "hydropower": 3, "International Solar Alliance": 3}}
+          - {id: gs3-transport, name: "Transport: roads, railways, ports, airports and logistics", subj: [infrastructure], prelims: true,
+             kw: {railway: 2, railways: 2, "Vande Bharat": 3, "bullet train": 3, "high-speed rail": 3, "dedicated freight corridor": 3, expressway: 3, highway: 2, "national highway": 3, "Bharatmala": 3, "Sagarmala": 3, port: 1.5, "major port": 3, "transshipment": 3, "Vizhinjam": 3, airport: 2, "UDAN": 3, "civil aviation": 3, "DGCA": 3, logistics: 2.5, "National Logistics Policy": 3, "PM Gati Shakti": 3, "Gati Shakti": 3, "inland waterways": 3, "metro rail": 3, "shipbuilding": 3}}
+          - {id: gs3-urban-digital-infra, name: "Telecom, digital and urban infrastructure", subj: [infrastructure, science_tech], prelims: true,
+             kw: {telecom: 2.5, "5G": 3, "6G": 3, "BharatNet": 3, "spectrum": 2.5, "satellite internet": 3, "data centre": 3, "data centres": 3, "broadband": 3, "Telecommunications Act": 3, "optical fibre": 3, "submarine cable": 3}}
+      - key: investment
+        line: "Investment models."
+        ncert: []
+        topics:
+          - {id: gs3-investment-models, name: "Investment models: PPP, HAM, InvITs and asset monetisation", subj: [economy, infrastructure], prelims: true,
+             kw: {"public-private partnership": 3, "PPP": 3, "hybrid annuity": 3, "HAM": 3, "BOT": 3, "build-operate-transfer": 3, "InvIT": 3, "InvITs": 3, "REIT": 3, "asset monetisation": 3, "National Monetisation Pipeline": 3, "NIP": 2.5, "National Infrastructure Pipeline": 3, "NaBFID": 3, "viability gap funding": 3, "sovereign wealth fund": 3}}
+      - key: science-tech
+        line: "Science and technology: developments and their applications and effects in everyday life; achievements of Indians in science and technology; indigenisation of technology and developing new technology."
+        ncert: ["Class 10 Science", "Class 12 Biology (Biotechnology: Principles and Processes)"]
+        topics:
+          - {id: gs3-science-developments, name: "Science developments and their uses: physics, chemistry, biology", subj: [science_tech], prelims: true,
+             kw: {scientists: 1.5, "researchers": 1, "discovery": 1.5, "Nobel Prize": 3, "Nobel": 2.5, "quantum": 3, "National Quantum Mission": 3, "superconductor": 3, "gravitational wave": 3, "black hole": 3, "particle physics": 3, "CERN": 3, "exoplanet": 3, "nanotechnology": 3, "graphene": 3, "Shanti Swarup Bhatnagar": 3, "Vigyan Puraskar": 3, "Rashtriya Vigyan": 3, "CSIR": 2.5, "ANRF": 3, "Anusandhan": 3}}
+          - {id: gs3-indigenisation, name: "Indigenisation and new technology: semiconductors, electronics, deep tech", subj: [science_tech, defence], prelims: true,
+             kw: {indigenisation: 3, indigenous: 1.5, indigenously: 2.5, "Atmanirbhar": 2, "semiconductor mission": 3, "India Semiconductor Mission": 3, "chip fab": 3, "fab unit": 3, "deep tech": 3, "technology transfer": 3, "R&D spending": 3, "Research and Development": 2, "patent": 1.5, "Global Innovation Index": 3}}
+      - key: frontier-tech
+        line: "Awareness in the fields of IT, space, computers, robotics, nanotechnology, biotechnology and issues relating to intellectual property rights."
+        ncert: ["Class 12 Biology (Biotechnology and its Applications)"]
+        topics:
+          - {id: gs3-space, name: "Space: ISRO missions, satellites and the space economy", subj: [science_tech], prelims: true,
+             kw: {"ISRO": 3, "Chandrayaan": 3, "Gaganyaan": 3, "Aditya-L1": 3, "Mangalyaan": 3, "PSLV": 3, "GSLV": 3, "LVM3": 3, "SSLV": 3, satellite: 2, "NavIC": 3, "IRNSS": 3, "NISAR": 3, "space station": 3, "Bharatiya Antariksh": 3, "IN-SPACe": 3, "space sector": 3, "space economy": 3, "NASA": 2, "SpaceX": 2, "orbit": 1.5, "docking": 2.5, "SpaDeX": 3, "launch vehicle": 3, "Sriharikota": 3, astronaut: 3}}
+          - {id: gs3-it-ai, name: "IT, AI, computing and robotics", subj: [science_tech], prelims: true,
+             kw: {"artificial intelligence": 3, "AI": 1, "IndiaAI": 3, "IndiaAI Mission": 3, "generative AI": 3, "large language model": 3, "LLM": 3, "AI governance": 3, "AI regulation": 3, deepfake: 3, "supercomputer": 3, "quantum computing": 3, robotics: 3, robot: 2, "machine learning": 3, "blockchain": 3, "cryptocurrency": 3, "crypto": 2, "metaverse": 3, "chatbot": 2.5, "open source": 2, "GPU": 2.5}}
+          - {id: gs3-biotech, name: "Biotechnology, genetics and health technology", subj: [science_tech, health], prelims: true,
+             kw: {biotechnology: 3, biotech: 3, "gene editing": 3, "CRISPR": 3, "genome": 3, "Genome India": 3, "gene therapy": 3, "stem cell": 3, "cloning": 3, "GM": 1.5, "genetically modified": 3, "biosimilar": 3, "mRNA": 3, "BioE3": 3, "biomanufacturing": 3, "synthetic biology": 3, "DNA": 2, "antibodies": 2, "clinical trial": 2.5}}
+          - {id: gs3-ipr, name: "Intellectual property rights", subj: [science_tech, economy], prelims: true,
+             kw: {"intellectual property": 3, "IPR": 3, "patent": 2, patents: 2, "Patents Act": 3, "Section 3(d)": 3, "evergreening": 3, "compulsory licence": 3, "copyright": 2.5, trademark: 2.5, "TRIPS": 3, "traditional knowledge": 3, "TKDL": 3, "plant variety": 3, "PPVFR": 3}}
+          - {id: gs3-nuclear-defence-tech, name: "Nuclear and defence technology", subj: [science_tech, defence], prelims: true,
+             kw: {"nuclear reactor": 3, "fast breeder": 3, "thorium": 3, "BARC": 3, "DRDO": 2.5, missile: 2.5, "Agni": 2.5, "BrahMos": 3, "hypersonic": 3, "ballistic missile": 3, "cruise missile": 3, "test-fired": 3, "flight test": 2.5, "directed energy": 3, "stealth": 2.5, "fighter jet": 2.5, "Tejas": 3, "AMCA": 3, "drone": 1.5, "UAV": 2, "submarine": 2}}
+      - key: environment
+        line: "Conservation, environmental pollution and degradation, environmental impact assessment."
+        ncert: ["Class 12 Biology: Ecology unit (Organisms and Populations, Ecosystem, Biodiversity and Conservation)", "Class 11 Geography: India: Physical Environment (Natural Vegetation)"]
+        topics:
+          - {id: gs3-biodiversity, name: "Biodiversity, species and wildlife conservation", subj: [environment], prelims: true,
+             kw: {biodiversity: 3, "new species": 3, species: 1.5, endangered: 3, "critically endangered": 3, "IUCN": 3, "Red List": 3, "tiger": 1.5, "tiger census": 3, "Project Tiger": 3, "Project Cheetah": 3, cheetah: 2.5, "elephant": 1.5, "great Indian bustard": 3, "human-wildlife conflict": 3, "man-animal conflict": 3, poaching: 3, "Wildlife Protection Act": 3, "CITES": 3, "invasive species": 3, "migratory birds": 3, "Biological Diversity Act": 3, "Convention on Biological Diversity": 3, "Kunming": 3, extinction: 2.5, "bird species": 3, "snow leopard": 3, "gharial": 3, dolphin: 2, "vulture": 3}}
+          - {id: gs3-protected-areas, name: "Protected areas, forests, wetlands and coasts", subj: [environment], prelims: true,
+             kw: {"national park": 3, "wildlife sanctuary": 3, "tiger reserve": 3, "biosphere reserve": 3, "Ramsar": 3, "Ramsar site": 3, wetland: 3, wetlands: 3, "eco-sensitive zone": 3, "ESZ": 2.5, "forest cover": 3, "State of Forest Report": 3, "Forest Conservation": 3, afforestation: 3, deforestation: 3, mangrove: 3, mangroves: 3, "coral reef": 3, "coral bleaching": 3, "Western Ghats": 2.5, "Aravalli": 2.5, "Great Nicobar": 2, "compensatory afforestation": 3, "CAMPA": 3, "community reserve": 3}}
+          - {id: gs3-pollution, name: "Pollution: air, water, plastic and waste", subj: [environment, health], prelims: true,
+             kw: {"air pollution": 3, "air quality": 3, "AQI": 3, "PM2.5": 3, "PM10": 3, smog: 3, "stubble burning": 3, "GRAP": 3, "NCAP": 3, "Clean Air Programme": 3, "water pollution": 3, "river pollution": 3, "Namami Gange": 3, "Yamuna pollution": 3, "plastic waste": 3, "single-use plastic": 3, "plastic pollution": 3, "e-waste": 3, "solid waste": 3, "waste management": 3, "extended producer responsibility": 3, "EPR": 2.5, "noise pollution": 3, "microplastic": 3, microplastics: 3, "oil spill": 3, "Central Pollution Control Board": 3, "CPCB": 3, "sewage": 2.5, "Swachh Bharat": 2}}
+          - {id: gs3-climate-change, name: "Climate change, COP talks and climate finance", subj: [environment], prelims: true,
+             kw: {"climate change": 3, "global warming": 3, "COP30": 3, "COP31": 3, "COP": 1.5, "UNFCCC": 3, "Paris Agreement": 3, "NDC": 3, "nationally determined": 3, "net zero": 3, "net-zero": 3, "carbon emission": 3, "carbon emissions": 3, "greenhouse gas": 3, "carbon market": 3, "carbon credit": 3, "Carbon Credit Trading": 3, "CBAM": 3, "carbon border": 3, "climate finance": 3, "loss and damage": 3, "adaptation": 1.5, "IPCC": 3, "Mission LiFE": 3, "LiFE": 2, "heat action plan": 3, "methane": 2.5, "ozone layer": 3, "Montreal Protocol": 3, "Kigali Amendment": 3}}
+          - {id: gs3-eia-laws, name: "Environmental laws, clearances and EIA", subj: [environment, governance], prelims: true,
+             kw: {"environmental impact assessment": 3, "EIA": 3, "environmental clearance": 3, "environment clearance": 3, "forest clearance": 3, "Environment Protection Act": 3, "Forest (Conservation) Amendment": 3, "Coastal Regulation Zone": 3, "CRZ": 3, "NGT": 3, "National Green Tribunal": 3, "green tribunal": 3, "ex post facto clearance": 3, "Green Credit": 3, "Ministry of Environment": 2.5, "MoEFCC": 3}}
+      - key: disaster
+        line: "Disasters and disaster management."
+        ncert: ["Class 11 Geography: India: Physical Environment (Natural Hazards and Disasters)"]
+        topics:
+          - {id: gs3-disaster-management, name: "Disaster management: floods, droughts, heat, landslides and response", subj: [disaster], prelims: true,
+             kw: {"disaster management": 3, "Disaster Management Act": 3, "NDMA": 3, "NDRF": 3, "SDRF": 3, flood: 2, floods: 2, flooding: 2, "flash flood": 3, "cloudburst": 3, landslide: 2.5, landslides: 2.5, drought: 3, "heatwave": 2.5, "heat wave": 2.5, "cyclone": 1.5, "early warning": 3, "disaster relief": 3, "rescue operation": 2.5, "Sendai Framework": 3, "CDRI": 3, "disaster resilience": 3, "stampede": 2.5, "building collapse": 3, "industrial accident": 3, "GLOF": 3}}
+      - key: extremism
+        line: "Linkages between development and the spread of extremism."
+        ncert: []
+        topics:
+          - {id: gs3-lwe, name: "Left-wing extremism and development", subj: [internal_security], prelims: false,
+             kw: {"Left Wing Extremism": 3, "left-wing extremism": 3, "LWE": 3, Naxal: 3, Naxals: 3, Naxalism: 3, Maoist: 3, Maoists: 3, "Red Corridor": 3, "Bastar": 2.5, "Abujhmarh": 3, surrender: 1.5, "SAMADHAN": 3}}
+      - key: external-actors
+        line: "Role of external state and non-state actors in creating challenges to internal security."
+        ncert: []
+        topics:
+          - {id: gs3-terrorism, name: "Terrorism, insurgency and external actors", subj: [internal_security], prelims: false,
+             kw: {terrorism: 3, terrorist: 3, terror: 2.5, "terror attack": 3, "terror funding": 3, insurgency: 3, insurgent: 3, militant: 2.5, militants: 2.5, "cross-border terrorism": 3, infiltration: 3, "UAPA": 3, "NIA": 3, "Pahalgam": 3, "Lashkar": 3, "Jaish": 3, radicalisation: 3, "ISIS": 3, "Khalistan": 3, "Northeast insurgency": 3, "AFSPA": 3}}
+      - key: cyber-media
+        line: "Challenges to internal security through communication networks, the role of media and social networking sites, basics of cyber security; money laundering and its prevention."
+        ncert: []
+        topics:
+          - {id: gs3-cyber-security, name: "Cyber security, cyber crime and social media", subj: [internal_security, science_tech], prelims: true,
+             kw: {"cyber security": 3, cybersecurity: 3, "cyber attack": 3, "cyberattack": 3, "cyber crime": 3, cybercrime: 3, "cyber fraud": 3, "digital arrest": 3, ransomware: 3, malware: 3, "data breach": 3, "CERT-In": 3, "I4C": 3, "phishing": 3, "misinformation": 2.5, "fake news": 2.5, "IT Rules": 3, "content moderation": 3, "Sahyog portal": 3, "Section 69A": 3, "social media platform": 2}}
+          - {id: gs3-money-laundering, name: "Money laundering, black money and financial crime", subj: [internal_security, economy], prelims: true,
+             kw: {"money laundering": 3, "PMLA": 3, "Prevention of Money Laundering": 3, "Enforcement Directorate": 3, "ED": 1.5, "black money": 3, hawala: 3, "FATF": 3, "grey list": 3, "benami": 3, "shell companies": 3, "fugitive economic offender": 3, "FIU": 3, "tax evasion": 3}}
+      - key: border-security
+        line: "Security challenges and their management in border areas; linkages of organised crime with terrorism."
+        ncert: []
+        topics:
+          - {id: gs3-border-security, name: "Border management, smuggling and organised crime", subj: [internal_security], prelims: false,
+             kw: {"border security": 3, "border management": 3, "border fencing": 3, "BSF": 3, "ITBP": 3, "Assam Rifles": 3, "SSB": 3, "illegal immigration": 3, "illegal migrants": 3, "drug trafficking": 3, "narcotics": 3, "NCB": 2.5, "smuggling": 3, "arms smuggling": 3, "organised crime": 3, "gangster": 2.5, "Vibrant Villages": 3, "Free Movement Regime": 3, "border infrastructure": 3}}
+      - key: security-forces
+        line: "Various security forces and agencies and their mandate."
+        ncert: []
+        topics:
+          - {id: gs3-security-forces, name: "Armed forces, CAPFs and agencies: mandate and reforms", subj: [defence, internal_security], prelims: true,
+             kw: {"Indian Army": 2.5, "Indian Navy": 2.5, "Indian Air Force": 2.5, "IAF": 2, "Coast Guard": 3, "CAPF": 3, "CRPF": 3, "CISF": 3, "NSG": 3, "Chief of Defence Staff": 3, "CDS": 2.5, "theatre command": 3, "theatre commands": 3, "Agnipath": 3, "Agniveer": 3, "military exercise": 3, "joint exercise": 3, "naval exercise": 3, "defence exports": 3, "defence procurement": 3, "defence acquisition": 3, "Defence Acquisition Council": 3, "DAC": 2.5, "aircraft carrier": 3, "warship": 3, "commissioned": 2, "Operation Sindoor": 3, "RAW": 2, "Intelligence Bureau": 3}}
+
+  - key: GS4
+    name: "Ethics, integrity and aptitude"
+    lines:
+      - key: ethics-human
+        line: "Ethics and the human interface: the essence, determinants and consequences of ethics in human actions; dimensions of ethics; ethics in private and public relationships; human values: lessons from the lives and teachings of great leaders, reformers and administrators; the role of family, society and educational institutions in inculcating values."
+        ncert: []
+        topics:
+          - {id: gs4-ethics-values, name: "Ethics and human values, lessons from great lives", subj: [ethics], prelims: false,
+             kw: {ethics: 2, ethical: 2, morality: 3, "moral values": 3, "human values": 3, "value education": 3, "moral education": 3, conscience: 3, "role model": 2.5, compassion: 2.5, "Gandhian values": 3}}
+      - key: attitude-ei
+        line: "Attitude: content, structure and function, its influence on and relation with thought and behaviour, moral and political attitudes, social influence and persuasion; emotional intelligence: concepts, utilities and application in administration and governance."
+        ncert: ["Class 12 Psychology (Attitude and Social Cognition; Variations in Psychological Attributes)"]
+        topics:
+          - {id: gs4-attitude-ei, name: "Attitude, persuasion and emotional intelligence", subj: [ethics], prelims: false,
+             kw: {attitude: 2, "emotional intelligence": 3, persuasion: 3, "social influence": 3, empathy: 3, "public opinion": 1.5, propaganda: 2, "behavioural change": 3, "nudge": 3}}
+      - key: civil-service-values
+        line: "Aptitude and foundational values for civil service: integrity, impartiality and non-partisanship, objectivity, dedication to public service, empathy, tolerance and compassion towards the weaker sections."
+        ncert: []
+        topics:
+          - {id: gs4-civil-service-values, name: "Civil service values: integrity, impartiality, empathy", subj: [ethics, governance], prelims: false,
+             kw: {integrity: 2.5, impartiality: 3, "non-partisanship": 3, objectivity: 3, "dedication to public service": 3, "public service": 1.5, "political neutrality": 3, "code of conduct for civil servants": 3, "conduct rules": 3, "honest officer": 3}}
+      - key: thinkers
+        line: "Contributions of moral thinkers and philosophers from India and the world."
+        ncert: ["Class 11 Political Science: Political Theory"]
+        topics:
+          - {id: gs4-thinkers, name: "Moral thinkers and philosophers", subj: [ethics], prelims: false,
+             kw: {philosopher: 3, "Kautilya": 3, "Arthashastra": 3, "Swami Vivekananda": 3, "Aristotle": 3, "Plato": 3, "Immanuel Kant": 3, "Kantian": 3, "John Rawls": 3, "Ambedkar": 1.5, "Sri Aurobindo": 3, "Confucius": 3, utilitarianism: 3}}
+      - key: public-ethics
+        line: "Public and civil service values and ethics in public administration: status and problems; ethical concerns and dilemmas in government and private institutions; laws, rules, regulations and conscience as sources of ethical guidance; accountability and ethical governance; strengthening ethical and moral values in governance; ethical issues in international relations and funding; corporate governance."
+        ncert: []
+        topics:
+          - {id: gs4-public-ethics, name: "Ethics in public administration and corporate governance", subj: [ethics, governance], prelims: false,
+             kw: {"ethical dilemma": 3, "conflict of interest": 3, "corporate governance": 3, "whistleblower": 2.5, "ethical governance": 3, "business ethics": 3, "ethics committee": 3, "medical ethics": 3, "AI ethics": 3, "research ethics": 3, "insider trading": 2.5, "accounting fraud": 3}}
+      - key: probity
+        line: "Probity in governance: the concept of public service; the philosophical basis of governance and probity; information sharing and transparency in government, right to information, codes of ethics and conduct, citizens' charters, work culture, quality of service delivery, utilisation of public funds, challenges of corruption."
+        ncert: []
+        topics:
+          - {id: gs4-probity, name: "Probity, corruption and service delivery", subj: [ethics, governance], prelims: false,
+             kw: {probity: 3, corruption: 2, bribery: 3, bribe: 3, "graft": 3, "misuse of public funds": 3, "service delivery": 2.5, "work culture": 3, "code of ethics": 3, "Lokpal": 1.5, "vigilance": 2, "disproportionate assets": 3, nepotism: 3, favouritism: 3}}

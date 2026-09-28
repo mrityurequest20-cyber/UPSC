@@ -45,7 +45,8 @@ class FakeGemini:
             if "CEPA" in t:
                 places = [{"name": "Abu Dhabi", "kind": "city", "country": "United Arab Emirates", "state": "", "lat": 24.45, "lon": 54.38}]
                 topics = [{"name": "India–UAE relations", "query": "India UAE"}, {"name": "Trade", "query": "the"}]
-            items.append({"n": n, "terms": [
+            syl = ["gs2-judiciary", "gs2-separation-powers", "made-up-id"] if "Supreme Court" in t else []  # (a made-up id is dropped)
+            items.append({"n": n, "syllabus": syl, "terms": [
                 {"term": "Article 142", "meaning": "Lets the Supreme Court pass any order needed to do complete justice in a case."},
                 {"term": "CEPA", "meaning": f"Comprehensive Economic Partnership Agreement (version {n}): a broad trade pact."},
                 {"term": "RBI", "meaning": "Short."}], "places": places, "topics": topics})
@@ -79,8 +80,10 @@ def test_terms_are_found_once_and_kept(db, settings):
     settings.gemini_api_key = "test-key"
     http = FakeGemini()
     res = G.build_glossary(settings, db, [DAY], http=http, pause=0)
-    assert res == {"enabled": True, "cards": 3, "terms": 2, "places": 2, "topics": 2, "calls": 1, "left": 0}
+    assert res == {"enabled": True, "cards": 3, "terms": 2, "places": 2, "topics": 2, "syllabus": 1, "calls": 1, "left": 0}
     prompt = http.calls[0]["contents"][0]["parts"][0]["text"]
+    system = http.calls[0]["systemInstruction"]["parts"][0]["text"]
+    assert "gs2-election-commission: GS2 · Election Commission: appointment, removal and powers" in system  # the syllabus list
     assert "1. Supreme Court invokes Article 142 in the Waqf case. The bench used Article 142" in prompt  # Must-know first
     assert "Trade under CEPA crossed $100 billion." in prompt  # a card's AI note's points are its text
     terms = {r["id"]: json.loads(r["terms"]) for r in db.q("SELECT id, terms FROM stories")}
@@ -89,8 +92,8 @@ def test_terms_are_found_once_and_kept(db, settings):
     assert set(g) == {"article 142", "cepa"} and g["cepa"]["t"] == "CEPA"  # a too-short meaning is dropped
     assert "version 3" in g["cepa"]["m"]  # (the Prelims-facts card comes after the two Must-know ones)
     extras = {r["id"]: json.loads(r["extras"]) for r in db.q("SELECT id, extras FROM stories")}
-    assert extras["plain"] == {"places": ["kerala|india"], "topics": []}  # the Kerala in the North Sea is dropped
-    assert extras["sc"] == {"places": [], "topics": ["waqf-amendment-act"]}
+    assert extras["plain"] == {"places": ["kerala|india"], "topics": [], "syl": []}  # the Kerala in the North Sea is dropped
+    assert extras["sc"] == {"places": [], "topics": ["waqf-amendment-act"], "syl": ["gs2-judiciary", "gs2-separation-powers"]}
     assert extras["fta"]["topics"] == ["india-uae-relations"]  # "Trade" with only a generic search word is dropped
     kerala = db.q("SELECT * FROM places WHERE key='kerala|india'")[0]
     assert (kerala["lat"], kerala["lon"], kerala["kind"], kerala["state"]) == (10.5, 76.3, "state", "Kerala")

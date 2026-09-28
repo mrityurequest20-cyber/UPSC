@@ -80,7 +80,7 @@
   // ─────────────────────────── state ───────────────────────────
   const A = {
     meta: null,
-    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", trackSeg: "dossiers", progSeg: "insights", period: "week", moreOpen: new Set(), lowOpen: false,
+    day: todayIST(), tab: "brief", gs: "All", readSeg: "ed", trackSeg: "syllabus", progSeg: "insights", period: "week", moreOpen: new Set(), lowOpen: false,
     brief: null, briefDay: null, byId: new Map(),
     months: new Map(), cache: new Map(),  // month brief data; every story seen, by id
     open: null, sheet: null, calMonth: null,
@@ -455,16 +455,26 @@
         <div class="mastery">${M.mastery.map((m) => { const low = M.doneAll && m.total && m.pct < 40; return `<div class="mrowg"><b>${m.p}</b><div class="bar${low ? " low" : ""}"><div style="width:${m.pct}%"></div></div><span class="${low ? "low" : ""}">${m.total ? `${m.pct}%` : "–"}</span></div>`; }).join("")}</div></section>
       <section class="panel"><div class="ph">Blind spots</div>${M.blind.map((b) => `<div class="blind"><span class="bang">!</span><div class="blind-t"><b>${esc(b.name)}</b><span>${b.n} of ${b.total} stories read · ${b.last ? `last one ${daysBetween(b.last, todayIST())} days ago` : "none in 30 days"}</span></div><button class="btn-o" data-act="plan" data-subj="${esc(b.k)}">Catch up</button></div>`).join("")
         || `<div class="ps" style="margin:0">${M.doneAll ? "No blind spot: every subject with 3+ stories has a quarter or more done." : "Your blind spots show up once you start marking stories done."}</div>`}</section>
+      ${syllabusPanel()}
       <section class="panel"><div class="ph">Running stories <span>· in the news for days</span></div>${M.threads.map((x) => `<div class="thread" data-open="${esc(x.s.id)}"><div class="thread-t"><b>${esc(x.s.title)}</b><span>${x.n} of last 7 days · ${esc((x.s.gs || []).join(" · ") || subjOf(x.s))}</span></div>
         <div class="spark" aria-hidden="true">${x.on.map((on, i) => `<i class="${i === 6 ? "last" : ""}" style="height:${on ? 8 + i * 2.6 : 3}px"></i>`).join("")}</div></div>`).join("") || '<div class="ps" style="margin:0">No story has run 3+ days this week.</div>'}</section>
       <section class="panel"><div class="ph">Exam radar</div><div class="ps">Today's stories that touch recurring UPSC themes</div>${M.radar.map((s) => { const k = tagOf(s) || String(W[(s.watch || [])[0]] || "").split(/[ (]/)[0]; return `<div class="radar" data-open="${esc(s.id)}"><span class="k">${esc(k)}</span><div class="radar-t"><b>${esc(s.title)}</b><span>${esc(subjOf(s))} · recurring ${esc((s.gs || [])[0] || "GS")} theme</span></div>${I.right}</div>`; }).join("") || '<div class="ps" style="margin:0">Nothing flagged for this day.</div>'}</section>
       ${CORE.backup.html()}`;
   }
 
+  function syllabusPanel() {  // hot topics of the syllabus map you haven't covered (data/syllabus.json, loaded once)
+    if (!SY.ready) {
+      if (!SY.data) syLoad().then(() => { if (A.tab === "progress" && A.progSeg === "insights") renderScreen(); }).catch(() => { /* offline: no panel */ });
+      return "";
+    }
+    const list = CORE.sylBlind(SY.ready, A.marks, undefined, 4);
+    return `<section class="panel"><div class="ph">Syllabus blind spots <span>· hot topics you haven't covered</span></div>${list.map((x) => `<div class="blind"><span class="bang">!</span><div class="blind-t"><b>${esc(x.t.name)}</b><span>${esc(x.t.paper)} · ${x.c.n} reports in 30 days · ${x.c.pct}% done</span></div><button class="btn-o" data-sy-open="${esc(x.id)}">Open</button></div>`).join("")
+      || '<div class="ps" style="margin:0">None: every topic that was often in the news has a quarter or more done, or you\'ve marked it studied.</div>'}</section>`;
+  }
   function renderTrack() {  // running stories, the places map and India's ranks (each mounted after)
-    const seg = `<div style="padding:2px 16px 12px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "India's Ranks"]].map(([k, l]) => `<button class="${A.trackSeg === k ? "on" : ""}" data-tseg="${k}">${l}</button>`).join("")}</div></div>`;
-    const id = { dossiers: "dsRoot", map: "mpRoot", ranks: "rkRoot" }[A.trackSeg] || "dsRoot";
-    return `${seg}<div id="${id}" class="${id === "dsRoot" ? "ds-root" : id === "mpRoot" ? "mp-root" : "rk-root"}"></div>`;
+    const seg = `<div style="padding:2px 16px 12px"><div class="seg" style="grid-template-columns:repeat(4,1fr)">${[["syllabus", "Syllabus"], ["dossiers", "Dossiers"], ["map", "Map"], ["ranks", "Ranks"]].map(([k, l]) => `<button class="${A.trackSeg === k ? "on" : ""}" data-tseg="${k}">${l}</button>`).join("")}</div></div>`;
+    const id = { syllabus: "syRoot", dossiers: "dsRoot", map: "mpRoot", ranks: "rkRoot" }[A.trackSeg] || "syRoot";
+    return `${seg}<div id="${id}" class="${{ syRoot: "sy-root", dsRoot: "ds-root", mpRoot: "mp-root" }[id] || "rk-root"}"></div>`;
   }
   function renderProgress() {  // your last 30 days (Insights) and the week or month in review
     const seg = `<div style="padding:2px 16px 4px"><div class="seg" style="grid-template-columns:repeat(3,1fr)">${[["insights", "My 30 days"], ["week", "Week"], ["month", "Month"]].map(([k, l]) => `<button class="${A.progSeg === k ? "on" : ""}" data-pseg="${k}">${l}</button>`).join("")}</div></div>`;
@@ -550,7 +560,7 @@
       <div class="story-body" id="storyBody">
         <div class="card-meta">${gradePill(s)}${gsPills(s)}<span class="subj">${esc(subjOf(s))}</span></div>
         <h1>${esc(headOf(s))}</h1>
-        ${CORE.dossierChips(s.topics)}
+        ${CORE.dossierChips(s.topics)}${CORE.sylChips(s.syl)}
         <div class="story-meta">${esc(srcName(s))}${(s.n_pub || 1) > 1 ? ` and ${plural(s.n_pub - 1, "more outlet")}` : ""}${s.first_seen ? ` · first seen ${esc(clockIST(s.first_seen))} IST${s.date && s.date !== todayIST() ? `, ${esc(dayShort(s.date))}` : ""}` : ""} · ${minutesOf(s)} min read</div>
         <section class="sumbox" id="sumbox"><div id="sumbody">${sum}</div>
           <div class="qchips nosb">${QUICK.map((q) => `<button class="qchip" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}<button class="qchip claude" data-act="claude">Ask Claude ↗</button></div></section>
@@ -860,6 +870,8 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
   }
   const RK = { data: null };  // India's Ranks, loaded once a visit
   const DS = { data: null }; const MP = { data: null };  // dossiers and the places map, loaded once a visit
+  const SY = { data: null, ready: null };  // the syllabus map (data/syllabus.json), loaded once a visit
+  const syLoad = () => SY.data || (SY.data = api.json(dataUrl("syllabus.json", "syllabus")).then((x) => { SY.ready = x; return x; }).catch((e) => { SY.data = null; throw e; }));
   const askIntel = (s) => { A.cache.set(s.id, s); openBot({ kind: "story", id: s.id }); };  // a dossier or an index, as a story
   const dataUrl = (file, route) => (STATIC ? `../data/${file}?v=${api.stamp()}` : `../api/${route}`);
   async function openInBrief(id, day) {  // a dossier's or the map's report, in its day's brief
@@ -872,6 +884,10 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     $("#screen").innerHTML = html;
     if (A.tab === "track" && A.trackSeg === "ranks" && $("#rkRoot")) {  // India's Ranks (data/rankings.json)
       CORE.mountRanks($("#rkRoot"), { ask: askIntel, load: () => RK.data || (RK.data = api.json(STATIC ? `../data/rankings.json?v=${api.stamp()}` : "../api/rankings").catch((e) => { RK.data = null; throw e; })) });
+    }
+    if (A.tab === "track" && A.trackSeg === "syllabus" && $("#syRoot")) {  // the syllabus map (data/syllabus.json)
+      CORE.mountSyllabus($("#syRoot"), { key: A.syKey, load: syLoad, marks: () => A.marks, open: openInBrief, ask: askIntel,
+        onShow: (k) => { A.syKey = k; }, dossier: (k) => { A.dsKey = k; A.trackSeg = "dossiers"; renderScreen(); window.scrollTo(0, 0); } });
     }
     if (A.tab === "track" && A.trackSeg === "dossiers" && $("#dsRoot")) {  // Dossiers (data/dossiers.json)
       CORE.mountDossiers($("#dsRoot"), { key: A.dsKey, open: openInBrief, ask: askIntel, onShow: (k) => { A.dsKey = k; },
@@ -924,6 +940,11 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     if (t.dataset.seg) { A.readSeg = t.dataset.seg; renderScreen(); return; }
     if (t.dataset.tseg) { A.trackSeg = t.dataset.tseg; renderScreen(); return; }
     if (t.dataset.pseg) { A.progSeg = t.dataset.pseg; renderScreen(); window.scrollTo(0, 0); return; }
+    if (t.dataset.syOpen) {  // a story's syllabus topic: its page on the syllabus map, in Track
+      A.syKey = t.dataset.syOpen; A.tab = "track"; A.trackSeg = "syllabus";
+      if (A.open || A.sheet) closeTop(); else { renderScreen(); window.scrollTo(0, 0); }
+      return;
+    }
     if (t.dataset.dsOpen) {  // a story's running story: its dossier, in Read
       A.dsKey = t.dataset.dsOpen; A.tab = "track"; A.trackSeg = "dossiers";
       if (A.open || A.sheet) closeTop(); else { renderScreen(); window.scrollTo(0, 0); }
