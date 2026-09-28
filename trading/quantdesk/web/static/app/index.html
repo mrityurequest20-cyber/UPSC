@@ -26,7 +26,8 @@
 html,body{margin:0;background:var(--page);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
 header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
 background:var(--surface);border-bottom:1px solid var(--ring)}
-header h1{font-size:17px;margin:0;flex:1;display:flex;align-items:center;gap:8px}
+header h1{font-size:17px;margin:0;flex:1;display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap}
+header select{max-width:44vw;min-width:0;text-overflow:ellipsis}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block}
 .dot.on{background:var(--good)}.dot.paused{background:var(--warn)}.dot.stale{background:var(--bad)}
 select,button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--ring);border-radius:10px;padding:8px 12px;min-height:40px}

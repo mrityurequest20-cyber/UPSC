@@ -185,6 +185,8 @@ Open that link once on the phone, on the same Wi-Fi. The token is remembered in 
 
 **Away from home:** install [Tailscale](https://tailscale.com) on the computer and the phone, then open `http://<computer's tailscale name>:8765/?token=…`. Don't port-forward it to the open internet.
 
+**Share a read-only snapshot:** `python -m quantdesk intraday export-site --account live --out site.html` writes the whole app plus an account's data as one HTML file. Host it anywhere static; the controls are off in a snapshot.
+
 **How the pieces fit:** the engine (`intraday live`) and the website are separate processes sharing the journal. Commands from the phone are queued, and the engine applies them on its next minute. Everything is paper-only; the website can pause, close or flatten, but never places real orders.
 
 ## The quantitative stack

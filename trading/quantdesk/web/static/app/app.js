@@ -106,12 +106,12 @@ async function loadLive(full) {
 	kt.className = cls(st.total_pnl);
 	const stale = st.age_sec == null || st.age_sec > 180;
 	$("#k-age").textContent = hb.ts ? ist(hb.ts, true) : "never";
-	const status = st.paused ? "Paused" : hb.halted ? "Daily limit hit" : stale ? "Not running" : "Running";
+	const status = window.QD_DEMO ? "Snapshot" : st.paused ? "Paused" : hb.halted ? "Daily limit hit" : stale ? "Not running" : "Running";
 	$("#status").textContent = `${status} · ${hb.feed || "?"} / ${hb.chain || "?"}`;
-	$("#dot").className = "dot " + (st.paused ? "paused" : stale ? "stale" : "on");
+	$("#dot").className = "dot " + (window.QD_DEMO ? "" : st.paused ? "paused" : stale ? "stale" : "on");
 	$("#btn-pause").textContent = st.paused ? "Resume entries" : "Pause new entries";
 	const bn = $("#banner");
-	bn.hidden = !(stale && S.account === "live");
+	bn.hidden = !(stale && S.account === "live") || !!window.QD_DEMO;
 	bn.textContent = stale ? "The engine isn't running right now (no heartbeat in the last 3 minutes). Start it with `quantdesk intraday live`; you're seeing its last state." : "";
 	renderView(hb.views || {});
 	renderPositions(hb.positions || []);
@@ -181,6 +181,7 @@ function renderPositions(ps) {
 }
 
 async function command(cmd, arg, confirmText) {
+	if (window.QD_DEMO) return toast("This is a snapshot. Pause, Close and Flatten work on your own desk while it runs.");
 	if (confirmText && !confirm(confirmText)) return;
 	try {
 		await post("/api/i/command", { cmd, arg });
@@ -511,6 +512,7 @@ async function boot() {
 	$("#btn-pause").addEventListener("click", () => command(S.state && S.state.paused ? "resume" : "pause"));
 	$("#btn-flatten").addEventListener("click", () => command("flatten", null, "Close every open position and pause new entries?"));
 	$("#btn-pro").addEventListener("click", togglePro);
+	if (window.QD_DEMO) $("#btn-pro").hidden = true;
 	$("#more").addEventListener("click", () => loadThoughts(false));
 	$("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
 	document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });

@@ -203,6 +203,12 @@ def cmd_stats(cfg, a):
         print(f"\nBy {by}:\n{table(by)}")
 
 
+def cmd_export_site(cfg, a):
+    from ..web.export_site import export_site
+    out = export_site(cfg, a.account or "live", Path(a.out), a.sessions, a.label, a.note)
+    print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB): open it in any browser, or host it anywhere static")
+
+
 def register(sub):
     s = sub.add_parser("intraday", help="real-time intraday options desk (paper)")
     ss = s.add_subparsers(dest="icmd", required=True)
@@ -224,6 +230,13 @@ def register(sub):
     x.add_argument("--show-review", action="store_true")
     x.add_argument("--quiet", action="store_true")
     x.set_defaults(fn=cmd_replay)
+    x = ss.add_parser("export-site", help="write the web app + an account's data as one read-only HTML file")
+    x.add_argument("--account", help="live (default), replay, synthetic")
+    x.add_argument("--out", default="quantdesk-snapshot.html")
+    x.add_argument("--sessions", type=int, default=3, help="sessions of thoughts to include")
+    x.add_argument("--label")
+    x.add_argument("--note")
+    x.set_defaults(fn=cmd_export_site)
     for name, fn, help_ in (("thoughts", cmd_thoughts, "the analyst's reads"), ("trades", cmd_trades, "intraday trades"),
                             ("review", cmd_review, "session reviews"), ("stats", cmd_stats, "performance breakdown")):
         x = ss.add_parser(name, help=help_)
