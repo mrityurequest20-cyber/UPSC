@@ -1,0 +1,8 @@
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+pyyaml>=6.0
+yfinance>=0.2.40      # Yahoo data source (NSE: *.NS, ^NSEI, ^NSEBANK, ^INDIAVIX)
+pytest>=8.0
+# optional, live trading only:
+# kiteconnect>=5.0
