@@ -104,15 +104,20 @@ async function loadLive(full) {
 	const kt = $("#k-total");
 	kt.textContent = inr(st.total_pnl, true);
 	kt.className = cls(st.total_pnl);
-	const stale = st.age_sec == null || st.age_sec > 180;
+	// a published site only refreshes every few minutes, so it counts as live for longer
+	const pub = !!window.QD_PUBLISHED;
+	const stale = st.age_sec == null || st.age_sec > (pub ? 900 : 180);
 	$("#k-age").textContent = hb.ts ? ist(hb.ts, true) : "never";
-	const status = window.QD_DEMO ? "Snapshot" : st.paused ? "Paused" : hb.halted ? "Daily limit hit" : stale ? "Not running" : "Running";
-	$("#status").textContent = `${status} · ${hb.feed || "?"} / ${hb.chain || "?"}`;
-	$("#dot").className = "dot " + (window.QD_DEMO ? "" : st.paused ? "paused" : stale ? "stale" : "on");
+	const status = pub ? (stale ? "Offline" : st.paused ? "Live · paused" : hb.halted ? "Live · daily limit hit" : "Live")
+		: window.QD_DEMO ? "Snapshot" : st.paused ? "Paused" : hb.halted ? "Daily limit hit" : stale ? "Not running" : "Running";
+	$("#status").textContent = hb.feed ? `${status} · ${hb.feed} / ${hb.chain || "?"}` : status;
+	$("#dot").className = "dot " + (pub ? (stale ? "stale" : "on") : window.QD_DEMO ? "" : st.paused ? "paused" : stale ? "stale" : "on");
 	$("#btn-pause").textContent = st.paused ? "Resume entries" : "Pause new entries";
 	const bn = $("#banner");
-	bn.hidden = !(stale && S.account === "live") || !!window.QD_DEMO;
-	bn.textContent = stale ? "The engine isn't running right now (no heartbeat in the last 3 minutes). Start it with `quantdesk intraday live`; you're seeing its last state." : "";
+	bn.hidden = !stale || (window.QD_DEMO && !pub) || (!pub && S.account !== "live");
+	bn.textContent = !stale ? "" : pub
+		? `The desk isn't running right now: outside market hours, a holiday, or today's run hasn't started yet. This is its last published state (${hb.ts ? ist(hb.ts, true) : "none yet"}).`
+		: "The engine isn't running right now (no heartbeat in the last 3 minutes). Start it with `quantdesk intraday live`; you're seeing its last state.";
 	renderView(hb.views || {});
 	renderPositions(hb.positions || []);
 	const ct = $("#closedtoday");
@@ -176,11 +181,12 @@ function renderPositions(ps) {
 			h("div", { class: "small muted" }, `${p.lots} lot(s) since ${ist(p.opened)} · spot ${num(p.spot)} · stop ${p.stop != null ? num(p.stop) : "—"} · target ${p.target != null ? num(p.target) : "—"}`),
 			legs,
 			h("div", { class: "row", style: "margin-top:8px" }, h("button", { class: "small", onclick: () => openTrade(p.id) }, "Why?"),
-				h("button", { class: "small danger", onclick: () => command("close", p.id, `Close ${p.symbol} ${p.setup}?`) }, "Close"))));
+				window.QD_PUBLISHED ? null : h("button", { class: "small danger", onclick: () => command("close", p.id, `Close ${p.symbol} ${p.setup}?`) }, "Close"))));
 	}
 }
 
 async function command(cmd, arg, confirmText) {
+	if (window.QD_PUBLISHED) return toast("This site is read-only. Stop today's run from the repo's Actions tab, or use Pause/Flatten on a self-hosted desk.");
 	if (window.QD_DEMO) return toast("This is a snapshot. Pause, Close and Flatten work on your own desk while it runs.");
 	if (confirmText && !confirm(confirmText)) return;
 	try {
@@ -513,6 +519,7 @@ async function boot() {
 	$("#btn-flatten").addEventListener("click", () => command("flatten", null, "Close every open position and pause new entries?"));
 	$("#btn-pro").addEventListener("click", togglePro);
 	if (window.QD_DEMO) $("#btn-pro").hidden = true;
+	if (window.QD_PUBLISHED) $("#btn-pause").parentElement.hidden = true;    // a static site can't command the engine
 	$("#more").addEventListener("click", () => loadThoughts(false));
 	$("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeSheet(); });
 	document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });

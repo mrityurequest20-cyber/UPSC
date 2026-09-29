@@ -47,7 +47,8 @@ class IntradayEngine:
         self.vix = cfg.get("universe.volatility_index", "INDIAVIX")
         self.cal = TradingCalendar(cfg.holidays())
         self.pricer = IntradayPricer(cfg.get("backtest.risk_free", 0.065), cfg.get("backtest.dividend_yield", 0.012))
-        self.chains = ModelOptionChain(cfg, self.cal, self.model_state, self.pricer) if chains in (None, "model") else chains
+        self.model_chain = ModelOptionChain(cfg, self.cal, self.model_state, self.pricer)
+        self.chains = self.model_chain if chains in (None, "model") else chains
         self.analyst, self.playbook, self.risk = Analyst(cfg), Playbook(cfg, self.pricer), IntradayRisk(cfg)
         self.marker = QuoteMarker(self.pricer)
         self.refresh_min = ic.get("chain_refresh_min", 3)
@@ -61,6 +62,8 @@ class IntradayEngine:
         self.chain_df: dict[str, pd.DataFrame] = {}
         self.chain_an: dict[str, dict] = {}
         self.chain_at: dict[str, pd.Timestamp] = {}
+        self.chain_fail: dict[str, int] = {}
+        self.chain_tried: dict[str, pd.Timestamp] = {}
         self.expiry: dict[str, dt.date] = {}
         self.open_trades: list[Trade] = []
         self.closed: list[Trade] = []
@@ -116,10 +119,18 @@ class IntradayEngine:
             self.last_ts[sym] = h.index[-1] if h is not None and len(h) else None
         self.expiry = {u: self.pick_expiry(u, day) for u in self.underlyings}
         self.events_today = [n for d, n in self.cfg.events() if d == day]
-        self._restore(day)
-        self.day_start_equity = self.broker.cash() + sum(t.entry_cost for t in self.open_trades)
-        self.risk.reset(day, self.day_start_equity)
-        self.risk.trades_today = len([t for t in self.closed if t.opened_at.date() == day]) + len(self.open_trades)
+        saved = self._restore(day)
+        if saved.get("day_start_equity"):
+            self.day_start_equity = float(saved["day_start_equity"])
+            self.risk.reset(day, self.day_start_equity)
+            r = saved.get("risk") or {}
+            self.risk.trades_today = int(r.get("trades_today", len(self.closed) + len(self.open_trades)))
+            self.risk.consec_losses, self.risk.halted = int(r.get("consec_losses", 0)), bool(r.get("halted", False))
+            self.risk.cool_until = pd.Timestamp(r["cool_until"]) if r.get("cool_until") else None
+        else:
+            self.day_start_equity = self.broker.cash() + sum(t.entry_cost for t in self.open_trades)
+            self.risk.reset(day, self.day_start_equity)
+            self.risk.trades_today = len([t for t in self.closed if t.opened_at.date() == day]) + len(self.open_trades)
         exp = ", ".join(f"{u} {e:%d-%b}" for u, e in self.expiry.items())
         self.say(f"── session {day} · capital ₹{self.day_start_equity:,.0f} · expiries {exp} · chain {self.chains.name} "
                  f"· feed {self.feed.name}{' · events: ' + ', '.join(self.events_today) if self.events_today else ''}")
@@ -166,13 +177,15 @@ class IntradayEngine:
         self.journal.commit()
         return True
 
-    def end_session(self) -> str:
+    def end_session(self, reason: str = "square_off", note: str = "end of session") -> str:
         now = self.feed.now()
+        for u in {t.symbol for t in self.open_trades} - set(self.chain_df):
+            self._refresh_chain(u, now)                 # exits priced off a calibrated chain, never a default IV
         for t in list(self.open_trades):
-            self._close(t, now, "square_off", "end of session")
+            self._close(t, now, reason, note)
         review = self.session_review()
         self.journal.event(now, "INFO", "session_review", review[:2000])
-        self.journal.set_state("intraday_open", {"day": str(self.day), "trades": []})
+        self._persist(ended=True)
         self.journal.commit()
         if self.review_dir:
             self.review_dir.mkdir(parents=True, exist_ok=True)
@@ -185,7 +198,27 @@ class IntradayEngine:
         if at is not None and (now - at) < pd.Timedelta(minutes=self.refresh_min):
             return
         try:
-            ch = self.chains.chain(u, self.expiry[u], spot=self.spot(u), ts=now)
+            ch = None
+            fails = self.chain_fail.get(u, 0)
+            tried = self.chain_tried.get(u)
+            # after 3 straight failures, only retry the real chain every 15 minutes (each try can block ~20s)
+            if self.chains is not self.model_chain and (fails < 3 or tried is None or now - tried >= pd.Timedelta(minutes=15)):
+                self.chain_tried[u] = now
+                try:
+                    ch = self.chains.chain(u, self.expiry[u], spot=self.spot(u), ts=now)
+                    if fails >= 3:
+                        self.journal.event(now, "INFO", "chain", f"{u} {self.chains.name} chain is back")
+                    self.chain_fail[u] = 0
+                except Exception as exc:
+                    # NSE blocks many cloud IPs, throttles, or is down: the desk must not stop because of it.
+                    # Price off the model chain (India VIX + skew) and say so in the journal.
+                    n = self.chain_fail[u] = fails + 1
+                    if n == 1 or n % 10 == 0:
+                        self.journal.event(now, "WARN", "chain", f"{u} {self.chains.name} chain unavailable ({exc!s:.160}); "
+                                                               f"pricing off the model chain (India VIX)"
+                                                               f"{f' — {n} failures in a row' if n > 1 else ''}")
+            if ch is None:
+                ch = self.model_chain.chain(u, self.expiry[u], spot=self.spot(u), ts=now)
             if not ch.attrs.get("spot") or ch.attrs["spot"] != ch.attrs["spot"]:
                 ch.attrs["spot"] = self.spot(u)
             ch = fill_iv(ch, self.pricer)
@@ -387,7 +420,7 @@ class IntradayEngine:
         self.journal.set_state("intraday_live", {
             "ts": str(now), "day": str(self.day), "equity": eq, "day_start_equity": self.day_start_equity,
             "day_pnl": eq - self.day_start_equity, "paused": self.paused, "halted": self.risk.halted,
-            "trades_today": self.risk.trades_today, "feed": self.feed.name, "chain": self.chains.name,
+            "trades_today": self.risk.trades_today, "feed": self.feed.name, "chain": self.chain_name(),
             "views": views, "positions": positions})
 
     # ---- journaling ------------------------------------------------------------------------------------------
@@ -411,14 +444,36 @@ class IntradayEngine:
                               open_risk=sum(t.initial_risk for t in self.open_trades),
                               regime=",".join(f"{u}:{v.day_type}" for u, v in self.views.items()))
 
-    def _persist(self) -> None:
-        self.journal.set_state("intraday_open", {"day": str(self.day), "trades": [trade_to_dict(t) for t in self.open_trades]})
+    def _persist(self, ended: bool = False) -> None:
+        r = self.risk
+        self.journal.set_state("intraday_open", {
+            "day": str(self.day), "ended": ended, "trades": [trade_to_dict(t) for t in self.open_trades],
+            "closed": [trade_to_dict(t) for t in self.closed if t.opened_at.date() == self.day],
+            "day_start_equity": self.day_start_equity,
+            "risk": {"trades_today": r.trades_today, "consec_losses": r.consec_losses, "halted": r.halted,
+                     "cool_until": str(r.cool_until) if r.cool_until is not None else None}})
 
-    def _restore(self, day: dt.date) -> None:
+    def _restore(self, day: dt.date) -> dict:
+        """Pick up today's session after a restart: open positions, the trades already closed, the day's
+        starting equity and the risk state (trade count, loss streak, cooldown, halt)."""
         st = self.journal.get_state("intraday_open") or {}
-        if st.get("day") == str(day) and st.get("trades"):
-            self.open_trades = [trade_from_dict(d) for d in st["trades"]]
-            self.say(f"  restored {len(self.open_trades)} open position(s) after a restart")
+        if st.get("day") != str(day):
+            if st.get("trades"):
+                self.journal.event(pd.Timestamp.now(tz=IST), "WARN", "session",
+                                   f"{len(st['trades'])} position(s) from {st.get('day')} were never squared off; ignored")
+            return {}
+        self.open_trades = [trade_from_dict(d) for d in st.get("trades") or []]
+        self.closed = [trade_from_dict(d) for d in st.get("closed") or []]
+        if self.open_trades or self.closed or st.get("day_start_equity"):
+            self.say(f"  resumed today's session: {len(self.open_trades)} open, {len(self.closed)} closed")
+        return st
+
+    def chain_name(self) -> str:
+        """The chain actually in use: the configured source, or the model standing in for it."""
+        srcs = {str(ch.attrs.get("source")) for ch in self.chain_df.values()}
+        if self.chains is self.model_chain or "model" not in srcs:
+            return self.chains.name
+        return f"model (no {self.chains.name})" if srcs == {"model"} else f"{self.chains.name}+model"
 
     # ---- review ------------------------------------------------------------------------------------------------
     def session_review(self) -> str:
@@ -428,7 +483,7 @@ class IntradayEngine:
         end_eq = self.broker.cash()
         L = [f"# Intraday session review — {day}", "",
              f"Capital ₹{self.day_start_equity:,.0f} → ₹{end_eq:,.0f} (**{end_eq / self.day_start_equity - 1:+.2%}**, "
-             f"₹{end_eq - self.day_start_equity:+,.0f}); {len(trades)} trade(s); chain source {self.chains.name}; "
+             f"₹{end_eq - self.day_start_equity:+,.0f}); {len(trades)} trade(s); chain source {self.chain_name()}; "
              f"feed {self.feed.name}.", ""]
         for u in self.underlyings:
             tu = th[th["symbol"] == u] if not th.empty else th
@@ -475,17 +530,30 @@ def run_replay(engine: IntradayEngine) -> str:
     return engine.end_session()
 
 
-def run_live(engine: IntradayEngine, stop_at: dt.time | None = None) -> str:
-    """Wall-clock loop: waits for the open, steps a few seconds after each minute closes."""
+def run_live(engine: IntradayEngine, stop_at: dt.time | None = None, handover: bool = False) -> str:
+    """Wall-clock loop: waits for the open, steps a few seconds after each minute closes.
+
+    stop_at + handover: stop at that time *without* squaring off; the next run (same journal and
+    broker state) resumes the session where this one left off. That is how two back-to-back
+    runners cover a full 6¼-hour session when each is capped at 6 hours."""
     now = engine.feed.now()
-    if not engine.cal.is_trading_day(now.date()):
-        return f"{now.date()} is not an NSE trading day"
-    open_ts, close_ts = session_bounds(now.date())
+    day = now.date()
+    if not engine.cal.is_trading_day(day):
+        return f"{day} is not an NSE trading day"
+    open_ts, close_ts = session_bounds(day)
+    end = pd.Timestamp(dt.datetime.combine(day, stop_at), tz=IST) if stop_at else close_ts
+    if now >= close_ts:
+        st = engine.journal.get_state("intraday_open") or {}
+        if st.get("day") == str(day) and not st.get("ended") and (st.get("trades") or st.get("closed")):
+            engine.start_session(day)                   # a handed-over session nobody closed: close it now
+            return engine.end_session()
+        return f"the {day} session is over"
+    if handover and now >= end:
+        return f"past the hand-over time {stop_at:%H:%M}; nothing to do"
     if now < open_ts:
         engine.say(f"waiting for the open ({open_ts:%H:%M})…")
         time.sleep((open_ts - now).total_seconds() + 5)
-    engine.start_session(now.date())
-    end = pd.Timestamp(dt.datetime.combine(now.date(), stop_at), tz=IST) if stop_at else close_ts
+    engine.start_session(day)
     while engine.feed.now() < end + pd.Timedelta(seconds=30):
         try:
             engine.step()
@@ -494,4 +562,23 @@ def run_live(engine: IntradayEngine, stop_at: dt.time | None = None) -> str:
             engine.journal.event(engine.feed.now(), "ERROR", "engine", repr(exc))
         n = engine.feed.now()
         time.sleep(max(1.0, 60 - n.second + 4))
+    if handover and end < close_ts:
+        engine._persist()
+        engine.journal.event(engine.feed.now(), "INFO", "session", f"handed over at {stop_at:%H:%M} with "
+                             f"{len(engine.open_trades)} open position(s)")
+        engine.journal.commit()
+        eq = engine.equity(engine.feed.now())
+        return (f"handed over at {stop_at:%H:%M}: {len(engine.open_trades)} open, {len(engine.closed)} closed, "
+                f"day P&L ₹{eq - engine.day_start_equity:+,.0f}")
     return engine.end_session()
+
+
+def close_out(engine: IntradayEngine, note: str = "stopped by the operator") -> str:
+    """Square off today's open positions now, at current prices, and close the session: what
+    cancelling the day's run (the kill switch) does, so no paper position is left dangling."""
+    day = engine.feed.now().date()
+    st = engine.journal.get_state("intraday_open") or {}
+    if st.get("day") != str(day) or st.get("ended") or not st.get("trades"):
+        return "nothing open to close"
+    engine.start_session(day)
+    return engine.end_session("manual", note)

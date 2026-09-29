@@ -1,0 +1,95 @@
+# The live paper desk, unattended, every NSE trading day.
+#
+# GitHub runs this on its own machines (free and unlimited for public repos). A hosted job may
+# run at most 6 hours and the session is 6h15m (09:15–15:30 IST), so the day is split across two
+# jobs: `morning` trades until the hand-over time and leaves its open positions in place;
+# `afternoon` restores the journal and carries on to the close, squares off, writes the review.
+#
+# State lives on the `journal` branch; the read-only site is re-published to the `gh-pages`
+# branch every few minutes (turn on Settings → Pages → Deploy from a branch → gh-pages).
+# Kill switch: cancel the run in the Actions tab; open positions are squared off at once.
+name: Live paper desk
+
+on:
+  schedule:
+    # 08:52 IST Mon–Fri. Scheduled runs often start a few minutes late; the engine waits for
+    # 09:15 either way, and on NSE holidays it exits within a minute.
+    - cron: "22 3 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      handover:
+        description: "Morning runner hands over to the afternoon one at (HH:MM IST)"
+        default: "12:20"
+
+permissions:
+  contents: write            # push the journal and gh-pages branches
+
+concurrency:
+  group: live-desk           # never two desks on one journal
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+  TZ: Asia/Kolkata
+  HANDOVER: ${{ inputs.handover || '12:20' }}
+  PUBLISH_EVERY_MIN: "6"     # Pages allows ~10 builds an hour
+
+jobs:
+  morning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Can this runner see the market?
+        run: python -m quantdesk intraday doctor || echo "::warning::doctor says the data feed is down; the engine will retry every minute"
+      - name: Restore the journal
+        run: deploy/journal.sh restore
+      - name: Trade (paper) until the hand-over
+        run: deploy/run-session.sh --quiet --until "$HANDOVER" --handover
+      - name: Kill switch — square off
+        if: cancelled()
+        run: python -m quantdesk intraday live --close-out && python -m quantdesk intraday export-site --dir _site --sessions 2 && deploy/push-dir.sh _site gh-pages "site (stopped)"
+      - name: Save the journal
+        if: always()
+        run: deploy/journal.sh save "morning $(date '+%F %H:%M') IST"
+
+  afternoon:
+    needs: morning
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Restore the journal
+        run: deploy/journal.sh restore
+      - name: Trade (paper) to the close, square off, write the review
+        run: deploy/run-session.sh --quiet
+      - name: Kill switch — square off
+        if: cancelled()
+        run: python -m quantdesk intraday live --close-out && python -m quantdesk intraday export-site --dir _site --sessions 2 && deploy/push-dir.sh _site gh-pages "site (stopped)"
+      - name: Save the journal
+        if: always()
+        run: deploy/journal.sh save "close $(date '+%F %H:%M') IST"
+      - name: Today's review
+        if: always()
+        run: |
+          python -m quantdesk intraday review >> "$GITHUB_STEP_SUMMARY" || true
+          python -m quantdesk intraday trades --date "$(date +%F)" || true
+      - name: Keep the day's raw data (bars + option-chain snapshots) for replays
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-data-${{ github.run_id }}
+          path: runtime/intraday/data
+          retention-days: 90
+          if-no-files-found: ignore

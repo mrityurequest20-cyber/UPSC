@@ -127,3 +127,33 @@ def test_phone_commands_reach_the_engine(site, tmp_path):
     eng.step()
     assert not eng.paused
     assert j.events(level="WARN")["message"].str.contains("pause from the app").any()
+
+
+def test_static_site_exports(site, tmp_path):
+    """The one-file snapshot and the live-updating folder the GitHub Actions workflow publishes."""
+    from quantdesk.web.export_site import export_site, publish_site
+    _, cfg, _, days = site
+    one = export_site(cfg, "live", tmp_path / "snap.html")
+    html = one.read_text()
+    assert html.startswith("<title>QuantDesk</title>") and 'id="qd-data"' in html and "qdAnswer" in html
+    assert "</script>" not in html[html.index('id="qd-data"'):html.index("window.QD_DEMO")].split("</script>", 1)[0]
+
+    out = publish_site(cfg, "live", tmp_path / "site", sessions=2)
+    names = {p.name for p in out.iterdir()}
+    assert {"index.html", "app.js", "data.json", "manifest.webmanifest", "icon-192.png", "icon-512.png",
+            "apple-touch-icon.png", ".nojekyll"} <= names
+    page = (out / "index.html").read_text()
+    assert "QD_PUBLISHED" in page and '<script src="app.js"></script>' in page
+    assert 'href="/' not in page and "/static/" not in page                     # works under /<repo>/ on Pages
+    man = json.loads((out / "manifest.webmanifest").read_text())
+    assert man["start_url"] == "./" and not any(i["src"].startswith("/") for i in man["icons"])
+    data = json.loads((out / "data.json").read_text())
+    assert data["live"] is True and data["short"] == "Live paper"
+    # nothing time-stamped at export time: an idle desk re-exports byte-identical data (no needless re-deploys)
+    publish_site(cfg, "live", tmp_path / "site2", sessions=2)
+    assert (tmp_path / "site2" / "data.json").read_bytes() == (out / "data.json").read_bytes()
+    assert data["state"]["heartbeat"]["ts"] and set(data["reviews"]) == {str(days[-1]), str(days[-2])}
+    assert {t["ts"][:10] for t in data["thoughts"]} == {str(days[-1]), str(days[-2])}
+    assert set(data["chart"]) == {f"{s}|{iv}" for s in ("NIFTY", "BANKNIFTY") for iv in ("1m", "5m", "15m")}
+    assert all(tid in data["trade"] for tid in [t["id"] for t in data["trades"]][:150])
+    assert not (out / "data.json.tmp").exists()

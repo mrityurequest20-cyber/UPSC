@@ -222,7 +222,11 @@ CRON_TZ=Asia/Kolkata
 */30 10-15 * * 1-5 cd {root} && {py} -m quantdesk paper intraday >> runtime/cron.log 2>&1
 45 16 * * 1-5 cd {root} && {py} -m quantdesk paper run >> runtime/cron.log 2>&1
 50 16 * * 1-5 cd {root} && {py} -m quantdesk paper review >> runtime/cron.log 2>&1
-0 18 * * 5    cd {root} && {py} -m quantdesk paper review --days 7 >> runtime/cron.log 2>&1""")
+0 18 * * 5    cd {root} && {py} -m quantdesk paper review --days 7 >> runtime/cron.log 2>&1
+# intraday options desk (paper): waits for 09:15, trades to 15:30, squares off, writes the review
+55 8 * * 1-5  cd {root} && {py} -m quantdesk intraday live --quiet >> runtime/intraday.log 2>&1
+# the phone app (token-protected); or run `quantdesk intraday live --forever` as a service instead
+@reboot       cd {root} && {py} -m quantdesk serve --host 0.0.0.0 >> runtime/web.log 2>&1""")
 
 
 def cmd_serve(cfg, a):

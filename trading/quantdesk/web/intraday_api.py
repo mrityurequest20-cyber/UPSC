@@ -73,7 +73,7 @@ class IntradayAPI:
         if hb.get("ts"):
             age = (pd.Timestamp.now(tz="Asia/Kolkata") - pd.Timestamp(hb["ts"])).total_seconds()
         return {"heartbeat": hb, "age_sec": age, "cash": cash, "capital": cap,
-                "equity": hb.get("equity", cash), "total_pnl": float(tot["pnl"]), "total_trades": int(tot["n"]),
+                "equity": hb.get("equity", cash if cash is not None else cap), "total_pnl": float(tot["pnl"]), "total_trades": int(tot["n"]),
                 "paused": bool(j.get_state("intraday_paused", False)), "closed_today": closed.to_dict("records"),
                 "pending_commands": len([c for c in (j.get_state("intraday_cmds") or [])
                                          if c["id"] not in set(j.get_state("intraday_cmds_done") or [])])}

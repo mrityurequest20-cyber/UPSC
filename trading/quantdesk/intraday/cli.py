@@ -18,7 +18,7 @@ import pandas as pd
 
 from ..core.calendar import TradingCalendar
 from ..journal.journal import Journal
-from .engine import IntradayEngine, run_live, run_replay
+from .engine import IntradayEngine, close_out, run_live, run_replay
 from .feeds import ReplayFeed
 from .recorder import SessionRecorder
 from .sim import IntradayBroker
@@ -46,7 +46,7 @@ def _say(quiet: bool):
     return (lambda *a: None) if quiet else (lambda *a: print(*a, flush=True))
 
 
-def cmd_live(cfg, a):
+def _live_engine(cfg, a) -> IntradayEngine:
     p = paths(cfg, "live")
     syms = a.symbols.split(",") if a.symbols else None
     feed_name = a.feed or cfg.get("intraday.feed", "yahoo")
@@ -62,9 +62,47 @@ def cmd_live(cfg, a):
     broker = IntradayBroker(cfg, starting_cash=cfg.get("intraday.capital"), state_path=p["broker"],
                             adverse_ticks=cfg.get("intraday.adverse_ticks", 1))
     j = Journal(p["journal"], autocommit_every=1)
-    eng = IntradayEngine(cfg, feed, chains, j, broker, SessionRecorder(p["data"]), _say(a.quiet), underlyings, p["reviews"])
+    return IntradayEngine(cfg, feed, chains, j, broker, SessionRecorder(p["data"]), _say(a.quiet), underlyings, p["reviews"])
+
+
+def cmd_live(cfg, a):
+    if a.close_out:
+        print(close_out(_live_engine(cfg, a)), flush=True)
+        return
     stop = dt.time.fromisoformat(a.until) if a.until else None
-    print(run_live(eng, stop))
+    if a.handover and not stop:
+        sys.exit("--handover needs --until HH:MM")
+    if not a.forever:
+        print(run_live(_live_engine(cfg, a), stop, handover=a.handover), flush=True)
+        return
+    # always-on host (Docker / systemd): one fresh engine per NSE session, asleep in between
+    import time
+    from .feeds import IST, session_bounds
+    cal = TradingCalendar(cfg.holidays())
+    while True:
+        now = pd.Timestamp.now(tz=IST)
+        if cal.is_trading_day(now.date()) and now < session_bounds(now.date())[1]:
+            try:
+                print(run_live(_live_engine(cfg, a)), flush=True)
+            except Exception as exc:                    # a bad day must not kill the service
+                print(f"session failed: {exc!r}; retrying in 5 min", flush=True)
+                time.sleep(300)
+                continue
+        nxt = cal.next_trading_day(now.date())
+        wake = session_bounds(nxt)[0] - pd.Timedelta(minutes=15)
+        print(f"next session {nxt:%a %d-%b}; sleeping until {wake:%a %H:%M} IST", flush=True)
+        while pd.Timestamp.now(tz=IST) < wake:
+            time.sleep(min(600, max(1, (wake - pd.Timestamp.now(tz=IST)).total_seconds())))
+
+
+def cmd_command(cfg, a):
+    """Queue pause / resume / flatten / close for the running engine (same queue the app uses)."""
+    from ..web.intraday_api import IntradayAPI
+    try:
+        r = IntradayAPI(cfg).command(a.account or "live", {"cmd": a.cmd, "arg": a.id})
+    except ValueError as exc:
+        sys.exit(str(exc))
+    print(f"queued {r['queued']['cmd']}{' ' + a.id if a.id else ''}: the engine applies it on its next minute")
 
 
 def _synthetic_bars(cfg, n: int, seed: int):
@@ -204,9 +242,59 @@ def cmd_stats(cfg, a):
 
 
 def cmd_export_site(cfg, a):
-    from ..web.export_site import export_site
+    from ..web.export_site import export_site, publish_site
+    if a.dir:
+        out = publish_site(cfg, a.account or "live", Path(a.dir), a.sessions, a.label, a.note)
+        print(f"published {out}/ (data.json {(out / 'data.json').stat().st_size / 1e6:.2f} MB): serve the folder from "
+              f"any static host; the page re-reads data.json every minute", flush=True)
+        return
     out = export_site(cfg, a.account or "live", Path(a.out), a.sessions, a.label, a.note)
     print(f"wrote {out} ({out.stat().st_size / 1e6:.1f} MB): open it in any browser, or host it anywhere static")
+
+
+def cmd_doctor(cfg, a):
+    """Can this machine run the live desk? Market-data reachability, the calendar, expiries."""
+    import time
+    from .chains import NSEOptionChain
+    from .feeds import IST, YahooIntradayFeed
+    cal = TradingCalendar(cfg.holidays())
+    now = pd.Timestamp.now(tz=IST)
+    print(f"now {now:%a %Y-%m-%d %H:%M} IST · {'NSE trading day' if cal.is_trading_day(now.date()) else 'not an NSE trading day'}"
+          f" · next session {cal.next_trading_day(now.date()):%a %d-%b}")
+    syms = cfg.get("intraday.underlyings") + [cfg.get("universe.volatility_index")]
+    feed, yahoo_ok = YahooIntradayFeed(cfg), True
+    for sym in syms:
+        t0 = time.time()
+        try:
+            df = feed.history(sym, 2)
+            if df.empty:
+                raise RuntimeError("no bars returned")
+            lag = (now - df.index[-1]).total_seconds() / 60
+            print(f"  yahoo  {sym:<10} ok   {len(df):>4} 1m bars · last {df.index[-1]:%d-%b %H:%M} "
+                  f"({lag:,.0f} min ago) · {time.time() - t0:.1f}s")
+        except Exception as exc:
+            yahoo_ok = False
+            print(f"  yahoo  {sym:<10} FAIL {exc!s:.160}")
+    for u in cfg.get("intraday.underlyings"):
+        spec = cfg.instrument_spec(u)
+        exps = cal.expiries(now.date(), 40, int(spec.get("expiry_weekday", 1)), bool(spec.get("weekly_expiry", True)))
+        print(f"  calendar {u:<8} next expiries {', '.join(f'{e:%a %d-%b}' for e in exps[:3])}")
+    nse = NSEOptionChain()
+    try:
+        t0 = time.time()
+        exps = nse.expiries("NIFTY")
+        ch = nse.chain("NIFTY", exps[0])
+        print(f"  nse    NIFTY      ok   expiries {', '.join(f'{e:%d-%b}' for e in exps[:3])} · {len(ch)} strikes "
+              f"· spot {ch.attrs.get('spot')} · {time.time() - t0:.1f}s")
+        nse_ok = True
+    except Exception as exc:
+        nse_ok = False
+        print(f"  nse    NIFTY      FAIL {exc!s:.160}")
+    print("verdict:", "ready" if yahoo_ok and nse_ok else
+          "ready, pricing options off the model chain (NSE unreachable from here)" if yahoo_ok else
+          "NOT ready: no bars from Yahoo, so the desk has nothing to read")
+    if not yahoo_ok:
+        sys.exit(1)
 
 
 def register(sub):
@@ -216,9 +304,21 @@ def register(sub):
     x.add_argument("--feed", choices=["yahoo", "kite"])
     x.add_argument("--chain", choices=["nse", "kite", "model"])
     x.add_argument("--symbols", help="e.g. NIFTY,BANKNIFTY")
-    x.add_argument("--until", help="HH:MM to stop early")
+    x.add_argument("--until", help="HH:MM to stop early (squares off, unless --handover)")
+    x.add_argument("--handover", action="store_true",
+                   help="stop at --until WITHOUT squaring off; the next `live` run resumes the session")
+    x.add_argument("--forever", action="store_true", help="always-on hosts: trade every NSE session, sleep in between")
+    x.add_argument("--close-out", action="store_true",
+                   help="square off today's open positions now and close the session (the kill switch)")
     x.add_argument("--quiet", action="store_true")
     x.set_defaults(fn=cmd_live)
+    x = ss.add_parser("doctor", help="check this machine can run the live desk (Yahoo, NSE, calendar)")
+    x.set_defaults(fn=cmd_doctor)
+    x = ss.add_parser("command", help="pause / resume / flatten / close a position on the running engine")
+    x.add_argument("cmd", choices=["pause", "resume", "flatten", "close"])
+    x.add_argument("id", nargs="?", help="trade id (for close)")
+    x.add_argument("--account", help="live (default)")
+    x.set_defaults(fn=cmd_command)
     x = ss.add_parser("replay", help="replay recorded or synthetic sessions")
     x.add_argument("--date")
     x.add_argument("--last", type=int)
@@ -230,9 +330,10 @@ def register(sub):
     x.add_argument("--show-review", action="store_true")
     x.add_argument("--quiet", action="store_true")
     x.set_defaults(fn=cmd_replay)
-    x = ss.add_parser("export-site", help="write the web app + an account's data as one read-only HTML file")
+    x = ss.add_parser("export-site", help="the web app + an account's data as a read-only static site")
     x.add_argument("--account", help="live (default), replay, synthetic")
     x.add_argument("--out", default="quantdesk-snapshot.html")
+    x.add_argument("--dir", help="write a live-updating static site into this folder instead (index.html + data.json)")
     x.add_argument("--sessions", type=int, default=3, help="sessions of thoughts to include")
     x.add_argument("--label")
     x.add_argument("--note")

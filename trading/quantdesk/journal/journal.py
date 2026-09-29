@@ -89,6 +89,9 @@ def trade_from_dict(d: dict) -> Trade:
               rationale=d.get("rationale", ""), context=d.get("context", {}), meta=d.get("meta", {}),
               fees=float(d.get("fees", 0)), status=d.get("status", "open"))
     t.mae, t.mfe, t.bars_held, t.pnl = float(d.get("mae", 0)), float(d.get("mfe", 0)), int(d.get("bars_held", 0)), float(d.get("pnl", 0))
+    if d.get("closed_at"):
+        t.closed_at = pd.Timestamp(d["closed_at"])
+    t.exit_reason, t.exit_note, t.exit_underlying = d.get("exit_reason"), d.get("exit_note", ""), d.get("exit_underlying")
     return t
 
 
