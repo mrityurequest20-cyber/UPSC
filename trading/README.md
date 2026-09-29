@@ -27,13 +27,13 @@ data ─► analytics ─► regime ─► strategies ─► allocator ─► ri
 ## Quick start
 
 ```bash
-cd trading
+git clone https://github.com/mrityurequest20-cyber/quantdesk && cd quantdesk
 pip install -r requirements.txt
 
 python -m quantdesk --source synthetic demo       # the daily desk, offline, ~90 s
 python -m quantdesk intraday replay --synthetic 5 # the intraday options desk, offline, ~1 min
 python -m quantdesk serve --host 0.0.0.0          # the website, on your phone (prints a private link)
-python -m pytest                                  # 120 tests
+python -m pytest                                  # 126 tests
 ```
 
 The demo writes everything to `runtime/demo/`:
@@ -185,9 +185,79 @@ Open that link once on the phone, on the same Wi-Fi. The token is remembered in 
 
 **Away from home:** install [Tailscale](https://tailscale.com) on the computer and the phone, then open `http://<computer's tailscale name>:8765/?token=…`. Don't port-forward it to the open internet.
 
-**Share a read-only snapshot:** `python -m quantdesk intraday export-site --account live --out site.html` writes the whole app plus an account's data as one HTML file. Host it anywhere static; the controls are off in a snapshot.
+**Share a read-only snapshot:** `python -m quantdesk intraday export-site --account live --out site.html` writes the whole app plus an account's data as one HTML file. Host it anywhere static; the controls are off in a snapshot. For a site that stays current, use `--dir` (see [Running it every day by itself](#running-it-every-day-by-itself)).
 
 **How the pieces fit:** the engine (`intraday live`) and the website are separate processes sharing the journal. Commands from the phone are queued, and the engine applies them on its next minute. Everything is paper-only; the website can pause, close or flatten, but never places real orders.
+
+## Running it every day by itself
+
+**Does it trade on its own when the market opens?** Yes, as long as the engine is running. Once
+started, `intraday live` waits for 09:15 and then works alone until 15:30: it reads every minute,
+thinks, takes and manages paper option trades, squares off at 15:15 and writes the day's review.
+Something has to start it each morning, though. There are two ways to set that up so you never
+touch it.
+
+### A. GitHub Actions + GitHub Pages (free, no computer needed)
+
+`.github/workflows/live.yml` runs the desk on GitHub's machines every weekday:
+
+| IST | What happens |
+|---|---|
+| 08:52 | The `morning` job starts. It checks Yahoo/NSE reachability (`doctor`), restores the journal from the `journal` branch, and waits for the open |
+| 09:15 | It trades on paper and re-publishes the website every 6 minutes |
+| 12:20 | It hands over without squaring off. A hosted job may run for at most 6 h, and the session is 6h15m |
+| 12:21 | The `afternoon` job restores the journal and resumes the same session: open positions, trades closed so far, the day's P&L, the loss streak, the cooldown |
+| 15:15 | It squares off |
+| 15:30 | It writes the session review, saves the journal, posts the review in the run summary, and keeps the day's bars and option chains as a 90-day artifact |
+
+On NSE holidays both jobs exit within a minute.
+
+- **The live website** is at `https://<your-user>.github.io/quantdesk/`. It is the same phone app, **read-only**: Live, Thinking, Trades, Stats and Reviews, re-published every ~6 minutes while the desk runs. The status reads **Live** while the heartbeat is fresh and **Offline** outside market hours. Add it to your home screen; it installs like an app.
+- **The journal** lives on the `journal` branch: the SQLite journal, the paper broker, the reviews and the recorded 1m bars. To read it locally, run `git fetch origin journal && git archive FETCH_HEAD | tar -x -C runtime`, then `quantdesk intraday stats` or `quantdesk serve`.
+- **Kill switch:** in the Actions tab, open the running *Live paper desk* run and press **Cancel**. Open paper positions are squared off at current prices (`live --close-out`), and the site and journal are saved.
+
+One-time setup:
+1. Create the repo on GitHub and push this code to `main`. Workflows are enabled by default.
+2. Go to **Actions → Live paper desk → Run workflow** once to try it, or wait for the next weekday.
+3. Once the first run has created the `gh-pages` branch, go to **Settings → Pages → Build and deployment → Deploy from a branch → `gh-pages` / root**.
+
+Why the repo should be **public**:
+- GitHub Pages is free only for public repos. A private repo needs a paid plan for Pages.
+- Actions minutes are unlimited on public repos. A private repo's 2,000 free minutes a month last about five trading days, because the desk uses about 400 minutes a day.
+
+Public also means your paper journal is public. It is paper, and it contains no keys: never commit Kite credentials. If you add Kite later, use repo **Secrets**.
+
+Caveats:
+- GitHub can start scheduled runs 5–20 minutes late. The engine back-fills the missed bars, but it takes no trades before it's running.
+- GitHub pauses scheduled workflows in a repo with no activity for 60 days. If that happens, re-enable the workflow from the Actions tab.
+- Runners are in the US, so the NSE chain is often unreachable. The desk then prices off the model chain (see Known limitations).
+
+### B. Your own always-on machine (full controls, real NSE chains from India)
+
+On a home PC, a Raspberry Pi 5 or an India-region VM, the phone app keeps **Pause / Resume / Flatten / Close**:
+
+```bash
+# Docker
+echo "QUANTDESK_TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')" > .env
+docker compose up -d --build          # `desk` trades every session, `web` serves the app on :8765
+
+# or systemd: deploy/quantdesk-desk.service + deploy/quantdesk-web.service (install steps inside)
+# or cron:    python -m quantdesk schedule   (prints the crontab lines)
+```
+
+Reach it from your phone over [Tailscale](https://tailscale.com): `http://<machine>:8765/?token=<token>`.
+
+### Commands for unattended running
+
+| Command | What it does |
+|---|---|
+| `quantdesk intraday doctor` | Can this machine see the market? Yahoo bars per symbol with their lag, NSE expiries and chain, today's calendar |
+| `quantdesk intraday live` | Waits for 09:15 and trades today's session to the close |
+| `… live --until 12:20 --handover` | Stops at 12:20 **without** squaring off; the next `live` run resumes the session |
+| `… live --forever` | Trades every NSE session and sleeps in between (for Docker/systemd) |
+| `… live --close-out` | Squares off today's open positions now and closes the session (the kill switch) |
+| `quantdesk intraday command pause\|resume\|flatten\|close ID` | Controls the running engine from a terminal (the same queue the app uses) |
+| `quantdesk intraday export-site --dir _site` | Writes the read-only site (index.html + data.json); the page re-reads data.json every minute |
 
 ## The quantitative stack
 
@@ -292,11 +362,15 @@ Everything is in `config/quantdesk.yaml`: account, universe, contract specs, cos
 - **Futures:** futures are priced off spot, and basis and roll cost are ignored. Pair legs ignore lot rounding.
 - **Intraday data:** the free path (Yahoo + NSE) is best effort. For real-time decisions use Kite. The intraday desk models only index options on NIFTY and BANKNIFTY.
 - **Kite:** the Kite path and GoCharting's full SDK are untested from this environment. Both are behind guards and have fallbacks.
+- **GitHub-hosted runs:** the runners sit in US data centres. Yahoo works from there; NSE often refuses those IPs, and then options are priced off the model chain (India VIX + skew) rather than real quotes. The site says which chain is in use. For real chains, run the desk on a machine in India.
 
 ## Layout
 
 ```
-trading/
+quantdesk/                    (repo root)
+  .github/workflows/          live.yml (the desk, every trading day), ci.yml (tests + doctor)
+  deploy/                     run-session.sh, journal.sh, push-dir.sh, systemd units
+  Dockerfile, docker-compose.yml
   config/quantdesk.yaml       all parameters
   quantdesk/
     analytics/                indicators, volatility, stats, regime (HMM), chart reading
@@ -313,7 +387,7 @@ trading/
                               playbook, risk, sim broker, engine, recorder, synthetic sessions, CLI
     web/                      server (token auth), intraday API, mobile app (PWA), daily desk, GoCharting datafeed
     data/                     Yahoo, CSV, synthetic market, validation
-  tests/                      120 tests
+  tests/                      126 tests
 ```
 
 ## Sources for the market rules
