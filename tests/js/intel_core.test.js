@@ -541,6 +541,42 @@ test("Study planner: the phase from the countdown, tasks that tick themselves, c
   assert.strictEqual(C.planStreak({ days: { "2026-09-27": { done: 3, total: 6 } } }, "2026-09-28"), 0);
 });
 
+test("Today's focus: the budget fills cards, one-liners, facts and editorials at their own minutes; no Must-know story is left out", () => {
+  const mem = memStore({});
+  const ids = (p, n) => Array.from({ length: n }, (_, i) => `${p}${i}`);
+  const min = Object.fromEntries([...ids("c", 20).map((i) => [i, 5]), ...ids("e", 4).map((i) => [i, 6]), ...ids("b", 3).map((i) => [i, 5])]);
+  const f = { cards: ids("c", 20), must: ids("c", 19), lines: ids("l", 40), facts: ids("f", 40), eds: ids("e", 4), bg: ids("b", 3), min,
+    attach: { c0: ["x1", "x2"], f0: ["f99"] } };
+  const all = [...f.cards, ...f.lines, ...f.facts, ...f.eds, ...f.bg, "x1", "x2", "f99", "z1", "z2"];
+  assert.strictEqual(C.focusPref.get(), "60", "60 minutes unless you pick another");
+  const P = C.focusFit(f, 60, all);
+  // half the hour for cards at 5 min (6), 18 one-liners and 18 facts at half a minute, the 12 minutes left for 2 editorials
+  assert.deepStrictEqual([P.cards.length, P.lines.length, P.facts.length, P.eds.length, P.bg.length], [6, 18, 18, 2, 0]);
+  assert.ok(P.lines.slice(0, 13).every((i) => i.startsWith("c")) && P.over.size === 13, "the Must-know cards that didn't fit lead the one-liners");
+  assert.ok(!P.lines.includes("c19"), "a card that isn't a must (a routine notice) isn't kept as a one-liner");
+  assert.strictEqual(P.mins, 6 * 5 + (18 + 18) * 0.5 + 2 * 6);
+  assert.ok(!P.rest.includes("x1") && !P.rest.includes("f99") && P.rest.includes("z1") && P.rest.includes("c19") && P.total === all.length, "related pieces go with their card; the rest is listed");
+  const Q = C.focusFit(f, 30, all); const R = C.focusFit(f, 90, all);
+  assert.deepStrictEqual([Q.cards.length, Q.eds.length, Q.mins], [3, 1, 34], "30 minutes: 3 cards, every other Must-know as a line, one editorial");
+  assert.strictEqual(Q.lines.length, 16, "at 30 minutes every Must-know story is still in, as a line, even past the lines' share");
+  assert.deepStrictEqual([R.cards.length, R.lines.length, R.eds.length, R.bg.length, R.mins], [9, 27, 2, 1, 89], "90 minutes: a background read too");
+  assert.strictEqual(C.focusFit({ ...f, min: undefined }, 60, all).cards.length, 7, "no minutes: a card counts 4");
+  assert.ok(C.focusFit({}, 60, ["a"]).rest[0] === "a" && C.focusFit({}, 60).mins === 0, "no focus: nothing to fit");
+  const bar = C.focusBar("90");
+  assert.ok(bar.includes('data-focus="90" aria-pressed="true"') && bar.includes('data-focus="full" aria-pressed="false"') && bar.includes("Full brief"));
+  C.focusPref.set("full"); assert.strictEqual(C.focusPref.get(), "full"); C.focusPref.set("45"); assert.strictEqual(C.focusPref.get(), "60", "an unknown value falls back");
+  C.focusPref.set("30"); assert.ok(C.backup.KEYS.includes("upsc-focus") && mem["upsc-focus"] === "30", "kept on the device, in backups");
+});
+
+test("Today's plan: with a focus, the brief task is the focus's cards at your time", () => {
+  memStore({ "upsc-focus": "30" });
+  const r = C.planToday({ today: "2026-11-01", plan: { exam: "2027-05-23", hours: 4, days: {} }, must: ["c1", "c2", "c3", "c4"], marks: { c1: { read: true } }, focusMins: 32, syl: null });
+  const t = r.tasks.find((x) => x.id === "brief");
+  assert.ok(t.title === "Today's focus brief" && t.detail === "1 of 4 stories to read in full marked done" && t.mins === 24, JSON.stringify(t));
+  const plain = C.planToday({ today: "2026-11-01", plan: { days: {} }, must: ["c1"], marks: {}, syl: null }).tasks.find((x) => x.id === "brief");
+  assert.ok(plain.title === "Today's must-know stories" && plain.detail === "0 of 1 marked done");
+});
+
 test("Gemini's Markdown is rendered safely", () => {
   const h = C.mdHtml("## Head\n- **bold** <img src=x onerror=alert(1)>\n1. [ok](https://pib.gov.in/x) [bad](javascript:alert(1))");
   assert.ok(h.includes("<p class=\"bot-sub\">Head</p>") && h.includes("<ul><li><b>bold</b> &lt;img") && h.includes('<a href="https://pib.gov.in/x"'));

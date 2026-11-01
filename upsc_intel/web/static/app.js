@@ -528,9 +528,57 @@
   }
   const reportedTotal = () => briefDays().reduce((n, d) => n + (S.meta.date_counts[d] || 0), 0);
 
+  // Today's focus (days[d].focus, pipeline/focus.py; the budget: CORE.focusFit): the day's brief for the time you have
+  const focusOf = () => (S.view === "day" && S.brief && S.brief.days[S.anchor] && S.brief.days[S.anchor].focus) || null;
+  const kindName = (s) => (s.editorial ? "Editorial" : s.explained ? "Explainer" : "Report");
+  function relatedList(ids) {  // a card's related pieces, each a line that opens its summary
+    const xs = (ids || []).map((x) => S.briefById.get(x)).filter(Boolean);
+    return xs.length ? `<div class="frel"><span>Related · ${xs.map(kindName).filter((k, i, a) => a.indexOf(k) === i).join(", ").toLowerCase()}</span><ul>${xs.map(mrow).join("")}</ul></div>` : "";
+  }
+  function renderFocus(pref) {
+    const el = $("#content"); const d = S.anchor; const v = S.brief.days[d];
+    const ids = ["news", "prelims", "more", "editorials", "explained"].flatMap((k) => v[k] || []);
+    const P = CORE.focusFit(v.focus, pref, ids);
+    const get = (arr) => arr.map((x) => S.briefById.get(x)).filter(Boolean).filter(briefPasses);
+    const cards = get(P.cards); const lines = get(P.lines); const facts = get(P.facts); const eds = get(P.eds); const bg = get(P.bg);
+    const rest = get(P.rest); const low = briefList("low").filter(briefPasses);
+    const mine = cards.concat(lines, facts, eds, bg);
+    if (!S.autoOpened.has(S.briefKey)) { S.autoOpened.add(S.briefKey); cards.slice(0, 3).forEach((s) => S.openCards.add(s.id)); }
+    const dd = D(d); const today = d === todayIST();
+    const sub = [cards.length && `${cards.length} to read in full`, lines.length && `${lines.length} in one line`, facts.length && plural(facts.length, "Prelims fact"),
+      eds.length && plural(eds.length, "editorial"), bg.length && plural(bg.length, "background read"), `picked from ${plural(P.total, "item")} in the brief`,
+      `${plural(reportedTotal(), "story", "stories")} reported`].filter(Boolean).join(" · ");
+    let html = CORE.focusBar(pref) + `<header class="bhero"><div class="bhero-text"><div class="eyebrow">${today ? "Today's focus" : "Focus"} · ${esc(`${WD_LONG[dd.getUTCDay()]}, ${dd.getUTCDate()} ${MONTHS_LONG[dd.getUTCMonth()]} ${dd.getUTCFullYear()}`)}</div>
+      <h1>${P.mins} minutes of reading</h1><p>${esc(sub)}</p></div>
+      <div class="bhero-side">${progress(mine)}${gsChips()}${CORE.listen.supported && cards.length ? '<button class="chip lsn-go" data-listen="start" title="Read the focus aloud">🎧 Listen to the focus</button>' : ""}</div></header>`;
+    const sections = [];
+    const add = (id, title, sub2, body, n) => { if (!n) return; html += section(id, title, sub2, body); sections.push({ id, label: title, n }); };
+    const flat = (arr) => `<div class="mlist"><div class="mgroup"><ul>${arr.map((s) => mrow(s) + (P.attach[s.id] ? `<li class="frel-li">${relatedList(P.attach[s.id])}</li>` : "")).join("")}</ul></div></div>`;
+    add("sec-read", "Read in full", "the day's Must-know stories, best first · make notes · a related explainer or editorial sits under its story",
+      `<div class="bcards">${cards.map((s, i) => bcard(s, { rank: i + 1, showSubject: true, inGrade: true }) + relatedList(P.attach[s.id])).join("")}</div>`, cards.length);
+    add("sec-gist", "In the news · know the gist", `${P.over.size ? `${plural(P.over.size, "Must-know story", "Must-know stories")} that didn't fit as a card first, then the rest` : "the rest of the day's news worth knowing"} · tap a line for its summary`, flat(lines), lines.length);
+    add("sec-facts", "Prelims facts", "exercises, schemes, species, pacts, places, verdicts · tap a line for its summary", flat(facts), facts.length);
+    add("sec-mains", "For Mains · editorials", "the arguments worth knowing, one per topic", `<div class="bcards">${eds.map((s) => bcard(s, { showSubject: true }) + relatedList(P.attach[s.id])).join("")}</div>`, eds.length);
+    add("sec-bg", "Background reads", "explainers and evergreen pieces", `<div class="bcards">${bg.map((s) => bcard(s, { showSubject: true })).join("")}</div>`, bg.length);
+    if (!mine.length) html += `<div class="empty">${S.f.gs.size || S.f.q ? "Nothing in the focus matches the filter." : today ? "Today's brief fills up through the day: the focus follows." : "No focus for this day."}</div>`;
+    if (rest.length || low.length) {
+      const labels = S.meta.labels.subjects; const bySubj = new Map();
+      for (const s of rest) { const k = s.subjects[0]; if (!bySubj.has(k)) bySubj.set(k, []); bySubj.get(k).push(s); }
+      html += section("sec-rest", "Everything else today", "in the full brief, not needed for most days",
+        `${rest.length ? `<details class="lowbox"><summary>Show all ${plural(rest.length, "item")}</summary><div class="mlist">${[...bySubj].map(([k, a]) => `<div class="mgroup"><h4>${esc(labels[k] || k || "Other")}</h4><ul>${a.map(mrow).join("")}</ul></div>`).join("")}</div></details>` : ""}
+        ${low.length ? `<details class="lowbox"><summary>${plural(low.length, "story", "stories")} Intel AI took out as not UPSC material, with its reason</summary><ul class="lowlist">${low.map((s) =>
+          `<li><span class="pill g-LOW">Low</span><a href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener" data-open="${s.id}">${esc(s.title)}</a><span class="msrc">${esc((s.sources[0] && s.sources[0].p) || "")}</span>${s.ai_why ? `<small>✦ ${esc(s.ai_why)}</small>` : ""}</li>`).join("")}</ul></details>` : ""}`);
+      sections.push({ id: "sec-rest", label: "Everything else", n: rest.length });
+    }
+    el.innerHTML = html;
+    $("#side").innerHTML = contentsNav(sections, today ? "Today's focus" : `Focus of ${dayShort(d)}`) +
+      `<div class="side-note">The focus ranks the day's brief by UPSC value for the time you pick: every Must-know story is in, in full or in one line. <b>Full brief</b> above shows all of it.</div>`;
+  }
   function renderBrief() {
     const el = $("#content");
     if (!S.brief) { el.innerHTML = '<div class="loading">Loading the brief…</div>'; return; }
+    const pref = CORE.focusPref.get();
+    if (focusOf() && pref !== "full") return renderFocus(pref);
     const labels = S.meta.labels.subjects;
     const news = briefList("news").filter(briefPasses);
     const facts = briefList("prelims").filter(briefPasses);
@@ -559,7 +607,7 @@
     for (const s of rest) { const k = s.subjects[0]; if (bySubject.has(k)) bySubject.get(k).push(s); }
     const compact = S.view !== "day";
     const sections = [];
-    let html = briefHero(news, eds, exps, reportedTotal(), lines, facts) + (compact ? coverageChips(news.concat(facts)) + briefVolume() : "");
+    let html = (focusOf() ? CORE.focusBar(pref) : "") + briefHero(news, eds, exps, reportedTotal(), lines, facts) + (compact ? coverageChips(news.concat(facts)) + briefVolume() : "");
     if (top.length) {
       html += section("sec-top", S.view === "day" ? (S.anchor === todayIST() ? "Must-know · make notes: the top " + top.length : `Must-know of ${dayShort(S.anchor)} · make notes: the top ${top.length}`) : S.view === "week" ? "Must-know: top 10 of the week" : "Must-know: top 15 of the month",
         news.length > top.length ? `the other ${news.length - top.length} follow by subject` : "", `<div class="bcards">${top.map((s, i) => bcard(s, { rank: i + 1, day: compact ? s._day : null, showSubject: true, inGrade: true })).join("")}</div>`);
@@ -1314,6 +1362,7 @@
     if (t.dataset.tab) return switchTab(t.dataset.tab);
     if (t.dataset.tabGo) return switchTab(t.dataset.tabGo);
     if (t.dataset.jump) { const target = document.getElementById(t.dataset.jump); if (target) target.scrollIntoView({ behavior: "smooth", block: "start" }); closeDrawer(); return; }
+    if (t.dataset.focus) { CORE.focusPref.set(t.dataset.focus); renderAll(); return window.scrollTo({ top: 0 }); }  // the time for today's focus
     if (t.dataset.dsOpen) { DS.key = t.dataset.dsOpen; S.trk = "dossiers"; return switchTab("trackers"); }  // a card's running story
     if (t.dataset.syOpen) { SY.key = t.dataset.syOpen; S.trk = "syllabus"; return switchTab("trackers"); }  // a card's syllabus topic
     if (t.dataset.trk) { S.trk = t.dataset.trk; return renderTrackers(); }
@@ -1403,7 +1452,14 @@
   // the story and the question on the viewer's own Claude plan.
   const LOGO = '<svg class="bot-logo" viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect width="48" height="48" rx="12" fill="#1c5cab"/><path d="M15 17v9a9 9 0 0 0 18 0v-9" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><circle cx="33" cy="8.5" r="3.6" fill="#fab219"/></svg>';
   const BOT = { id: null, log: [], busy: false, step: "", last: "", partial: "" };
-  CORE.listen.provider(() => CORE.listenItems(briefList("news"), briefList("prelims")));  // 🎧 Listen: the open day's cards
+  CORE.listen.provider(() => {  // 🎧 Listen: the open day's focus (its cards, then its Prelims facts), or its cards
+    const pref = CORE.focusPref.get();
+    if (focusOf() && pref !== "full") {
+      const P = CORE.focusFit(focusOf(), pref); const get = (arr) => arr.map((x) => S.briefById.get(x)).filter(Boolean);
+      return CORE.listenItems(get(P.cards), get(P.facts));
+    }
+    return CORE.listenItems(briefList("news"), briefList("prelims"));
+  });
   const bot = CORE.makeBot({
     labels: () => S.meta && S.meta.labels,
     folded: (id) => foldedOf(id),

@@ -2732,8 +2732,13 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     if (left <= 150) return { key: "prelims", left, label: "Prelims focus", note: "Revision and practice lead: the daily set, flashcards and the weekly mock, with a syllabus topic a day." };
     return { key: "foundation", left, label: "Foundation", note: "Build the base: a syllabus topic a day with its NCERT, the day's must-know news and one Mains answer." };
   }
-  // the day's must-know card ids from a day payload (the Must-know section)
-  const mustOf = (day, d) => (((day && day.days) || {})[d] || {}).news || [];
+  // the day's cards to read from a day payload: today's focus at your time (its cards), else the Must-know section;
+  // → {ids, mins (the focus's minutes, or 0)}
+  function mustOf(day, d) {
+    const v = ((day && day.days) || {})[d] || {}; const pref = focusPref.get();
+    if (v.focus && pref !== "full") { const P = focusFit(v.focus, pref); return { ids: P.cards, mins: P.mins }; }
+    return { ids: v.news || [], mins: 0 };
+  }
   // today's topic: the hottest syllabus topic you haven't studied yet (kept for the day once picked)
   function planTopic(syl, study, keep) {
     const T = (syl && syl.topics) || {};
@@ -2751,9 +2756,11 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     const lastOfMonth = shiftDay(today, 1).slice(8) === "01";
     const tasks = [];
     const add = (t) => tasks.push({ optional: false, ...t, done: !!(t.done || tick[t.id]), ticked: !!tick[t.id] });
-    const must = ctx.must || []; const mDone = must.filter((id) => (marks[id] || {}).read).length;
-    add({ id: "brief", title: "Today's must-know stories", mins: must.length ? Math.max(5, 4 * (must.length - mDone)) : 5,
-      detail: must.length ? `${mDone} of ${must.length} marked done` : "Today's brief fills up through the day", done: must.length > 0 && mDone >= must.length, go: ["brief", today] });
+    const must = ctx.must || []; const mDone = must.filter((id) => (marks[id] || {}).read).length; const fm = ctx.focusMins || 0;
+    add({ id: "brief", title: fm ? "Today's focus brief" : "Today's must-know stories",
+      mins: must.length ? Math.max(5, fm ? Math.round((fm * (must.length - mDone)) / must.length) : 4 * (must.length - mDone)) : 5,
+      detail: must.length ? `${mDone} of ${must.length}${fm ? " stories to read in full" : ""} marked done` : "Today's brief fills up through the day",
+      done: must.length > 0 && mDone >= must.length, go: ["brief", today] });
     const yMust = ctx.yMust || []; const yLeft = yMust.filter((id) => !(marks[id] || {}).read);
     const planned = !!(plan.days || {})[shiftDay(today, -1)];  // the plan was in use yesterday (not a first day)
     if (planned && yMust.length && yLeft.length > yMust.length / 2) {  // most of yesterday's must-know unread: a catch-up (the top 8)
@@ -2822,7 +2829,7 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
       const t = today(); const plan = planStore.get(); const day = plan.days[t] || {};
       const st = srsStore.get(); const now = dayNo();
       const px = pxStore.get(); const mains = mainsStore.get();
-      return { today: t, plan, marks: host.marks ? host.marks() || {} : {}, study: sylStudy.get(), syl: K.syl, must: K.must || [], yMust: K.yMust || [],
+      return { today: t, plan, marks: host.marks ? host.marks() || {} : {}, study: sylStudy.get(), syl: K.syl, must: K.must || [], yMust: K.yMust || [], focusMins: K.focusMins || 0,
         topic: day.topic, srs: { due: Object.values(st.cards).filter((c) => c.due <= now).length, today: Object.values(st.cards).filter((c) => c.at && istDay(c.at) === t).length },
         setToday: px.attempts.some((a) => a.at && istDay(a.at) === t && a.src !== "mock"), mockToday: px.attempts.some((a) => a.at && istDay(a.at) === t && a.src === "mock"),
         mainsToday: mains.some((m) => m.at && istDay(m.at) === t) };
@@ -2855,8 +2862,8 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     paint();
     const t = today();
     Promise.all([
-      Promise.resolve(host.loadDay ? host.loadDay(t) : null).then((x) => { K.must = mustOf(x, t); }).catch(() => { K.must = []; }),
-      Promise.resolve(host.loadDay ? host.loadDay(shiftDay(t, -1)) : null).then((x) => { K.yMust = mustOf(x, shiftDay(t, -1)); }).catch(() => { K.yMust = []; }),
+      Promise.resolve(host.loadDay ? host.loadDay(t) : null).then((x) => { const m = mustOf(x, t); K.must = m.ids; K.focusMins = m.mins; }).catch(() => { K.must = []; }),
+      Promise.resolve(host.loadDay ? host.loadDay(shiftDay(t, -1)) : null).then((x) => { K.yMust = mustOf(x, shiftDay(t, -1)).ids; }).catch(() => { K.yMust = []; }),
       Promise.resolve(host.syllabus ? host.syllabus() : null).then((x) => { K.syl = x; }).catch(() => { K.syl = null; }),
     ]).then(paint);
     return { refresh: paint };
@@ -2866,13 +2873,61 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     return p.exam || p.hours ? { done: d ? d.done || 0 : 0, total: d ? d.total || 0 : 0 } : null;
   }
 
+  // ─────────────────────────── Today's focus: the day's brief in the time you have ───────────────────────────
+  // days[d].focus (pipeline/focus.py): the day's brief ranked by UPSC value, with each explainer, editorial or fact
+  // about a card's event under that card. focusFit fills a reading-time budget, best first, each piece at its own
+  // minutes (focus.min: the cards' own estimate): half of it for the cards to read in full, 15% each for the news in
+  // one line and the Prelims facts (half a minute each), and what's left for editorials (at 90 minutes, a background
+  // read too). A Must-know card that doesn't fit becomes a one-liner at the top: none is left out. The rest of the day
+  // stays in the full brief and under "Everything else today". The budget is this device's (upsc-focus): 30, 60 or
+  // 90 minutes, or "full" for the whole brief.
+  const FOCUS_KEY = "upsc-focus"; const FOCUS_BUDGETS = [30, 60, 90];
+  const FOCUS_MIN = { card: 4, line: 0.5, fact: 0.5, ed: 6, bg: 5 };  // a piece's minutes when the focus has none
+  const FOCUS_SHARE = { card: 0.5, line: 0.15, fact: 0.15 };  // editorials: the rest
+  const focusPref = {
+    get() { try { const v = localStorage.getItem(FOCUS_KEY); return v === "full" || FOCUS_BUDGETS.includes(Number(v)) ? v : "60"; } catch (e) { return "60"; } },
+    set(v) { try { localStorage.setItem(FOCUS_KEY, String(v)); } catch (e) { /* private mode */ } },
+  };
+  // f: days[d].focus; budget: minutes; all: every id of the day's brief → {cards, lines, facts, eds, bg, attach,
+  // over (the Must-know one-liners), rest (everything else, in the brief's order), mins, total}
+  function focusFit(f, budget, all = []) {
+    const B = Number(budget) || 60; f = f || {};
+    const m = f.min || {}; const minOf = (i, k) => Number(m[i]) || FOCUS_MIN[k];
+    const sum = (ids, k) => ids.reduce((n, i) => n + minOf(i, k), 0);
+    const take = (ids, k, cap, least = 0) => {  // best first, while they fit (at least `least`)
+      const out = []; let t = 0;
+      for (const i of ids || []) { const x = minOf(i, k); if (out.length >= least && t + x > cap) break; out.push(i); t += x; }
+      return out;
+    };
+    const must = new Set(f.must || []); const allCards = f.cards || [];
+    const cards = take(allCards, "card", B * FOCUS_SHARE.card, 3);
+    const over = allCards.slice(cards.length).filter((i) => must.has(i));
+    const lines = over.concat((f.lines || []).slice(0, Math.max(0, Math.round((B * FOCUS_SHARE.line) / FOCUS_MIN.line) - over.length)));
+    const facts = (f.facts || []).slice(0, Math.round((B * FOCUS_SHARE.fact) / FOCUS_MIN.fact));
+    // editorials get what's left (a fifth, plus what the cards and lines didn't use), at 90 minutes a background read too
+    const R = B - sum(cards, "card") - (lines.length + facts.length) * FOCUS_MIN.line;
+    const eds = take(f.eds, "ed", R - (B >= 90 ? FOCUS_MIN.bg : 0), 1);
+    const bg = B >= 90 ? take(f.bg, "bg", R - sum(eds, "ed")) : [];
+    const attach = f.attach || {};
+    const shown = new Set();
+    for (const i of cards.concat(lines, facts, eds, bg)) { shown.add(i); for (const a of attach[i] || []) shown.add(a); }
+    const rest = [...new Set(all)].filter((i) => !shown.has(i));
+    const mins = Math.round(sum(cards, "card") + (lines.length + facts.length) * FOCUS_MIN.line + sum(eds, "ed") + sum(bg, "bg"));
+    return { cards, lines, facts, eds, bg, attach, over: new Set(over), rest, mins, total: new Set(all).size, budget: B };
+  }
+  // the budget picker both pages show above the day's brief
+  function focusBar(pref, cls = "") {
+    const opt = (v, l) => `<button type="button" data-focus="${v}" aria-pressed="${pref === v}">${l}</button>`;
+    return `<div class="focus-bar ${cls}" role="group" aria-label="How much time today?"><span>Time today</span>${FOCUS_BUDGETS.map((m) => opt(String(m), `${m} min`)).join("")}${opt("full", "Full brief")}</div>`;
+  }
+
   // ─────────────────────────── Backup: this device's progress, to a file and back ───────────────────────────
   // Marks, notes, streaks, flashcards, practice scores, Mains answers and follows live only in this browser (the site
   // and the app share them). A backup file carries them to another phone or through a cleared browser. Restoring
   // MERGES the file in: nothing on this device is lost, and a done mark, a star or a reviewed flashcard from either side
   // is kept. Only the keys below are read or written: the Gemini key never goes into a file and a file can't set it.
   const BACKUP_KEYS = ["upsc-marks", "upsc-app-log", "upsc-app-saved", "upsc-practice", "upsc-srs", "upsc-mains", "upsc-mains-draft",
-    "upsc-follow", "upsc-plan", "upsc-syl", "upsc-sum-v2", "upsc-hinglish", "upsc-listen", "upsc-app-pdf", "upsc-theme", "upsc-groupby", "upsc-sort"];
+    "upsc-follow", "upsc-plan", "upsc-syl", "upsc-focus", "upsc-sum-v2", "upsc-hinglish", "upsc-listen", "upsc-app-pdf", "upsc-theme", "upsc-groupby", "upsc-sort"];
   const BACKUP_AT = "upsc-backup-at"; const BACKUP_MAX = 4.5e6;  // characters in one key (the browser keeps about 5 MB in all)
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } };
@@ -2983,6 +3038,6 @@ Write the feedback in the language of the answer (Hindi if it is in Hindi). Be e
     backup: Object.freeze({ file: backupFile, restore: restoreBackup, info: backupInfo, html: backupHtml, KEYS: BACKUP_KEYS }),
     mountSyllabus, syllabusHtml, sylTopicHtml, syllabusStory, sylChips, sylCover, sylBlind, sylStudy,
     mountPlanner, planToday, planPhase, planStreak, planSummary, istDay,
-    mainsTrend,
+    mainsTrend, focusFit, focusPref, focusBar, FOCUS_BUDGETS,
   });
 })(window);
