@@ -309,6 +309,49 @@
     if (!p) return "";
     return `<button class="plan-nudge" data-act="plan-today"><b>Today's plan</b><span>${p.total ? `${p.done} of ${p.total} done` : "open it"}</span>${I.right}</button>`;
   }
+  // Today's focus (days[d].focus, pipeline/focus.py; the budget: CORE.focusFit): what to read in full, the news and
+  // the Prelims facts in one line, the editorials for Mains; related pieces under their card; the rest one tap away
+  const kindOf = (s) => (s.editorial ? "Editorial" : s.explained ? "Explainer" : "Report");
+  function related(ids) {
+    const xs = (ids || []).map(findStory).filter(Boolean);
+    if (!xs.length) return "";
+    return `<div class="rel"><span>Related</span>${xs.slice(0, 4).map((x) => `<button data-open="${esc(x.id)}"><b>${kindOf(x)}</b> ${esc(headOf(x))}</button>`).join("")}${xs.length > 4 ? `<small>+${xs.length - 4} more</small>` : ""}</div>`;
+  }
+  function renderFocus(d, head, L, pref) {
+    const v = dayOf(); const today = todayIST();
+    const ids = ["news", "prelims", "more", "editorials", "explained"].flatMap((k) => v[k] || []);
+    const P = CORE.focusFit(v.focus, pref, ids);
+    const get = (arr) => arr.map(findStory).filter(Boolean);
+    const cards = get(P.cards); const lines = get(P.lines); const facts = get(P.facts); const eds = get(P.eds); const bg = get(P.bg);
+    const mine = cards.concat(lines, facts, eds, bg); const done = mine.filter(isDone).length;
+    const pct = mine.length ? Math.round(done * 100 / mine.length) : 0;
+    const reported = ((A.meta && A.meta.date_counts) || {})[d];
+    const rest = get(P.rest); A.focusRest = rest.length;
+    const hero = `<section class="hero">
+      <div class="eyebrow">${d === today ? "Today's focus" : "Focus"} · ${esc(dayLabel(d))}</div>
+      <div class="hero-n">${fmtMins(P.mins)} of reading</div>
+      <div class="hero-sub">${[cards.length && `${cards.length} to read in full`, lines.length && `${lines.length} in one line`, facts.length && plural(facts.length, "Prelims fact"), eds.length && plural(eds.length, "editorial")].filter(Boolean).join(" · ")}<br>picked from ${plural(P.total, "item")} in the brief${reported ? ` · ${reported.toLocaleString("en-IN")} reported` : ""}</div>
+      <div class="hero-prog"><div class="track"><div style="width:${pct}%"></div></div><span>${done} of ${mine.length} done</span></div>
+      <div class="hero-btns"><button class="hbtn" data-act="export">${I.pdf}PDF</button><button class="hbtn ghost" data-act="askday"><span class="adot"></span>Ask Intel</button>${CORE.listen.supported && cards.length ? `<button class="hbtn ghost" data-listen="start" title="Read the focus aloud">🎧 Listen</button>` : ""}</div>
+    </section>`;
+    const chips = `<div class="chips nosb">${["All", ...PAPERS].map((g) => `<button class="chip${A.gs === g ? " on" : ""}" data-gs="${g}">${g}${g !== "All" ? `<span class="c">${mine.filter((s) => (s.gs || []).includes(g)).length}</span>` : ""}</button>`).join("")}</div>`;
+    const sec = (h, n, sub, body) => (body ? `<div class="sechead"><h2>${h}</h2><span>${n} · ${sub}</span></div>${body}` : "");
+    const rows = (arr) => (arr.length ? `<div class="more">${arr.map((s) => mrow(s) + (P.attach[s.id] ? related(P.attach[s.id]) : "")).join("")}</div>` : "");
+    const cardsF = cards.filter(gsOk); const linesF = lines.filter(gsOk); const factsF = facts.filter(gsOk); const edsF = eds.filter(gsOk); const bgF = bg.filter(gsOk);
+    const restF = rest.filter(gsOk); const low = L.low.filter(gsOk);
+    const lowRow = (s) => `<div class="mrow low" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(s.title)}<small>${esc(srcName(s))}${s.ai_why ? ` · ✦ ${esc(s.ai_why)}` : ""}</small></div></div>`;
+    return `${head}${planNudge(d)}${CORE.focusBar(pref)}${hero}${chips}
+      ${sec("Read in full", cardsF.length, "make notes", cardsF.length ? `<div class="list">${cardsF.map((s, i) => card(s, i + 1) + related(P.attach[s.id])).join("")}</div>` : "")}
+      ${sec("In the news", linesF.length, "know the gist", rows(linesF))}
+      ${sec("Prelims facts", factsF.length, "know the fact", rows(factsF))}
+      ${sec("For Mains", edsF.length, edsF.length === 1 ? "an editorial" : "editorials", edsF.length ? `<div class="list tight">${edsF.map((s) => pcard(s) + related(P.attach[s.id])).join("")}</div>` : "")}
+      ${sec("Background", bgF.length, "explainers", bgF.length ? `<div class="list tight">${bgF.map(pcard).join("")}</div>` : "")}
+      ${!cardsF.length && !linesF.length && !factsF.length ? `<div class="empty">Nothing ${A.gs === "All" ? "" : `for ${esc(A.gs)} `}in the focus${d === today ? " yet: today's brief fills up through the day" : ""}.</div>` : ""}
+      ${restF.length || low.length ? `<div class="sechead"><h2>Everything else today</h2><span>${restF.length} · not needed for most days</span></div>
+        <div class="more lowbox"><button class="showmore" data-act="restopen" aria-expanded="${!!A.restOpen}">${A.restOpen ? "Hide them" : `Show all ${restF.length}`}</button>${A.restOpen ? restF.map(mrow).join("") : ""}
+        ${low.length ? `<button class="showmore" data-act="lowopen" aria-expanded="${A.lowOpen}">${A.lowOpen ? "Hide what Intel AI took out" : `${low.length} taken out by Intel AI as not UPSC material`}</button>${A.lowOpen ? low.map(lowRow).join("") : ""}` : ""}</div>` : ""}
+      <p class="fine" style="padding:0 16px 8px">The focus ranks the day's brief by UPSC value: a related explainer or editorial sits under its story, and every Must-know story is in, in full or in one line. Pick <b>Full brief</b> above for everything.</p>`;
+  }
   function renderBrief() {
     const d = A.day; const today = todayIST(); const has = (A.meta && A.meta.brief_days) || {};
     const ws = weekStart(d);
@@ -323,6 +366,8 @@
       const early = d === today;
       return `${head}<div class="empty">${early ? "Today's brief fills up through the day: the first stories land after 6 am IST." : `No brief for ${esc(dayLabel(d))}.`}<br><button class="btn-s" data-day="${addDays(d, -1)}">Open ${esc(dayShort(addDays(d, -1)))}</button></div>`;
     }
+    const pref = CORE.focusPref.get();
+    if (dayOf().focus && pref !== "full") return renderFocus(d, head, L, pref);
     const all = L.news.concat(L.prelims, L.editorials, L.explained);
     const done = all.filter(isDone).length;
     const mins = all.reduce((n, s) => n + minutesOf(s), 0);
@@ -348,7 +393,7 @@
       return `<div class="more">${shown.map(mrow).join("")}${arr.length > shown.length ? `<button class="showmore" data-act="moreall" data-k="${k}">Show all ${arr.length}</button>` : ""}</div>`;
     };
     const lowRow = (s) => `<div class="mrow low" data-open="${esc(s.id)}">${gradePill(s)}<div class="mrow-t">${esc(s.title)}<small>${esc(srcName(s))}${s.ai_why ? ` · ✦ ${esc(s.ai_why)}` : ""}</small></div></div>`;
-    return `${head}${planNudge(d)}${hero}${chips}
+    return `${head}${planNudge(d)}${dayOf().focus ? CORE.focusBar(pref) : ""}${hero}${chips}
       <div class="sechead"><h2>Must-know</h2><span>${cards.length} · make notes</span></div>
       <div class="list">${cards.map(([s, r]) => card(s, r)).join("") || `<div class="empty">No ${A.gs === "All" ? "" : `${esc(A.gs)} `}must-know story ${L.news.length ? "among today's cards" : "yet"}.</div>`}</div>
       ${G.note.length ? `<div class="sechead"><h2>More to make notes on</h2><span>${G.note.length} · as one-liners</span></div>${lines(G.note, "note")}` : ""}
@@ -751,7 +796,14 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     log.innerHTML = botLogHtml();
     log.scrollTop = log.scrollHeight;
   }
-  CORE.listen.provider(() => { const L = lists(); return CORE.listenItems(L.news, L.prelims); });  // 🎧 Listen: the open day's cards
+  CORE.listen.provider(() => {  // 🎧 Listen: the open day's focus (its cards, then its Prelims facts), or its cards
+    const v = dayOf(); const pref = CORE.focusPref.get();
+    if (v.focus && pref !== "full") {
+      const P = CORE.focusFit(v.focus, pref); const get = (arr) => arr.map(findStory).filter(Boolean);
+      return CORE.listenItems(get(P.cards), get(P.facts));
+    }
+    const L = lists(); return CORE.listenItems(L.news, L.prelims);
+  });
   CORE.gemini.bind((r) => {  // switched on or off: the confirmation takes the key form's place (an error goes under it)
     const L = A.bot.log; const i = L.map((m) => /gem-box/.test(m.html)).lastIndexOf(true);
     if (r.ok && i >= 0) L[i] = { me: false, html: r.html }; else L.push({ me: false, html: r.html });
@@ -955,6 +1007,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
     const act = t.dataset.act;
     if (t.dataset.tab) { if (A.tab !== t.dataset.tab) { A.tab = t.dataset.tab; renderScreen(); window.scrollTo(0, 0); } return; }
     if (t.dataset.day) { if (A.sheet === "cal") closeTop(); goDay(t.dataset.day); return; }
+    if (t.dataset.focus) { CORE.focusPref.set(t.dataset.focus); renderScreen(); window.scrollTo(0, 0); return; }  // the time for today's focus
     if (t.dataset.gs) { A.gs = t.dataset.gs; renderScreen(); return; }
     if (t.dataset.seg) { A.readSeg = t.dataset.seg; renderScreen(); return; }
     if (t.dataset.tseg) { A.trackSeg = t.dataset.tseg; renderScreen(); return; }
@@ -1017,6 +1070,7 @@ ${extra && extra.length && o.eds ? `<section class="more"><h3>Editorials &amp; e
       case "plan": A.bot.ctx = null; openBot({ kind: "insights", subj: t.dataset.subj || null }, t.dataset.subj ? `Catch-up plan: ${subjName(t.dataset.subj)}` : "30-min catch-up plan"); break;
       case "moreall": A.moreOpen.add(t.dataset.k || ""); renderScreen(); break;
       case "lowopen": A.lowOpen = !A.lowOpen; renderScreen(); break;
+      case "restopen": A.restOpen = !A.restOpen; renderScreen(); break;
       default: break;
     }
   });

@@ -26,6 +26,17 @@ Week and Month views recap everything the daily briefs covered.
 
 ## What you get
 
+- **Today's focus (the default view of the day's brief).** The full brief keeps everything that clears the bar, which is often 100+ items and 5–6 hours of reading. The focus cuts it to the time you have: **30, 60 or 90 minutes** (the "Time today" buttons above the brief; **Full brief** shows everything, as before).
+  - **One scale of UPSC value** (`pipeline/focus.py`, no AI call): Gemini's 0–3 grade where the story has one (else the rules' grade), lifted for an examinable development (a Bill passed, a Cabinet approval, a pact signed), an official source, a syllabus topic or a running story, and a little for how widely it was reported (capped, so a PIB release republished everywhere can't outrank a better story). Reactions, routine events (workshops, conclaves, felicitations), a state's routine administration and notices (last dates, admit cards, redemption prices) count for less.
+  - **Laid out for the time:**
+    - **Read in full:** the Must-know cards, best first, filling half the budget at each card's own minutes (the estimate the card shows).
+    - **In the news:** the gist in one line. A Must-know story that doesn't fit in full leads this list: **no Must-know story is ever left out**, only shortened.
+    - **Prelims facts:** their own share of the budget, so a big news day never crowds them out.
+    - **For Mains:** editorials, one per topic, in the time left; at 90 minutes a background explainer too.
+  - **Related pieces go under their story:** an explainer, editorial or fact about a card's event sits under that card (the same word-rarity match that folds same-event reports), and a fact's repeats under the fact, so the same topic doesn't come up five times across sections.
+  - **Everything else today:** the rest of the brief, one tap away at the bottom.
+  - Five real days (27–31 Oct 2026, 105–122 items, about 5–6 h in full): 31–35 min at 30, 57–60 min at 60 and 85–90 min at 90, e.g. 31 Oct at 60 minutes: 6 stories in full, 18 one-liners (11 of them the other Must-know stories), 18 Prelims facts and 2 editorials.
+  - Your time stays on the device (`upsc-focus`, in backups). Today's plan counts the focus's cards and minutes.
 - **Daily Brief (the default view).** Every must-know story of the day, with no fixed number, picked from the 400–600 reported. A busy day (a summit, a Parliament session) has a long brief and a quiet day a short one.
   - **Must-know bar:**
     - Each story gets a brief score. That's its grade, lifted when the headline reports an examinable development (a Bill passed, an Act in force, a Cabinet approval, a pact signed, a named exercise, a species found, a GI tag, an index rank…) and lowered for reactions and commentary (says, slams, "Who is…", "Watch:", LIVE).
@@ -109,7 +120,7 @@ Week and Month views recap everything the daily briefs covered.
 - **Today's plan (app: Progress → Today, the first view; website: the top of the Practice tab):** your exam date and daily hours turn the app into one checklist a day.
   - **Setup:** set the Prelims date (UPSC announces it in its yearly exam calendar) and your hours a day. Both stay on your device (`upsc-plan`, included in backups).
   - **The tasks, in order of priority:**
-    - today's **must-know stories** (ticks when you've marked them all done)
+    - today's **must-know stories**: the focus's stories to read in full at your time, else the Must-know cards (ticks when you've marked them all done)
     - **flashcards** (ticks when none are due and you've reviewed today)
     - the **daily MCQ set** (ticks when you've taken a set today)
     - a **syllabus topic of the day**: the hottest topic you haven't studied yet, the same one all day. It ticks when you mark it studied on its page.
@@ -453,7 +464,7 @@ python -m upsc_intel reclassify         # re-tag everything after editing config
 python -m upsc_intel enrich [--limit N] # AI notes for the brief, its glossary, places and dossiers, and India's ranks (needs GEMINI_API_KEY, free, or ANTHROPIC_API_KEY)
 python -m upsc_intel export-static --out site [--days 62]
 python -m upsc_intel articles --days 2   # read the free full text of the last two days' brief cards
-python -m pytest                        # 233 tests (includes the bot engine's Node tests when Node is installed)
+python -m pytest                        # 239 tests (includes the bot engine's Node tests when Node is installed)
 node tests/js/intel_core.test.js        # the Ask bot's engine on its own
 ```
 

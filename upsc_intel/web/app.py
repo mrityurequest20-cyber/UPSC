@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..config import Settings, get_settings, load_sources, load_topics
 from ..db import DB, iso
-from ..pipeline.brief import ai_dropped, ensure_range
+from ..pipeline.brief import _Rarity, ai_dropped, ensure_range
+from ..pipeline.focus import focus_day
 from ..pipeline.classify import GS_ORDER, Classifier
 from ..pipeline.enrich import auto_explain, has_ai_explainer
 from ..pipeline.glossary import glossary_for
@@ -100,6 +101,18 @@ def ai_lead(o: dict, s: dict, clf: Classifier) -> dict:
         o["grade"] = "LOW" if up < 2 and s.get("grade") == "LOW" else AI_GRADE[up]
         o["ai_why"] = str(v.get("why") or "")
     return o
+
+
+def focus_item(s: dict, o: dict, clf: Classifier, ai_on: bool) -> dict:
+    """What pipeline/focus.py ranks a story by: s the stored story, o its brief entry (grade and subjects as shown)."""
+    v = (s.get("triage") or {}) if ai_on else {}
+    title = s.get("title") or ""
+    publisher = (s.get("publishers") or [""])[0]
+    event, _, talk = clf.brief_signals(title, publisher)
+    return {"title": title, "tokens": s.get("tokens") or [], "grade": o.get("grade"), "up": v.get("upsc"),
+            "news": v.get("news"), "fact": bool(v.get("prelims")) or clf.brief_fact(title, s.get("tags") or [], event, talk),
+            "n_pub": o.get("n_pub"), "tier": s.get("tier"), "syl": [x["k"] for x in o.get("syl") or []],
+            "topics": [x["k"] for x in o.get("topics") or []], "event": event, "talk": talk, "soft": clf.brief_soft_title(title)}
 
 
 def ai_list(outs: list[dict], rows: list[dict], clf: Classifier, on: bool, include_low: bool = True) -> list[dict]:
@@ -282,6 +295,11 @@ def brief_payload(settings: Settings, db: DB, clf: Classifier, date_from: str, d
         syl_ids, _ = tags_of(syl, stories[o["id"]])
         if syl_ids:
             o["syl"] = [{"k": k, "n": syl.topics[k]["name"], "p": syl.topics[k]["paper"]} for k in syl_ids]
+    if full:  # today's focus (pipeline/focus.py): the brief ranked, related pieces under their card, for a time budget
+        by_out = {o["id"]: o for o in out_stories}
+        for d, v in days.items():
+            v["focus"] = focus_day(v, {i: focus_item(stories[i], by_out[i], clf, ai_on) for i in by_out if i in stories},
+                                   _Rarity(db, d))
     if full:  # the glossary of the day's cards (pipeline/glossary.py): the pages mark each term and show its meaning
         for d, v in days.items():
             ids = [i for k in ("news", "prelims", "editorials", "explained") for i in v[k]]
